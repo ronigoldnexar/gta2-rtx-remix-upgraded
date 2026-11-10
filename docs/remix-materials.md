@@ -961,10 +961,23 @@ are taken, so a fence's edge is not a cliff in the normal map.
 Regenerating (from `~/gta2-linux`, ~15 min of CPU at JOBS=3 on an idle machine; under the
 usual load of game runs it took far longer, see below):
 
-    MOD=gamerun/remix_vis/gta2hd JOBS=3 bash repo/linux/docker/build_remix_mod.sh   # a private copy
-    bash repo/linux/docker/build_remix_mod.sh                                         # the package layer
-    ZIP=1 bash repo/linux/docker/build_remix_mod.sh                                   # + the release zip
+    bash /tmp/wt-<you>/linux/docker/build_remix_mod.sh          # your worktree's package layer
+    MOD=/tmp/<dir>/gta2hd bash /tmp/wt-<you>/linux/docker/build_remix_mod.sh   # a scratch copy
+    ZIP=1 bash /tmp/wt-<you>/linux/docker/build_remix_mod.sh    # + the release zip
+    PACKAGE=/tmp/wt-<you>/package gamerun/playtest_remix.sh ...  # take it under Remix
     python3 repo/tools/remix_pbr.py preview <out.png> <tile.dds> ...                 # maps of some tiles
+
+**Never into the shared checkout (FIX-REMIX-MATERIALS-6, 10 Nov).** The layer files
+(`pbr.json`, `mod.usda`, `mod_wet.usda`, `model_prims.txt`) appeared uncommitted in the shared
+`repo/package/rtx-remix/mods/gta2hd` three times (04:13, 06:27, 06:40), each identical to the
+fixer's worktree copy, and blocked two restages. Cause: every Remix launcher
+(`playtest_remix.sh`, `remix_l4.sh`, `rn_remix.sh`, `fr2_remix.sh`, `playtest_remix2.sh`,
+`playtest_remix_ptveh.sh`) mounted the shared `repo/package` as `/package`, so a layer built in a
+worktree could only be taken under Remix by copying it there; and `build_remix_mod.sh`
+defaulted `MOD` (and its tools) to `repo/`. Now the launchers mount `${PACKAGE:-repo/package}`,
+and `build_remix_mod.sh` takes its tools and default `MOD` from the checkout that holds it,
+refuses a `MOD` inside the shared checkout, and (the `gamerun/` copy, outside git) refuses to
+run without an explicit `MOD`. Check `git -C repo status --short` after any layer step.
 
 The car and prop materials are REMIX-CARPROPS-PBR's (`remix_model_materials.py`), the
 post stack and presets REMIX-POST's (`package/rtx.conf`, `rtx_showcase.conf.extra`).

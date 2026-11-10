@@ -14,19 +14,33 @@
 # deliverables/remix_mod_gta2hd.zip (mod.usda, mod_wet.usda, pbr.json, textures/;
 # it holds the game's art, so it is shipped as a release asset, never committed).
 # MOD=<dir> builds elsewhere (e.g. a private copy to try under Remix with MODS_HD_SRC).
+# FIX-REMIX-MATERIALS-6: the tools, models, tiles and the default MOD are those of the checkout
+# that holds THIS script (REPO, e.g. a private worktree /tmp/wt-<you>), never the shared
+# repo/ checkout: layer files built from a worktree landed uncommitted in repo/package three
+# times on 10 Nov and blocked two restages. The workspace (game/data, upstream-release, upscale,
+# deliverables) is WS. A copy of this script outside a git checkout (gamerun/build_remix_mod.sh)
+# refuses to run without an explicit MOD. Test the result under Remix with PACKAGE=<REPO>/package
+# on gamerun/playtest_remix.sh / remix_l4.sh (they mount ${PACKAGE:-repo/package} as /package).
 set -e
-cd "$(dirname "$0")/.."
-MOD=${MOD:-repo/package/rtx-remix/mods/gta2hd}; SIZE=${SIZE:-512}; MAPSIZE=${MAPSIZE:-256}; JOBS=${JOBS:-3}
-MODELS=${MODELS:-repo/assets/models}; UPSCALED=${UPSCALED:-upscale/hd}
+HERE=$(cd "$(dirname "$0")" && pwd)
+REPO=${REPO:-$(git -C "$HERE" rev-parse --show-toplevel 2>/dev/null || true)}
+WS=${WS:-/mnt/gta2/gta2-linux}; [ -d "$WS/game/data" ] || WS=$(cd "$HERE/.." && pwd)
+if [ -z "$REPO" ]; then [ -n "${MOD:-}" ] || { echo "build_remix_mod.sh: not inside a git checkout; set MOD=<your worktree>/package/rtx-remix/mods/gta2hd (and REPO=<your worktree>)" >&2; exit 2; }; REPO=$WS/repo; fi
+cd "$WS"
+MOD=${MOD:-$REPO/package/rtx-remix/mods/gta2hd}; SIZE=${SIZE:-512}; MAPSIZE=${MAPSIZE:-256}; JOBS=${JOBS:-3}
+# inputs are read-only and partly untracked (HD tiles, 0NN_* car models are never in git), so they default to the shared checkout
+MODELS=${MODELS:-$WS/repo/assets/models}; TILES=${TILES:-$WS/repo/assets/textures_hd}; UPSCALED=${UPSCALED:-upscale/hd}
+case "$(cd "$(dirname "$MOD")" 2>/dev/null && pwd)" in "$WS"/repo/*) [ "$REPO" = "$WS/repo" ] && [ "${SHARED_OK:-0}" = 1 ] || { echo "build_remix_mod.sh: MOD is inside the shared checkout $WS/repo; build into your worktree (SHARED_OK=1 with REPO=$WS/repo overrides)" >&2; exit 2; };; esac
+echo "build_remix_mod.sh: tools $REPO/tools -> MOD=$MOD (models $MODELS, tiles $TILES)"
 EXCL=$(find upstream-release/files/rtx-remix/mods -maxdepth 2 -name "*.usd*" | tr '\n' ' ')
 rm -rf "$MOD/textures" "$MOD/pbr.json"; mkdir -p "$MOD"
-nice python3 repo/tools/remix_materials.py - "$MOD" --dds-tiles repo/assets/textures_hd/wil repo/assets/textures_hd/bil repo/assets/textures_hd/ste --size "$SIZE" --map-size "$MAPSIZE" --jobs "$JOBS" --gmp-dir game/data --exclude $EXCL
-[ -d "$UPSCALED" ] && nice python3 repo/tools/remix_emissive.py game/data "$MOD" repo/assets/textures_hd "$UPSCALED" | head -3
-nice python3 repo/tools/remix_model_materials.py "$MODELS" "$MOD"
-python3 repo/tools/remix_materials.py - "$MOD" --wet-layer
+nice python3 "$REPO"/tools/remix_materials.py - "$MOD" --dds-tiles "$TILES"/wil "$TILES"/bil "$TILES"/ste --size "$SIZE" --map-size "$MAPSIZE" --jobs "$JOBS" --gmp-dir game/data --exclude $EXCL
+[ -d "$UPSCALED" ] && nice python3 "$REPO"/tools/remix_emissive.py game/data "$MOD" "$TILES" "$UPSCALED" | head -3
+nice python3 "$REPO"/tools/remix_model_materials.py "$MODELS" "$MOD"
+python3 "$REPO"/tools/remix_materials.py - "$MOD" --wet-layer
 # QB-25: facade depth (recessed windows/doors, sills) for the wall tiles, from the committed grounding
 # boxes (tools/facade_boxes.json, docs/facade-depth.md); patches those prims in mod.usda and mod_wet.usda
-[ "${FACADE:-1}" = 1 ] && nice python3 repo/tools/facade_depth.py build game/data repo/assets/textures_hd "$MOD" repo/tools/facade_boxes.json | tail -5
+[ "${FACADE:-1}" = 1 ] && nice python3 "$REPO"/tools/facade_depth.py build game/data "$TILES" "$MOD" "$REPO"/tools/facade_boxes.json | tail -5
 du -sh "$MOD"; ls "$MOD/textures" | wc -l
 # (an absolute path for the archive: with "$OLDPWD/deliverables" the 8 Nov rebuild wrote
 # no deliverables/remix_mod_gta2hd.zip)
