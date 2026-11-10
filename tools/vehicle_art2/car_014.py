@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """014 Eddy (VEHICLE-ART-16): the catalog's 1958 Edsel-style sedan ('tall, plain, the everyday car') read from the GTA2
-sprite nose down (assets-src/cars/sprites_x4/014_eddy_default.png, body 30 x 62 px): a short flat bonnet, a wrap-around
-screen at the sprite's window line 18 px, a long flat roof to an upright back light at 47 px, a long deck between two
+sprite nose down (assets-src/cars/sprites_x4/014_eddy_default.png, body 30 x 62 px): a flat bonnet, a wrap-around
+screen at the catalog's window line 18 px from the nose, a long flat roof to an upright back light at 47 px, a deck between two
 modest fins, two long doors with a rear quarter light (the sprite's one door a side), the Edsel's vertical horse-collar
 grille between low side grilles and quad lamps, horizontal tail lamps under the fins, heavy chrome bumpers. The roof is
 the body's paint a shade lighter (the sprite's lighter roof: luminance only, so the identity record's hue holds:
