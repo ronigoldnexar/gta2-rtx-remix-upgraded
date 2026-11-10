@@ -1612,9 +1612,9 @@ bool LocatePlayer(PlayerState* out) {
                     const float l = std::hypot(fx, fy);
                     out->dirX = fx / l; out->dirY = fy / l; out->facingKnown = true;
                 }
-                // The train's placement height is not where its body is drawn (z 2.0 and 1.0 on the deck at 3: run
-                // cam16_tr5, the chase eye under the deck filming lawn; memory vehicles-line-train-positions): the body
-                // drawn last frame for its sprite, when there is one, is the train.
+                // The body drawn last frame for its sprite, when there is one, is the train as the views show it (run
+                // cam16_tr6: it agrees with the placement within 0.06; the z 2 and 1 stretches are the line's tunnels
+                // and low track, not a misread).
                 for (const CameraCar& c : LiveCameraCars()) {
                     if (c.object != reinterpret_cast<uintptr_t>(out->vehicleSprite)) continue;
                     const float cx = 0.25f * (c.x[0] + c.x[1] + c.x[2] + c.x[3]), cz = 0.25f * (c.z[0] + c.z[1] + c.z[2] + c.z[3]);
