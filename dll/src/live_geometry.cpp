@@ -7648,6 +7648,16 @@ IDirect3DTexture9* ShotGlowTexture(IDirect3DDevice9* device) {
     return made;
 }
 void ShotFxSmoke(float x, float y, float z);
+bool FpFlashOld() {
+    static int on = -1;
+    if (on < 0) { char v[8] = {}; on = (GetEnvironmentVariableA("GTA2DX9_FP_FLASH_OLD", v, sizeof v) && v[0] == '1') ? 1 : 0; }
+    return on != 0;
+}
+bool FpShoulderClearOn() {
+    static int on = -1;
+    if (on < 0) { char v[8] = {}; on = (GetEnvironmentVariableA("GTA2DX9_FP_SHOULDER_CLEAR", v, sizeof v) && v[0] == '0') ? 0 : 1; }
+    return on != 0;
+}
 // FIX-FIGURE-9: GTA2DX9_FLAME_JET=0 puts the game's flame sprites back beside a flamethrower (A/B).
 bool FlameJetOn() {
     static int on = -1;
@@ -7663,9 +7673,21 @@ void ShotFxMuzzle(int weapon, const float* pos, const float* dir, const float* r
         const float fs = wi.flashSize * (0.85f + 0.3f * ShotRand()) * (firstPerson ? 0.75f : 1.0f);
         ShotSpawn(pos[0] + dir[0] * fs * 0.3f, pos[1] + dir[1] * fs * 0.3f, pos[2] + dir[2] * fs * 0.3f, 0, 0, 0,
                   0.07f, fs, fs * 1.3f, wi.r, wi.g, wi.b, 1.0f, 4);
-        // A smaller, whiter core.
+        // A smaller, whiter core. FIX-FIGURE-9 (FIGURE-8's short-of-AAA list): in first person the core was
+        // a pinpoint at the muzzle (0.45 of a 0.75-scaled flash); it is 0.7 of it there, with three short
+        // star streaks out of the muzzle across the line of sight (the flash's petals). GTA2DX9_FP_FLASH_OLD=1: as before.
+        const bool fpBig = firstPerson && !FpFlashOld() && weapon != kWpnFlame;
         ShotSpawn(pos[0] + dir[0] * fs * 0.15f, pos[1] + dir[1] * fs * 0.15f, pos[2] + dir[2] * fs * 0.15f, 0, 0, 0,
-                  0.05f, fs * 0.45f, fs * 0.5f, 1.0f, 1.0f, 0.9f, 1.0f, 4);
+                  0.05f, fs * (fpBig ? 0.7f : 0.45f), fs * (fpBig ? 0.75f : 0.5f), 1.0f, 1.0f, 0.9f, 1.0f, 4);
+        if (fpBig) {
+            for (int i = 0; i < 3; ++i) {
+                const float a = (static_cast<float>(i) + ShotRand() * 0.6f) * 2.094f;
+                const float ca = std::cos(a), sa = std::sin(a), sp = 1.6f + 0.6f * ShotRand();
+                ShotSpawn(pos[0] + dir[0] * fs * 0.2f, pos[1] + dir[1] * fs * 0.2f, pos[2] + dir[2] * fs * 0.2f,
+                          (right[0] * ca + up[0] * sa + dir[0] * 0.8f) * sp, (right[1] * ca + up[1] * sa + dir[1] * 0.8f) * sp,
+                          (right[2] * ca + up[2] * sa + dir[2] * 0.8f) * sp, 0.05f, fs * 0.16f, fs * 0.08f, 1.0f, 0.9f, 0.6f, 1.0f, 0);
+            }
+        }
         const int sparks = weapon == kWpnShotgun ? 8 : (weapon == kWpnFlame ? 0 : 3);
         for (int i = 0; i < sparks; ++i) {
             const float sp = 2.5f + 2.0f * ShotRand();
@@ -9880,8 +9902,26 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     break;
                 }
                 if (!inCar) track.sepCar = 0;
+                // FIX-FIGURE-9 (pm7-fp-own-head-and-shoulder-fill-left-third-of-view): in first person the eye is a
+                // body too. GTA2 lets a passer-by come within about 0.30 block of him, and drawn there he is a
+                // head and a shirt cut by the frame's edge filling a third of the picture (fig9_ar3 f36, fig9_fw2
+                // f1104/f1122). Within 0.40 of the eye he is drawn stepped out to it (the sidestep below).
+                bool eyePush = false;
+                if (!inCar && FpShoulderClearOn() && CurrentViewMode() == ViewMode::FirstPerson && StreetPresentation() &&
+                    g_viewEye.y > cy - 0.1f && g_viewEye.y < cy + kPedHeight * 1.3f + 0.1f) {
+                    constexpr float kEyeRoom = 0.40f;
+                    const float ex = selfX + sx - g_viewEye.x, ez = selfZ + sz - g_viewEye.z;
+                    const float ed = std::sqrt(ex * ex + ez * ez);
+                    if (ed < kEyeRoom && ed > 1e-4f) {
+                        sx += ex / ed * (kEyeRoom - ed); sz += ez / ed * (kEyeRoom - ed);
+                        eyePush = true;
+                        if (g_logPedFrames && g_carFrame % 10 == 0)
+                            Log("figure sep: f=%u %08x %.2f from the first-person eye, drawn out to %.2f", g_carFrame,
+                                static_cast<unsigned>(sprite.object), ed, kEyeRoom);
+                    }
+                }
                 const float tl = std::sqrt(sx * sx + sz * sz);
-                const float cap = inCar ? 0.6f : 0.2f;
+                const float cap = inCar ? 0.6f : eyePush ? 0.42f : 0.2f;
                 if (tl > cap) { sx *= cap / tl; sz *= cap / tl; }
                 if (g_logPedFrames && !inCar && tl > 0.02f && (g_carFrame % 15 == 0 || std::fabs(track.sepX) + std::fabs(track.sepZ) < 0.005f))
                     Log("figure sep: f=%u %08x from a neighbour by %.3f", g_carFrame, static_cast<unsigned>(sprite.object), tl);
@@ -10050,6 +10090,31 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     }
                     lensFrame = g_carFrame;
                     continue;
+                }
+                // FIX-FIGURE-9 (pm7-fp-own-head-and-shoulder-fill-left-third-of-view): in first person a stranger at
+                // his shoulder (within 0.42 block, beside the eye: more than 35 degrees off the line of sight, or level
+                // with the eye or behind it) is a head and a shirt cut by the frame's edge, filling a third of the
+                // picture (fig9_ar2: the crowd round him after an arrest's release, 0.25 block away). Not drawn
+                // there; one walking ahead of him stays. GTA2DX9_FP_SHOULDER_CLEAR=0 turns it off (A/B).
+                if (CurrentViewMode() == ViewMode::FirstPerson && !heroFigure && FpShoulderClearOn() &&
+                    g_viewEye.y > cy - 0.1f && g_viewEye.y < cy + kPedHeight * 1.3f + 0.1f) {
+                    const float d2 = lx * lx + lz * lz;
+                    if (d2 < 0.42f * 0.42f) {   // the game keeps a passer-by about 0.30 from him: 0.30 never caught one
+                        float fx = g_viewForward.x, fz = g_viewForward.z;
+                        const float fl = std::sqrt(fx * fx + fz * fz);
+                        if (fl > 1e-3f) { fx /= fl; fz /= fl; }
+                        const float ahead = lx * fx + lz * fz, side = std::fabs(lx * fz - lz * fx);
+                        if (ahead < 0.08f || side > 0.70f * ahead) {   // 35 degrees off the line of sight: at the frame's edge
+                            static uint32_t shoulderFrame = 0;
+                            static int shoulderLogs = 0;
+                            if (shoulderFrame != g_carFrame && shoulderLogs < 60) {
+                                ++shoulderLogs;
+                                Log("view: figure at his shoulder not drawn (%.2f from the eye, %.2f ahead, %.2f aside)", std::sqrt(d2), ahead, side);
+                            }
+                            shoulderFrame = g_carFrame;
+                            continue;
+                        }
+                    }
                 }
             }
             ModelSetPlayerTextures(model && (sprite.shadowOnly ||

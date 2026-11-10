@@ -1265,6 +1265,23 @@ a figure fires the flamethrower (shot within 24 frames: the game's flames live 1
 | rocket on the shoulder, both hands | verified (unchanged since 707c344) until his own blast (self-blast is feel12-rocket-self-blast) | fig9_h1 rocket f0-44 |
 | not done | the game's bottle is already in flight when the throw is seen (the clip starts at its forward swing, release about 3 frames later); the stream is round glow puffs, not a textured flame; the fire's ground light is very pale; the first-person rocket hand pop (feel12 report) not looked at | - |
 
+**First person: strangers at his shoulder** (pm7-fp-own-head-and-shoulder-fill-left-third-of-view). This was not his own
+body. In a real arrest and release (fig9_ar2: `wanted: busted`, then first person), the peds round him stood 0.25-0.30
+block from the eye (`view: peds` lines). GTA2 lets a passer-by come within about 0.30 block, and drawn there he is a
+head and a shirt cut by the frame's edge (fig9_ar3 f36, fig9_fw2 f1104/f1122). FIX-CAMERA-6's lens rule only covers
+0.15. Now, in first person (strangers only):
+- The eye is a body in the draw-only separation: a figure whose drawn point is within 0.40 block of the eye is drawn
+  stepped out to 0.40, at the separation's sidestep speed (log `figure sep: ... from the first-person eye`).
+- A stranger within 0.42 block and beside the eye (more than 35 degrees off the line of sight, or level with it or
+  behind it) is not drawn (log `view: figure at his shoulder not drawn`).
+- `GTA2DX9_FP_SHOULDER_CLEAR=0` turns both off.
+Evidence: fig9_fw3 (plaza walk, 4 pushes, frames 196-350): no cut heads at the edges; a man walking straight at him
+still comes to 0.40 (about 1.5 m, his torso a quarter of the frame, f208).
+
+**First-person muzzle flash core** (FIGURE-8's short-of-AAA list). In first person the white core is 0.7 of the
+(0.75-scaled) flash instead of 0.45, with three short star streaks out of the muzzle across the line of sight.
+`GTA2DX9_FP_FLASH_OLD=1` gives the old core.
+
 Probe: `linux/docker/fig9_heavy.py` + `keys_fig9_heavy.sh` (copy into gamerun/). Pickups (flamethrower, molotov,
 launcher), the plaza, a step so the hero is drawn after the warp, third person. Per pass: the drawn figure turned by
 the rig test file, 6.5 s at 30 fps with two taps and a held trigger. `FIG9_WEAPONS=flame,molotov,rocket`,
