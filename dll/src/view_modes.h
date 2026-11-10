@@ -40,6 +40,9 @@ struct ViewModeSettings {
     // A developer aid for scripted sessions: this key moves the player to the
     // driver's door of the nearest parked car ([devtools] warp_key=F9; 0 off).
     int devWarpKey = 0;
+    // FIX-ENTRY-1: this key runs the game's own entry (the objective a Return sets) on the nearest
+    // driverless car on his level within 8 tiles, whichever way he faces ([devtools] enter_key=F8; 0 off).
+    int devEnterKey = 0;
     // And this one brings the nearest parked car to a given spot on the map,
     // heading east, with the player at its driver's door: [devtools]
     // scene_key=F10, scene_xy=164.5,149.5 (the Downtown start's carriageway).

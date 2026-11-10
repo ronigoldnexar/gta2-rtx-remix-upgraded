@@ -1910,3 +1910,48 @@ brush stagger's reach). The leader keeps his place. A/B `GTA2DX9_FILE_SEP=0`.
 Measure: the 300-frame `figure sep:` line adds `in file closer than 0.16: N by the game, M drawn`. kd4_gang1 (wil
 Loonie street, 64-66 people): 3/2/3 by the game, 1/0/1 drawn; kd4_pm24a (keys_pm24.sh): no file pair formed. Not
 caught on camera yet (a warp hides figures until the game's camera arrives: the gang bursts framed a wall).
+## FIX-ENTRY-1 (10 Nov 2026): what the game needs for an entry, the Return trace, `enter_key`
+
+Filing `ped-state-7-blocks-vehicle-entry` (S1, the 5090 operator): Return beside a parked car (0.59) with a
+stopped driven car nearer (0.46), facing 0,-1 along both cars, never boarded; ped state 7 sub 0xE throughout.
+
+**State 7 / 0xE is the ordinary on-foot state** (FUN_00433580 mode 4 sets exactly 7/0xE; boarding is mode 6,
+state 3 sub 4; the objective walking to a door shows state 2). It is not a lock; nothing has to leave it.
+
+**What the game does on Return** (read off gta2.exe 9.6, then measured):
+- The player object is `[[0x5EB4FC]+0x38]`, his ped at `+0x2C4`. The control read (0x004A4B7C) turns the
+  keys into bytes: `+0x7D` enter held, `+0x89` changed this frame. The player update calls FUN_004A76D0 unless
+  `+0x2F` is set.
+- FUN_004A76D0, on the press: in a car, objective 0x24 (get out). On foot, unless already leaving (objective
+  0x24), FUN_00424E70 (on the vehicle pool `0x5E4CA4`) looks for a car with his sprite moved 0.5 block (the
+  16.14 word at `0x5E4F38`) ahead along his heading, through the collision grid (FUN_00447540, called with
+  2, 2: a search of cells round that point). Driven or parked makes no difference (a driven car is a jack).
+- Found: FUN_00436920(ped, 0, 9999), objective 0x23 (0x25 as a passenger for 59..61) through FUN_0043BBC0,
+  the target car at `ped+0x150`, `+0x248 = 0`, byte `+0x24C = 0`. The objective runs him to the door
+  (state 2, then 3/4) and boards him. Not found: nothing, no state change.
+- **Measured** (runs ent1_b, ent1_sw1, ent1_f8a, Downtown, plain GL, nav_map 0 and 1, all three views): every
+  single Return of 70-120 ms boarded: at the driver's door facing along the car, 0.25-0.7 block ahead of the door
+  facing along it (up to 1.48 from the car's centre), behind it facing back, and 2.5 blocks away FACING AWAY. A
+  passing driven car ahead is taken too (a jack, ent1_b). So neither facing nor a driven car nearer explains a
+  refusal beside a car at 0.59: there the game's handler did not run, or the key did not reach it.
+
+**`GTA2DX9_LOG_ENTRY=1`** (env; for the 5090 box) traces exactly that:
+- `entry: Return down reached the game's keyboard`: every Return the game's own DirectInput read returns (logged
+  inside that read), then `entry: Return on foot (before the game's handler): ...` with his position, sprite
+  heading, state/sub/vehicle, objective and target car, the player object's `locked` (`+0x2F`) and `enter_held`,
+  the probe point and every car within 2.5 tiles in the car's frame (`probe along/across`), and then
+  `entry: the game acted: objective a -> b, state ...` or `entry: watch ended ...` (45 frames).
+- `entry: Windows reported Return down but the game's keyboard did not within 15 frames (foreground ...)`:
+  the key is not reaching the game (its DirectInput device, the focus): an input-path fault, not a game rule.
+- `entry: the game's keyboard read failed (hr ...)`: the game's device is not acquired; no key reaches it.
+- `entry: Return down withheld from (knock-down hold)`: FIX-KNOCKDOWN's hold while he is down (by design).
+
+**`[devtools] enter_key`** (e.g. `enter_key=B`: a letter, an F-key or a virtual-key code; off by default; not F8,
+which GTA2 takes for its Options entry and so opens the F4 panel): runs the handler's own steps above on the
+nearest driverless ordinary car on his level within 8 tiles, whichever way he faces and whatever traffic stands
+nearer, without the keyboard path or `+0x2F`. The game's objective runs him to the door and boards him, so the
+vehicle pointer, his state and the driver are the game's own and a Return afterwards gets him out (unlike
+`scene_key`, which only moves him). Read like the other devtools keys (GetAsyncKeyState, this process in front,
+the same path as V and C). Ignored in a car, while boarding/leaving (state 3/4), down (8), dead (9) or seated
+(10); logs `devtools: enter_key: the game's entry objective 35 on the parked car ...`. `warp_key` is unchanged.
+Probes: `gamerun/ent1_probe.py`, `ent1_sweep.py`, `ent1_nav.py`, `ent1_f8.py` (keys_ent1*.sh; mirrored in linux/docker/).

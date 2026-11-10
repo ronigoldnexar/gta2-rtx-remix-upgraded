@@ -898,6 +898,8 @@ bool g_holdTold[kHoldCount] = {};   // what the game was last told
 ULONGLONG g_holdUntil = 0;
 bool g_holdLogged = false;
 bool InputHeld() { return g_holdUntil && GetTickCount64() < g_holdUntil; }
+void EntryNoteKey(DWORD dik, bool down, bool withheld);   // FIX-ENTRY-1, below
+void EntryNoteReadFailure(long hr);                         // FIX-ENTRY-1, below
 int HoldIndexOfDik(DWORD ofs) {
     for (int i = 0; i < kHoldCount; ++i) if (ofs == kHoldDik[i]) return i;
     return -1;
@@ -931,7 +933,7 @@ HRESULT WINAPI NavGetDeviceData(IDirectInputDevice8A* self, DWORD cbObj, LPDIDEV
     const HRESULT hr = g_realGetDeviceData(self, cbObj, dod, inOut, flags);
     if (self == g_ourKeyboard || !inOut || !dod || cbObj < sizeof(DIDEVICEOBJECTDATA_DX3)) return hr;
     ++g_diDataCalls;
-    if (FAILED(hr) && hr != DI_BUFFEROVERFLOW) return hr;
+    if (FAILED(hr) && hr != DI_BUFFEROVERFLOW) { EntryNoteReadFailure(static_cast<long>(hr)); return hr; }
     BYTE* base = reinterpret_cast<BYTE*>(dod);
     DWORD n = *inOut, w = 0;
     const bool held = InputHeld();
@@ -945,6 +947,9 @@ HRESULT WINAPI NavGetDeviceData(IDirectInputDevice8A* self, DWORD cbObj, LPDIDEV
             ++g_diReads;
             if (g_navActive) continue;        // the arrow is ours: the game does not see it
         }
+        // FIX-ENTRY-1: GTA2DX9_LOG_ENTRY=1 logs every Return the game's keyboard reports (EntryService).
+        if ((e->dwOfs == DIK_RETURN || e->dwOfs == DIK_NUMPADENTER) && !(flags & DIGDD_PEEK))
+            EntryNoteKey(e->dwOfs, (e->dwData & 0x80) != 0, held);
         // FIX-KNOCKDOWN: down on the ground the keys are noted, not passed on.
         const int hk = HoldIndexOfDik(e->dwOfs);
         if (hk >= 0) {
@@ -1132,6 +1137,200 @@ void SteerPlayer(ViewMode mode, float dt) {
                 g_navHeading / kDegToRad, g_navRate / kDegToRad, desired / kDegToRad, e / kDegToRad, ePred / kDegToRad,
                 g_inj[0], g_inj[1], g_inj[2], g_inj[3], g_diReads, g_diStateCalls, g_diDataCalls);
     }
+}
+
+// ---- FIX-ENTRY-1: the game's own entry, traced and on a developer key ----------------------
+// How GTA2 9.6 decides an Enter (read off gta2.exe, 10 Nov): the player object is [[0x5EB4FC]+0x38]
+// (its ped at +0x2C4; +0x7D the enter control held, +0x89 changed this frame; +0x2F set skips the
+// handler). FUN_004A76D0 runs on the press: in a car he gets out (objective 0x24); on foot it asks
+// FUN_00424E70 for a car, which moves the ped's own sprite a fixed distance (the word at 0x5E4F38,
+// 16.14) AHEAD along his heading, asks the collision grid (FUN_00447540) what overlaps it there and
+// takes that car - driven or parked, the game does not care (a driven one is a jack). No overlap: no
+// car, nothing happens, the ped stays in state 7/0xE (the ordinary on-foot state). With a car it sets
+// objective 0x23 (0x25, a passenger, for models 59..61) through FUN_0043BBC0, the target car at +0x150,
+// +0x248 = 0, byte +0x24C = 0; the objective then walks him to the door (state 3/4) and boards.
+// So a Return beside a car but facing along it (the 5090 filing: face 0,-1 between two cars heading
+// 0,-1) finds nothing. GTA2DX9_LOG_ENTRY=1 logs every Return the game's keyboard reports and what the
+// game made of it; [devtools] enter_key runs the handler's own steps on the nearest parked car.
+constexpr uintptr_t kEntryPlayerSlot = 0x38;
+constexpr uintptr_t kEntryPlayerPed = 0x2C4;
+constexpr uintptr_t kEntryProbeDistance = 0x005E4F38;
+constexpr uintptr_t kPedObjective = 0x258;
+constexpr uintptr_t kPedObjectiveCar = 0x150;
+constexpr int kObjectiveEnterAsDriver = 0x23;
+constexpr int kObjectiveEnterAsPassenger = 0x25;
+int g_entryLog = -1;
+int g_entryWatch = 0;         // frames left watching the objective after a press
+int32_t g_entryObjective0 = 0, g_entryState0 = 0;
+bool EntryLogOn() {
+    if (g_entryLog < 0) { char b[8] = {}; g_entryLog = GetEnvironmentVariableA("GTA2DX9_LOG_ENTRY", b, sizeof b) && atoi(b) ? 1 : 0; }
+    return g_entryLog == 1;
+}
+ULONGLONG g_entryDiDownTick = 0;   // when the game's keyboard last reported a Return down
+long g_entryReadFailures = 0;
+void EntryNoteReadFailure(long hr) {
+    ++g_entryReadFailures;
+    if (EntryLogOn() && (g_entryReadFailures <= 5 || (g_entryReadFailures % 300) == 0))
+        Log("entry: the game's keyboard read failed (hr %08lX, %ld so far): no key reaches the game while this lasts",
+            static_cast<unsigned long>(hr), g_entryReadFailures);
+}
+void EntryLogSnapshot(const char* why, const PlayerState& p);
+void EntryNoteKey(DWORD dik, bool down, bool withheld) {
+    if (down) g_entryDiDownTick = GetTickCount64();
+    if (!EntryLogOn()) return;
+    Log("entry: %s %s %s the game's keyboard", dik == DIK_RETURN ? "Return" : "keypad Enter", down ? "down" : "up",
+        withheld ? "withheld from (knock-down hold)" : "reached");
+    if (!down || withheld) return;
+    // Inside the game's own keyboard read, so before its handler runs this frame: the state it will judge.
+    PlayerState p;
+    if (LocatePlayer(&p) && p.valid && p.ped) {
+        EntryLogSnapshot(p.inVehicle ? "Return in a car (before the game's handler)" : "Return on foot (before the game's handler)", p);
+        const uintptr_t ped = reinterpret_cast<uintptr_t>(p.ped);
+        ReadAt(ped + kPedObjective, &g_entryObjective0); ReadAt(ped + game::kPedState, &g_entryState0);
+        g_entryWatch = 45;
+    }
+}
+uintptr_t EntryPlayerObject() {
+    uintptr_t root = 0, player = 0;
+    if (!ReadAt(kPlayerObjectPtr, &root) || !Plausible(root)) return 0;
+    if (!ReadAt(root + kEntryPlayerSlot, &player) || !Plausible(player)) return 0;
+    return player;
+}
+bool OrdinaryCarModel(int32_t model) {
+    return !(model < 0 || model > 86 || model == 3 || model == 6 || model == 22 || model == 54 || model == 55 ||
+             (model >= 59 && model <= 61) || model == 65 || model == 66 || (model >= 72 && model <= 81));
+}
+// What the game will find ahead of him: every car within 2.5 tiles, with the probe point in its frame.
+void EntryLogSnapshot(const char* why, const PlayerState& p) {
+    const uintptr_t ped = reinterpret_cast<uintptr_t>(p.ped);
+    int32_t probeRaw = 0, objective = -1, state = -1, sub = -1;
+    uintptr_t target = 0, veh = 0, player = EntryPlayerObject();
+    uint8_t locked = 0xFF, held = 0xFF;
+    ReadAt(kEntryProbeDistance, &probeRaw);
+    ReadAt(ped + kPedObjective, &objective); ReadAt(ped + kPedObjectiveCar, &target);
+    ReadAt(ped + game::kPedState, &state); ReadAt(ped + game::kPedSubState, &sub); ReadAt(ped + game::kPedVehicle, &veh);
+    if (player) { ReadAt(player + 0x2F, &locked); ReadAt(player + 0x7D, &held); }
+    const float reach = probeRaw / 16384.0f;
+    // the sprite's own heading, the one FUN_00424E70 turns into the probe (FUN_0041FC20)
+    float fx = p.dirX, fy = p.dirY;
+    uintptr_t physics = 0;
+    const bool spriteFacing = ReadAt(ped + game::kPedPhysics, &physics) && Plausible(physics) &&
+                              game::ReadFacing(reinterpret_cast<const uint8_t*>(physics), game::kPhysicsSprite, &fx, &fy);
+    const float qx = p.x + fx * reach, qy = p.y + fy * reach;
+    std::string cars;
+    int guard = 0;
+    for (const uint8_t* v = game::VehicleListHead(); v && guard < 1024; v = game::NextInList(v, game::kVehicleNext), ++guard) {
+        float cx = 0, cy = 0, cz = 0, hx = 0, hy = 1;
+        if (!game::ReadPlacement(v, game::kVehiclePlacementPtr, &cx, &cy, &cz)) continue;
+        if (std::hypot(cx - p.x, cy - p.y) > 2.5f || std::fabs(cz - p.z) > 1.0f) continue;
+        VehicleFacing(v, &hx, &hy);
+        int32_t model = -1;
+        ReadAt(reinterpret_cast<uintptr_t>(v) + game::kVehicleModel, &model);
+        // the probe in the car's frame: along its heading, and across (+ = its right)
+        const float dx = qx - cx, dy = qy - cy;
+        char b[200];
+        snprintf(b, sizeof b, " [m%d %p at %.2f,%.2f head %.2f,%.2f %s d=%.2f probe along=%.2f across=%.2f]", model, static_cast<const void*>(v),
+                 cx, cy, hx, hy, game::VehicleHasDriver(v) ? "driven" : "parked", std::hypot(cx - p.x, cy - p.y),
+                 dx * hx + dy * hy, dx * -hy + dy * hx);
+        if (cars.size() < 1400) cars += b;
+    }
+    Log("entry: %s: player %.2f,%.2f,%.2f face %.3f,%.3f (sprite heading %.3f,%.3f%s) state=%d sub=%d veh=%08X objective=%d target=%08X | player object %08X "
+        "locked=%d enter_held=%d | probe %.3f ahead -> %.2f,%.2f | cars within 2.5:%s",
+        why, p.x, p.y, p.z, p.dirX, p.dirY, fx, fy, spriteFacing ? "" : ", unreadable", state, sub, static_cast<unsigned>(veh), objective, static_cast<unsigned>(target),
+        static_cast<unsigned>(player), locked, held, reach, qx, qy, cars.empty() ? " none" : cars.c_str());
+}
+
+// [devtools] enter_key: the steps of the game's own handler (FUN_004A76D0 after the car search), on the
+// nearest driverless ordinary car on his level within 8 tiles, whichever way he faces and whatever
+// traffic stands nearer. The objective walks him to its door and boards him as a Return would: the
+// vehicle pointer, the ped's state and the driver are the game's, so a Return afterwards gets him out.
+// Runs on the game thread (the renderer's frame), as the game's own handler does.
+void EnterNearestParkedCar() {
+    PlayerState p;
+    if (!LocatePlayer(&p) || !p.valid || !p.ped) { Log("devtools: enter_key ignored (player not located)"); return; }
+    if (p.inVehicle) { Log("devtools: enter_key ignored (he is in a car: Return gets him out)"); return; }
+    const uintptr_t ped = reinterpret_cast<uintptr_t>(p.ped);
+    int32_t state = -1, objective = -1;
+    ReadAt(ped + game::kPedState, &state); ReadAt(ped + kPedObjective, &objective);
+    if (state == 3 || state == 4 || state == 8 || state == 9 || state == 10) {
+        Log("devtools: enter_key ignored (ped state %d: boarding, leaving, down, dead or seated)", state);
+        return;
+    }
+    const uint8_t* best = nullptr;
+    float bestD = 8.0f, bx = 0, by = 0;
+    int32_t bestModel = -1;
+    int guard = 0;
+    for (const uint8_t* v = game::VehicleListHead(); v && guard < 1024; v = game::NextInList(v, game::kVehicleNext), ++guard) {
+        if (game::VehicleHasDriver(v)) continue;
+        int32_t model = -1;
+        if (!ReadAt(reinterpret_cast<uintptr_t>(v) + game::kVehicleModel, &model) || !OrdinaryCarModel(model)) continue;
+        float cx = 0, cy = 0, cz = 0;
+        if (!game::ReadPlacement(v, game::kVehiclePlacementPtr, &cx, &cy, &cz)) continue;
+        if (std::fabs(cz - p.z) > 0.6f) continue;
+        const float d = std::hypot(cx - p.x, cy - p.y);
+        if (d >= bestD) continue;
+        best = v; bestD = d; bx = cx; by = cy; bestModel = model;
+    }
+    if (!best) { Log("devtools: enter_key: no driverless car on his level within 8 tiles of %.2f,%.2f", p.x, p.y); return; }
+    if (EntryLogOn()) EntryLogSnapshot("enter_key", p);
+    typedef void(__attribute__((thiscall)) * ClearFn)(void* ped, int a, int b);          // FUN_00436920
+    typedef void(__attribute__((thiscall)) * ObjectiveFn)(void* ped, int objective, int timer);   // FUN_0043BBC0
+    void* pedMut = const_cast<void*>(p.ped);
+    reinterpret_cast<ClearFn>(0x00436920)(pedMut, 0, 9999);
+    reinterpret_cast<ObjectiveFn>(0x0043BBC0)(pedMut, kObjectiveEnterAsDriver, 9999);
+    WriteAt(ped + kPedObjectiveCar, reinterpret_cast<uintptr_t>(best));   // FUN_00403AA0
+    WriteAt(ped + 0x248, static_cast<int32_t>(0));                        // FUN_004039B0(0)
+    WriteAt(ped + 0x24C, static_cast<uint8_t>(0));                        // FUN_00403A70(0)
+    int32_t after = -1;
+    ReadAt(ped + game::kPedState, &after);
+    Log("devtools: enter_key: the game's entry objective %d on the parked car m%d %p at %.2f,%.2f (%.2f tiles) for the player at "
+        "%.2f,%.2f (state %d -> %d, objective was %d)",
+        kObjectiveEnterAsDriver, bestModel, static_cast<const void*>(best), bx, by, bestD, p.x, p.y, state, after, objective);
+    g_entryWatch = EntryLogOn() ? 90 : 0;
+    g_entryObjective0 = objective; g_entryState0 = state;
+}
+
+// Once a frame from the key poll: trace a Return the game was told of (what the game made of it).
+void EntryService() {
+    if (!EntryLogOn()) return;
+    InstallNavHook(false);   // the hook is otherwise installed only for the camera-relative arrows or a knock-down
+    // Windows saw a Return (any window of this process in front) but the game's keyboard reported none within
+    // half a second: the key never reached the game (its DirectInput device, the focus), not a game rule.
+    {
+        static bool osWas = false;
+        static int pendingFrames = 0;
+        static ULONGLONG edgeTick = 0;
+        const bool osDown = (GetAsyncKeyState(VK_RETURN) & 0x8000) != 0;
+        if (osDown && !osWas) { pendingFrames = 15; edgeTick = GetTickCount64(); }
+        osWas = osDown;
+        // the game's read may come before this poll sees the edge, or after it: either within half a second
+        if (pendingFrames > 0 && --pendingFrames == 0 && !(g_entryDiDownTick + 500 >= edgeTick && g_entryDiDownTick <= edgeTick + 1500)) {
+            HWND fg = GetForegroundWindow();
+            DWORD pid = 0;
+            if (fg) GetWindowThreadProcessId(fg, &pid);
+            Log("entry: Windows reported Return down but the game's keyboard did not within 15 frames (foreground %p, %s; "
+                "keyboard reads %ld, failed %ld): the key is not reaching the game",
+                static_cast<void*>(fg), pid == GetCurrentProcessId() ? "this process" : "another process", g_diDataCalls,
+                g_entryReadFailures);
+        }
+    }
+    PlayerState p;
+    const bool have = LocatePlayer(&p) && p.valid && p.ped;
+    if (g_entryWatch <= 0 || !have) return;
+    const uintptr_t ped = reinterpret_cast<uintptr_t>(p.ped);
+    int32_t objective = -1, state = -1, sub = -1;
+    uintptr_t target = 0, veh = 0;
+    ReadAt(ped + kPedObjective, &objective); ReadAt(ped + game::kPedState, &state); ReadAt(ped + game::kPedSubState, &sub);
+    ReadAt(ped + kPedObjectiveCar, &target); ReadAt(ped + game::kPedVehicle, &veh);
+    if (objective != g_entryObjective0 || state != g_entryState0 || p.inVehicle) {
+        Log("entry: the game acted: objective %d -> %d, state %d -> %d sub %d, target car %08X, veh %08X%s", g_entryObjective0, objective,
+            g_entryState0, state, sub, static_cast<unsigned>(target), static_cast<unsigned>(veh), p.inVehicle ? " (in the car)" : "");
+        g_entryObjective0 = objective; g_entryState0 = state;
+        if (p.inVehicle) { g_entryWatch = 0; return; }
+    }
+    if (--g_entryWatch == 0)
+        Log("entry: watch ended: objective %d state %d sub %d veh %08X %s", objective, state, sub, static_cast<unsigned>(veh),
+            p.inVehicle ? "in a car" : "on foot");
 }
 }  // namespace
 
@@ -1456,6 +1655,15 @@ void ViewModePollInput(HWND presentWindow, bool menuVisible, bool worldLoaded) {
     sceneHeld = sceneDown;
     if (warpPressed && worldLoaded) {
         WarpPlayerToParkedCar(80.0f);
+    }
+    // FIX-ENTRY-1: [devtools] enter_key, the game's own entry on the nearest parked car; the Return trace.
+    {
+        static bool enterHeld = false;
+        const bool enterDown = g_settings.devEnterKey > 0 && g_settings.devEnterKey < 256 && ours &&
+                               (GetAsyncKeyState(g_settings.devEnterKey) & 0x8000) != 0;
+        if (enterDown && !enterHeld && worldLoaded) EnterNearestParkedCar();
+        enterHeld = enterDown;
+        if (worldLoaded) EntryService();
     }
     if (scenePressed && worldLoaded) {
         if (g_settings.devIniPath[0]) {

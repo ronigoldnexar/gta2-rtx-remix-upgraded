@@ -239,6 +239,14 @@ void LoadConfig() {
             vm.devWarpKey = 0;
             if (warpKey[0] == 'F' || warpKey[0] == 'f') vm.devWarpKey = VK_F1 + atoi(warpKey + 1) - 1;
             else if (warpKey[0]) vm.devWarpKey = atoi(warpKey);
+            char enterKey[32] = {};   // FIX-ENTRY-1
+            GetPrivateProfileStringA("devtools", "enter_key", "", enterKey, sizeof(enterKey), ini);
+            vm.devEnterKey = 0;
+            if ((enterKey[0] == 'F' || enterKey[0] == 'f') && isdigit(static_cast<unsigned char>(enterKey[1])))
+                vm.devEnterKey = VK_F1 + atoi(enterKey + 1) - 1;
+            else if (isalpha(static_cast<unsigned char>(enterKey[0])) && !isalnum(static_cast<unsigned char>(enterKey[1])))
+                vm.devEnterKey = toupper(static_cast<unsigned char>(enterKey[0]));   // one letter: B
+            else if (enterKey[0]) vm.devEnterKey = atoi(enterKey);
             char sceneKey[32] = {}, sceneXy[64] = {};
             GetPrivateProfileStringA("devtools", "scene_key", "", sceneKey, sizeof(sceneKey), ini);
             GetPrivateProfileStringA("devtools", "scene_xy", "164.5,149.5", sceneXy, sizeof(sceneXy), ini);
