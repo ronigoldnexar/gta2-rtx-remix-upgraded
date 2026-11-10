@@ -876,3 +876,20 @@ a probe artifact; traffic draws it in its own colours).
     TRELLIS mesh, they end where the paint split ends, so the 049's stripe stops at its bonnet (that bonnet is in the
     untinted half: it draws white whatever the paint, a generated-body split fault) and the 071's stops short of the
     nose; the sprite's stripe width is used as is (no taper over the roof).
+- **063 Truck Cab (audit rank 1; `tools/vehicle_art/m063_truck_cab.py`).** Filmed at eight truck-scaled poses
+  (`out/va17_063b0`: parked EXIT=1 at wil 198.5,188.2, `POSES_EXTRA` tside/tfront34/trear34/teye/tfar/tchase/thigh/
+  tdoor, own paint 120,89,66 = the sprite's remap mean). What read short: from above (the classic camera's sprite
+  angle, chase and high) the roof carried two 10 cm dark nubs where the sprite draws two big lit roof lamps; the cab
+  sides were one smooth toy panel (0.9 cm shut lines vanish beyond 3 m); no roof-edge definition. Changed: 15 cm
+  roof lamps on pedestals, lens tilted 50 deg up from forward, chrome bezel, black housing (FIX-CABIN-DOME's rule);
+  chrome drip rails along both roof edges (conformed to the cab); shut lines 1.5 cm and darker with a lit lip, hinge
+  shadows, a second swage line. Generator reproduced byte for byte first (glb, mesh, _0/_2/_2_paint identical;
+  the shipped `_glass.tga` is kept: the glass group is unchanged, its pane picture matched byte for byte).
+  After `out/va17_063a0` (same poses; frames opened: two bezelled lamps from above, rail along the roof edge,
+  door shut line, hinges and swages from the door pose; chase shows the lamp housings). FP cab `out/va17_fp063`
+  (still/left/drive: nothing intrudes). Paint parity (out/va17_pool1, red/green) +19/+18 % as in the gate. Pool
+  test: five fresh sessions (063a0, fp063, pool1-3) to_level 12.7-14.8 s, 'player not found' never, 0 FAULT.
+  Textures unchanged in count and size. Remix: `_0` A77F1BEB81877CE7 (its emission now includes the roof
+  lenses, as the old _0 did the head/tail lamps), `_2_paint` C536668663B86CA4; 0 missing; DDS in the bundle.
+  Backups `backup_va17/models_063`. Still short of AAA: a smooth single-curvature cab with a plain back wall, the
+  lenses read pale grey (not lit) in daylight, chassis and fifth wheel flat black boxes, rubber-less mudflaps.

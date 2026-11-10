@@ -30,15 +30,24 @@ def paint_shader(pos, nrm, part, col):
     if part.name == "cab":
         side = np.abs(x) > 0.80
         # door shut lines: front edge just behind the windscreen pillar, rear edge, bottom
-        def line(d, w=0.0045):
+        # VEHICLE-ART-17: shut lines 1.5 cm wide and darker (the 0.9 cm ones vanished at chase distance: the cab read
+        # as one smooth toy panel), a lit edge on their far side, hinge shadows on the front shut line
+        def line(d, w=0.0075):
             return np.exp(-(d / w) ** 2)
+        def lip(d, w=0.006):
+            return np.exp(-((d - 0.012) / w) ** 2)
         door = side & (y > 1.02) & (y < 2.30)
-        k -= 0.55 * door * line(z - 0.82) * (y < 1.86)
-        k -= 0.55 * door * line(z + 0.02)
-        k -= 0.50 * side * line(y - 1.06) * (z > -0.02) * (z < 0.82)
-        # a pressed swage line along the side, catching light above and shade below
-        sw = y - 1.62
-        k += side * (0.10 * np.exp(-((sw - 0.010) / 0.008) ** 2) - 0.14 * np.exp(-((sw + 0.008) / 0.008) ** 2))
+        k -= 0.72 * door * line(z - 0.82) * (y < 1.86)
+        k += 0.10 * door * lip(0.82 - z) * (y < 1.86)
+        k -= 0.72 * door * line(z + 0.02)
+        k += 0.10 * door * lip(z + 0.02)
+        k -= 0.65 * side * line(y - 1.06) * (z > -0.02) * (z < 0.82)
+        for yh in (1.28, 1.70):
+            k -= 0.45 * door * (np.abs(z - 0.80) < 0.022) * (np.abs(y - yh) < 0.05)
+        # two pressed swage lines along the side, catching light above and shade below
+        for y0 in (1.62, 1.30):
+            sw = y - y0
+            k += side * (0.14 * np.exp(-((sw - 0.010) / 0.009) ** 2) - 0.20 * np.exp(-((sw + 0.009) / 0.009) ** 2))
         # the cab's back panel: a rain gutter shade under the roof edge
         k -= 0.25 * (np.abs(y - 2.30) < 0.006) * (nrm[:, 1] < 0.6)
     if part.name == "hood":
@@ -423,15 +432,22 @@ def build_truck():
         P.append(tube(f"grab{sx}", M["chrome"], [[1.01 * sx, 1.22, -0.06], [1.045 * sx, 1.25, -0.08], [1.045 * sx, 1.95, -0.08], [1.01 * sx, 1.98, -0.06]], 0.014, R=6))
         P.append(box(f"door_handle{sx}", M["chrome"], (min(1.015 * sx, 1.04 * sx), 1.80, 0.06), (max(1.015 * sx, 1.04 * sx), 1.825, 0.17)))
     # ---- roof: the sprite's two round roof lamps, amber clearance lamps along the front edge
+    # VEHICLE-ART-17: the sprite's two big lit roof lamps (x4: round, warm white, each ~1/4 of the roof's width) read
+    # from the classic, chase and high cameras; the 10 cm forward-facing cans were dark nubs from above. Now 15 cm lamps
+    # on short pedestals, their lens tilted 50 degrees up from forward, so the lit glass faces the cameras above and
+    # behind as well as the road ahead. Housings stay black steel (FIX-CABIN-DOME: chrome cans read as sky-blue domes).
+    ax = np.array([0.0, math.sin(math.radians(50)), math.cos(math.radians(50))])
     for sx in (1, -1):
-        c = np.array([0.42 * sx, 2.56, 0.30])
-        # FIX-CABIN-DOME: the housings are painted black steel with a thin chrome bezel at the lens.
-        # Mirror-chrome cans read from the chase camera as pale sky-blue domes on the roof (and filled
-        # the frame when the camera passed over them into the cab).
-        P.append(revolve(f"roof_lamp{sx}", M["black"], [(0.02, -0.10), (0.07, -0.08), (0.095, -0.02), (0.097, -0.005)], c, (0, 0, 1), R=16))
-        P.append(revolve(f"roof_bezel{sx}", M["chrome"], [(0.097, -0.005), (0.10, 0.0), (0.09, 0.01)], c, (0, 0, 1), R=16))
-        P.append(revolve(f"roof_lens{sx}", M["head"], [(0.09, 0.008), (0.0001, 0.02)], c, (0, 0, 1), R=16, tag=dict(center=list(c), r=0.09)))
-        P.append(tube(f"roof_lamp_post{sx}", M["black"], [c + [0, -0.12, -0.06], c + [0, -0.03, -0.05]], 0.015, R=6))
+        c = np.array([0.40 * sx, 2.60, 0.26])
+        P.append(revolve(f"roof_lamp{sx}", M["black"], [(0.03, -0.13), (0.10, -0.11), (0.142, -0.03), (0.145, -0.008)], c, tuple(ax), R=20))
+        P.append(revolve(f"roof_bezel{sx}", M["chrome"], [(0.145, -0.008), (0.152, 0.0), (0.136, 0.012)], c, tuple(ax), R=20))
+        P.append(revolve(f"roof_lens{sx}", M["head"], [(0.136, 0.010), (0.09, 0.024), (0.0001, 0.030)], c, tuple(ax), R=20, tag=dict(center=list(c), r=0.136)))
+        P.append(rbox(f"roof_lamp_base{sx}", M["black"], (0.40 * sx - 0.06, 2.43, 0.16), (0.40 * sx + 0.06, 2.52, 0.30), r=0.02, R=8))
+    # chrome drip rails along both roof edges (the cab's outline from the chase camera), on the cab's own surface
+    for sx in (1, -1):
+        pts = np.array([[1.4 * sx, 2.33, z] for z in np.linspace(cab_z0 + 0.06, 0.80, 12)])
+        rail = conform([cab], pts, (-sx, 0, 0), 0.010)[0]
+        P.append(tube(f"drip_rail{sx}", M["chrome"], rail, 0.011, R=6))
     for i in range(5):
         x = -0.40 + 0.20 * i
         P.append(revolve(f"marker{i}", M["amber"], [(0.0001, 0.0), (0.04, 0.0), (0.035, 0.03), (0.0001, 0.04)], (x, 2.455, 0.66), (0, 1, 0), R=8))
