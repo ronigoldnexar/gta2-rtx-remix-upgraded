@@ -1449,6 +1449,44 @@ bool CarSpriteOtherImageFor(const void* handle, int sprite, std::vector<uint32_t
     return true;
 }
 
+// FIX-CAR-IDENTITY-5 (pmt4): the car sprite's CLEAN artwork (the style file's indices: no dent, door, lamp or
+// damage delta) decoded in `palette` and in the other palette CarSpriteOtherImageFor would pick. The paint
+// measured from these is a pure function of (sprite, palette): the same for every car, frame and session
+// drawn in that remap. False when the sprite, its art or either palette is unknown, or it has no remap.
+bool CarSpriteCleanImages(int sprite, int palette, std::vector<uint32_t>* drawn, std::vector<uint32_t>* other, int* width,
+                          int* height, bool* remapped) {
+    const CarSpriteArt* found = nullptr;
+    for (const CarSpriteArt& art : g_carSprites) {
+        if (art.sprite == sprite) { found = &art; break; }
+    }
+    if (!found || found->palettes.empty() || found->width <= 0 || found->height <= 0 ||
+        found->indices.size() < static_cast<size_t>(found->width) * found->height) return false;
+    int alt = -1;
+    if (found->palettes[0] != palette) { alt = found->palettes[0]; *remapped = true; }
+    else if (found->palettes.size() > 1) { alt = found->palettes[1]; *remapped = false; }
+    if (alt < 0) return false;
+    // PaletteColours returns one shared buffer: copy the first palette before asking for the second.
+    bool hasA = false, hasB = false;
+    uint32_t pa[256];
+    const uint32_t* first = PaletteColours(palette, &hasA);
+    if (!first || !hasA) return false;
+    memcpy(pa, first, sizeof pa);
+    const uint32_t* pb = PaletteColours(alt, &hasB);
+    if (!pb || !hasB) return false;
+    const size_t n = static_cast<size_t>(found->width) * found->height;
+    drawn->assign(n, 0u);
+    other->assign(n, 0u);
+    for (size_t i = 0; i < n; ++i) {
+        const uint8_t ix = found->indices[i];
+        if (!ix) continue;
+        (*drawn)[i] = pa[ix] | 0xFF000000u;
+        (*other)[i] = pb[ix] | 0xFF000000u;
+    }
+    *width = found->width;
+    *height = found->height;
+    return true;
+}
+
 bool ResolveTileImage(int tileNumber, uint32_t* out) {
     const TextureRecord* record = static_cast<const TextureRecord*>(game::TextureForTile(tileNumber));
     if (!record || !record->pixels) return false;

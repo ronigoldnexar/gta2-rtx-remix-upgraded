@@ -61,6 +61,9 @@ float g_paintLumFloor = 77.0f;   // [renderer] car_paint_floor_percent (default 
 // saturated paint; at 50 it is a highlight. [devtools] paint_spec_power for A/B.
 float g_paintSpecPower = 50.0f;
 int g_paintRefDev = 1;        // [devtools] paint_ref (FIX-CAR-IDENTITY-4 A/B)
+// FIX-CAR-IDENTITY-5: the sprite's paint from its clean style art in the drawn palette (1, default) or from the drawn
+// record's pixels as before (GTA2DX9_CLEAN_PAINT=0, for A/B runs).
+const bool g_cleanPaint = [] { char v[8] = {}; return !(GetEnvironmentVariableA("GTA2DX9_CLEAN_PAINT", v, sizeof v) && v[0] == '0'); }();
 float g_paintGainDev = 1.25f; // [devtools] paint_gain_percent: the paint's gain at the lid light it was measured under
 int g_forceDamage = -1;     // [devtools] force_car_damage=N: every car body drawn at damage word N, 0..32000 (re-read once a second)
 int g_doorExactCut = 1;    // [devtools] door_exact_cut=0: FIX-SEAT-ENTRY-3's exact door outline off (A/B)
@@ -213,6 +216,7 @@ struct Built {
     // What any hand-made model of this car needs: its paint and its footprint.
     Rgb paint{128, 128, 128};
     bool paintMasked = false;   // paint = the mean of the remap's texels (else MeasureSprite's brighter half)
+    int palette = -1;           // FIX-CAR-IDENTITY-5: the palette the measured artwork is drawn in (the remap)
     float bodyLength = 1.0f, bodyWidth = 0.5f;   // tiles
     float scale = 1.0f / 64.0f;                  // tiles per sprite pixel
     bool measured = false;
@@ -2840,13 +2844,28 @@ Built* Measured(IDirect3DDevice9* device, const CarBodyUse& use, IDirect3DTextur
         // (a remap also moves pale trim: the bank van's roof panels, a highlight); they are the paint when
         // they are at least 30 % of them, else (a white, silver or grey car) all of them. Saturated in
         // either palette, so the same texels count whichever palette the car is drawn in.
-        std::vector<uint32_t> other;
-        bool remapped = false;
-        if (CarSpriteOtherImageFor(use.texture, use.sprite, &other, &remapped) && other.size() == b.px.size()) {
+        // FIX-CAR-IDENTITY-5 (pmt4): from the sprite's CLEAN style art in the palette it is drawn in, not from the
+        // drawn record's pixels (dents, door frames, lamps, damage): the paint is then a pure function of (sprite,
+        // palette), the same for every car in that remap, every frame and every session. The record keys on the
+        // palette too (identity.cpp), so a re-used game object with another remap is a new car at once.
+        std::vector<uint32_t> other, cleanDrawn;
+        bool remapped = false, clean = false;
+        int cw = 0, ch = 0;
+        const int palette = static_cast<const TextureRecord*>(use.texture)->palette;
+        b.palette = palette;
+        if (g_cleanPaint && CarSpriteCleanImages(use.sprite, palette, &cleanDrawn, &other, &cw, &ch, &remapped) && cw >= 4 && ch >= 4) {
+            clean = true;
+            Measure cm;
+            if (MeasureSprite(cleanDrawn, cw, ch, use.sprite, &cm)) { b.measure.paint = cm.paint; b.paint = cm.paint; }
+        } else if (!CarSpriteOtherImageFor(use.texture, use.sprite, &other, &remapped) || other.size() != b.px.size()) {
+            other.clear();
+        }
+        const std::vector<uint32_t>& drawnPx = clean ? cleanDrawn : b.px;
+        if (!other.empty()) {
             double all[3] = {0, 0, 0}, sat[3] = {0, 0, 0};
             int n = 0, ns = 0, opaque = 0;
             for (size_t i = 0; i < other.size(); ++i) {
-                const uint32_t c = b.px[i], o = other[i];
+                const uint32_t c = drawnPx[i], o = other[i];
                 if ((c >> 24) < 128) continue;
                 ++opaque;
                 if ((c & 0xFFFFFFu) == (o & 0xFFFFFFu)) continue;
@@ -2867,8 +2886,8 @@ Built* Measured(IDirect3DDevice9* device, const CarBodyUse& use, IDirect3DTextur
             }
             static int logged = 0;
             if (logged++ < 60)
-                Log("car body: sprite %d paint from its remap texels (%d of %d opaque, %d saturated, %s): %.0f,%.0f,%.0f (brighter-half rule %.0f,%.0f,%.0f)",
-                    use.sprite, n, opaque, ns, remapped ? "drawn in a remap" : "own palette", b.paint.r, b.paint.g, b.paint.b,
+                Log("car body: sprite %d palette %d paint from its remap texels (%s, %d of %d opaque, %d saturated, %s): %.0f,%.0f,%.0f (brighter-half rule %.0f,%.0f,%.0f)",
+                    use.sprite, palette, clean ? "clean style art" : "drawn art", n, opaque, ns, remapped ? "drawn in a remap" : "own palette", b.paint.r, b.paint.g, b.paint.b,
                     b.measure.paint.r, b.measure.paint.g, b.measure.paint.b);
         }
     }
@@ -3787,6 +3806,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         // FIX-CAR-IDENTITY-4: the paint's reference (1 the model's panels with no clip, 0 the c8ba78f mean) for
         // same-spot A/B frames; re-derives every car record when it changes.
         g_paintRefDev = GetPrivateProfileIntA("devtools", "paint_ref", 1, g_devIni);
+        IdentitySetLiveryGain(GetPrivateProfileIntA("devtools", "livery_gain", 1, g_devIni) != 0);
         g_paintGainDev = static_cast<float>(GetPrivateProfileIntA("devtools", "paint_gain_percent", 125, g_devIni)) / 100.0f;
         g_paintSpecPower = static_cast<float>((std::max)(4, static_cast<int>(GetPrivateProfileIntA("devtools", "paint_spec_power", 50, g_devIni))));
         g_forceDoor = GetPrivateProfileIntA("devtools", "force_car_door", 0, g_devIni);
@@ -3980,8 +4000,22 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         // A forced paint stands for a body's mean paint (the remap rule every remapped sprite has since c8ba78f), so
         // force_car_paint=133,65,65 on model 13 is the wil red Minx's record (FIX-CAR-IDENTITY-4's probe).
         vref.paintMean = b->paintMasked || forcedPaint;
+        vref.palette = forcedPaint ? -1 : b->palette;
         for (int k = 0; k < 3; ++k)
             vref.paintBright[k] = forcedPaint ? static_cast<float>(g_forceCarPaintBright[k]) : vref.paintMean ? (&b->measure.paint.r)[k] : vref.paint[k];
+        if (use.driven && use.texture) {
+            // FIX-CAR-IDENTITY-5 (pmt4): what the driven car's paint input is, each time it changes.
+            static uintptr_t lastObj = 0; static const void* lastPx = nullptr; static int lastPal = -1; static const Built* lastB = nullptr;
+            const TextureRecord* rec = static_cast<const TextureRecord*>(use.texture);
+            if (lastObj != use.object || lastPx != rec->pixels || lastPal != rec->palette || lastB != b) {
+                static int n = 0;
+                if (n++ < 200)
+                    Log("identity: driven car art obj %08x sprite %d palette %d pixels %p art %p measured %.0f,%.0f,%.0f damage %d fire %d",
+                        static_cast<unsigned>(use.object), use.sprite, rec->palette, rec->pixels, static_cast<const void*>(art), b->paint.r, b->paint.g,
+                        b->paint.b, use.damage, use.fireStage);
+                lastObj = use.object; lastPx = rec->pixels; lastPal = rec->palette; lastB = b;
+            }
+        }
         IdentitySetPaintFloor(g_paintLumFloor);
         const double tIdent = CarNowMs();
         const IdentityRecord& ident = IdentityForVehicle(use.object, vref, use.driven);
@@ -4019,7 +4053,9 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             // rtx.enableMultiStageTextureFactorBlending). Nor for a model forced by the devtools.
             // FIX-CAR-RENDER (pm3-dark-vehicle-bodies): a near-black paint is held at a luminance
             // floor (hue kept), and a dark body gets a broader, stronger sheen below.
-            const bool keepOwnPaint = ident.livery;
+            // FIX-CAR-IDENTITY-5 (pmt5): a livery with the lid-light gain (identity.cpp) is drawn through the tint stage
+            // like painted cars (a uniform factor: its colours kept); a livery at tint 1 (Remix, livery_gain=0) as before.
+            const bool keepOwnPaint = ident.livery && ident.paintTint[0] == 1.0f && ident.paintTint[1] == 1.0f && ident.paintTint[2] == 1.0f;
             const float* tint = ident.paintTint;
             const float darkness = ident.darkness;
             D3DMATERIAL9 carMaterial = material;

@@ -34,6 +34,7 @@ struct SpriteRef {
     int wholeModel = -1;          // vehicle: the game's model number when it is not a wreck (-1 a wreck or unread)
     float paintBright[3] = {0, 0, 0};   // vehicle: the brighter-half rule's paint (the luminance floor's test)
     bool paintMean = false;       // vehicle: paint is the mean of the sprite's paint texels (the remap's), not the brighter half
+    int palette = -1;             // vehicle: the palette (remap) the classic view draws the sprite in; -1 unknown or a forced paint
 };
 
 struct IdentityRecord {
@@ -92,7 +93,8 @@ bool IdentityBakeTints();
 // Settings, from their owners' ini readers.
 void IdentitySetCrowdVariety(bool on);     // [crowd] variety
 void IdentitySetPaintFloor(float floor);   // [renderer] car_paint_floor_percent, as 0..255 luminance
-void IdentitySetPaintRef(int mode, float gain, float lid);   // [devtools] paint_ref / paint_gain_percent (FIX-CAR-IDENTITY-4 A/B)
+void IdentitySetPaintRef(int mode, float gain, float lid);
+void IdentitySetLiveryGain(bool on);   // [devtools] livery_gain (FIX-CAR-IDENTITY-5 A/B): liveries take the lid-light gain   // [devtools] paint_ref / paint_gain_percent (FIX-CAR-IDENTITY-4 A/B)
 
 // Once a frame (records not seen for a while are let go; the probe's per-frame state).
 void IdentityBeginFrame(uint32_t frame);

@@ -23,6 +23,7 @@ bool g_crowdVariety = true;
 float g_paintFloor = 77.0f;
 int g_paintRef = 1;          // [devtools] paint_ref: 1 the panels + no clip (FIX-CAR-IDENTITY-4), 0 the c8ba78f mean rule
 float g_paintGain = 1.25f;   // the panel rule's level (car_bodies.cpp: paint_gain_percent at the lid's light)
+bool g_liveryGain = true;     // [devtools] livery_gain: a livery body takes the lid-light gain too (FIX-CAR-IDENTITY-5, pmt5)
 float g_paintLid = 0.96f;    // the light on a lid (stage 0 multiplies the texel by it before the tint: the clip test)
 uint32_t g_frame = 0;
 
@@ -236,20 +237,26 @@ IdentityRecord DeriveVehicle(const SpriteRef& ref) {
     // of its albedo seen from the classic camera: the red Minx at gain 1 drew 104,49,54 against its sprite's
     // 133,65,65, at 1.25 130,62,68 (lit lids 180,85,93 against the sprite's bonnet 181,92,90; fci4_minx2).
     // Only for the remap-texel paint (a mean against the panels); the brighter-half pair keeps its level.
-    const float gain = g_paintRef == 1 && ref.paintMean ? g_paintGain : 1.0f;
+    // FIX-CAR-IDENTITY-5 (pmt5): a livery's colours are its own art (the taxi's panels measure 200,135,33 against its
+    // sprite's 206,130,33), so it takes no tint, but the 3D light takes the same share of a livery lid as of a painted
+    // one: untinted, the wil taxi's lit roof drew 131,88,15. A livery gets the same gain, uniform (its hue and its
+    // markings are kept), under the same no-clip cap. Not a devtools-forced model without a forced paint (it shows
+    // the model as authored), not a wreck (DeriveWreck).
+    const bool liveryLit = r.livery && !ref.forcedModel && g_liveryGain && g_paintRef == 1 && g_paintGain > 1.0f;   // not under Remix (gain 1)
+    const float gain = g_paintRef == 1 && (ref.paintMean || liveryLit) ? g_paintGain : 1.0f;
     // The dark floor is a least level, not a second multiply on top of the gain (a navy sprite drew +57 % L* when
     // both applied: fci4_paint2): the floor's lift counts the gain already given.
     if (gain > 1.0f && lift > 1.0f) lift = (std::max)(1.0f, lift / gain);
     float cap = 1.0f;
-    if (!r.livery && g_paintRef == 1) {
+    if ((!r.livery || liveryLit) && g_paintRef == 1) {
         float most = 0.0f;
-        for (int k = 0; k < 3; ++k) most = (std::max)(most, gain * lift * live[k] / ownPaint[k]);
+        for (int k = 0; k < 3; ++k) most = (std::max)(most, liveryLit ? gain : gain * lift * live[k] / ownPaint[k]);
         // The texture stages clip texel x light x tint: the brightest lid texel under the lid's light.
         if (most * panelTop * g_paintLid > 250.0f) cap = 250.0f / (most * panelTop * g_paintLid);
     }
     for (int k = 0; k < 3; ++k) {
         const float own = ownPaint[k];
-        r.paintTint[k] = r.livery ? 1.0f : cap * gain * lift * live[k] / own;
+        r.paintTint[k] = liveryLit ? cap * gain : r.livery ? 1.0f : cap * gain * lift * live[k] / own;
         // shown: the colour the lit body reads as (the gain only gives back what the 3D light takes).
         r.shownTop[k] = r.shownBottom[k] = r.livery ? own : (std::min)(255.0f, cap * lift * live[k]);
     }
@@ -287,7 +294,13 @@ IdentityRecord DeriveWreck(const SpriteRef& ref, int whole) {
 // object for another car, the car blew up) re-derives at once.
 constexpr float kPaintHoldTol = 14.0f;
 constexpr uint32_t kPaintHoldFrames = 45;
-struct CarEntry { IdentityRecord rec; uint32_t seen = 0; int whole = -1; float cand[3] = {0, 0, 0}; uint32_t candSince = 0; bool candOn = false; };
+// FIX-CAR-IDENTITY-5 (pmt4): the game re-uses a vehicle object for a new car (the bil F10 car took the slot of a brown
+// Maurice seen minutes before; same model and sprite, another remap), and the hold kept the old car's paint on the new
+// car in the 3D views for ~10 s while classic drew its own remap. The palette is part of what makes it the same car: a
+// record not drawn for kStaleFrames whose palette differs is re-derived at once; a car seen all along that changes
+// palette (a respray) holds the new one for kPaintHoldFrames like any paint change.
+constexpr uint32_t kStaleFrames = 30;
+struct CarEntry { IdentityRecord rec; uint32_t seen = 0; int whole = -1; float cand[3] = {0, 0, 0}; int candPalette = -1; uint32_t candSince = 0; bool candOn = false; };
 float PaintDiff(const float* a, const float* b) {
     return (std::max)({std::fabs(a[0] - b[0]), std::fabs(a[1] - b[1]), std::fabs(a[2] - b[2])});
 }
@@ -316,6 +329,9 @@ void IdentitySetCrowdVariety(bool on) {
 }
 void IdentitySetPaintFloor(float floor) {
     if (g_paintFloor != floor) { g_paintFloor = floor; g_cars.clear(); }
+}
+void IdentitySetLiveryGain(bool on) {
+    if (g_liveryGain != on) { g_liveryGain = on; g_cars.clear(); }
 }
 void IdentitySetPaintRef(int mode, float gain, float lid) {
     if (g_paintRef != mode || g_paintGain != gain || g_paintLid != lid) { g_paintRef = mode; g_paintGain = gain; g_paintLid = lid; g_cars.clear(); }
@@ -422,12 +438,14 @@ const IdentityRecord& IdentityForVehicle(uintptr_t cacheKey, const SpriteRef& re
     const SpriteRef& o = e.rec.ref;
     const bool sameCar = e.seen != 0 && o.carModel == ref.carModel && o.carSprite == ref.carSprite && o.forcedModel == ref.forcedModel &&
                          e.rec.wreck == wreck && (!wreck || e.rec.wreckOf == whole || e.rec.wreckOf < 0);
-    bool derive = !sameCar;
-    if (sameCar) {
-        if (PaintDiff(o.paint, ref.paint) <= kPaintHoldTol) {
+    const bool samePalette = o.palette == ref.palette;
+    const bool stale = e.seen != 0 && (g_frame | 1u) - e.seen > kStaleFrames;
+    bool derive = !sameCar || (!samePalette && stale);
+    if (!derive) {
+        if (samePalette && PaintDiff(o.paint, ref.paint) <= kPaintHoldTol) {
             e.candOn = false;   // the paint it has (a re-measure within the tolerance changes nothing)
-        } else if (!e.candOn || PaintDiff(e.cand, ref.paint) > kPaintHoldTol) {
-            e.candOn = true; e.candSince = g_frame;
+        } else if (!e.candOn || e.candPalette != ref.palette || PaintDiff(e.cand, ref.paint) > kPaintHoldTol) {
+            e.candOn = true; e.candSince = g_frame; e.candPalette = ref.palette;
             for (int k = 0; k < 3; ++k) e.cand[k] = ref.paint[k];
         } else if (g_frame - e.candSince >= kPaintHoldFrames) {
             derive = true;   // held long enough: a respray, not a flash
@@ -435,19 +453,19 @@ const IdentityRecord& IdentityForVehicle(uintptr_t cacheKey, const SpriteRef& re
     }
     if (derive) {
         const bool changed = e.seen != 0;
-        const int oldModel = o.carModel;
+        const int oldModel = o.carModel, oldPalette = o.palette;
         e.rec = wreck && whole >= 0 ? DeriveWreck(ref, whole) : DeriveVehicle(ref);
         e.candOn = false;
         int& n = g_carLogged[e.rec.fingerprint];
         if ((n++ == 0 && g_carLogged.size() < 400) || (driven && changed)) {
             const IdentityRecord& r = e.rec;
             char what[48] = "";
-            if (changed) snprintf(what, sizeof what, oldModel != ref.carModel ? " CHANGED model %d->%d" : " CHANGED paint", oldModel, ref.carModel);
-            Log("identity: vehicle%s obj %08x%s model %d sprite %d paint %.0f,%.0f,%.0f -> %s%s%s tint %.2f,%.2f,%.2f shown %.0f,%.0f,%.0f fp %08x",
+            if (changed) snprintf(what, sizeof what, oldModel != ref.carModel ? " CHANGED model %d->%d" : oldPalette != ref.palette ? " CHANGED palette" : " CHANGED paint", oldModel, ref.carModel);
+            Log("identity: vehicle%s obj %08x%s model %d sprite %d paint %.0f,%.0f,%.0f -> %s%s%s tint %.2f,%.2f,%.2f shown %.0f,%.0f,%.0f fp %08x palette %d",
                 what, static_cast<unsigned>(cacheKey), driven ? " (the player's)" : "", ref.carModel, ref.carSprite, ref.paint[0], ref.paint[1],
                 ref.paint[2], r.model ? r.model->name.c_str() : "(built from sprite)", r.livery ? " livery" : "",
                 !r.wreck ? "" : r.wreckOf == e.whole ? " (wreck of this car's own model)" : " (wreck: the class's stand-in)", r.paintTint[0], r.paintTint[1],
-                r.paintTint[2], r.shownTop[0], r.shownTop[1], r.shownTop[2], r.fingerprint);
+                r.paintTint[2], r.shownTop[0], r.shownTop[1], r.shownTop[2], r.fingerprint, ref.palette);
         }
     }
     e.seen = g_frame | 1u;

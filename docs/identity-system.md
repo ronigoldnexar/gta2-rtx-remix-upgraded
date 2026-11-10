@@ -692,3 +692,48 @@ the exit status is the number of failures, so DEFECT-TRIAGE and the restage gate
 Liveries (cop, taxi, bus, ambulance) draw untinted and are not in the paint half: their parity is the record check in
 (1) and the traffic sessions of 6.5. Known FAILs on 10 Nov: 040 Maurice's lids (art, 9.4) if it is added to the list.
 
+
+## 10. The paint is a function of (sprite, palette); liveries take the lid light (FIX-CAR-IDENTITY-5, 10 Nov 2026)
+
+Work orders pmt4 (2g1, bil F10 car brown in third, green in classic, first-person bonnet brown then green in one drive),
+pmt5 (2w3, the identity half: the wil taxi ochre in third person), ptm1 (2w2, the identity half: the jacked bank van).
+
+### 10.1 pmt4: what it was
+
+The record's paint was measured from the **drawn** sprite record (`car_bodies.cpp` `Measured`, cached by sprite and device
+texture), and the record kept a car's paint by the object it is drawn for unless a new one held for 45 frames
+(`IdentityForVehicle`, the feel9 hold). Two inputs could move it inside one drive:
+
+- **The game re-uses vehicle objects.** The bil F10 scene car took object slot `…0f98` in every session; in the filer's
+  session that object had been a brown Maurice (sprite 35, another remap) drawn in 3D minutes before. Same model, same
+  sprite: "the same car", so the record held the brown paint for the green car until a green re-measure had held for
+  45 frames of 3D drawing, ~10 s into the drive (`identity: vehicle CHANGED paint obj 3d220f98 (the player's) ... paint
+  38,57,37` at 01:54:22, `out/pmt4_bil`). Classic drew its own remap (green) all along. The first-person bonnet takes the
+  record's tint, so it was brown in the round before the change and green after.
+- **The drawn art changes with damage.** Dents, burning, doors and lamps are pixel deltas on the drawn record, and the
+  paint was re-measured from them (`fci5_pmt4c`: 38,57,37 -> 37,55,36 with dents; the filer's change came 6 s after the
+  car caught fire).
+
+### 10.2 What changed
+
+| Piece | Where | What |
+|---|---|---|
+| The paint from the clean art | `texture_store.cpp` `CarSpriteCleanImages`, `car_bodies.cpp` `Measured` | The sprite's own style art (the SPRG indices, no deltas) decoded in the palette the car is drawn in and in the other palette the remap rule compares with. The paint (remap texels' mean, and the brighter-half rule for the floor) is measured from those: a pure function of (sprite, palette), the same for every car in that remap, every frame, every session, dented or burning. Log: `car body: sprite S palette P paint from its remap texels (clean style art, ...)`. `GTA2DX9_CLEAN_PAINT=0` measures the drawn record as before (A/B runs). `PaletteColours` returns one shared buffer: copy the first palette before asking for a second. |
+| The palette in the record | `identity.h` `SpriteRef::palette`, `identity.cpp` `IdentityForVehicle` | The palette (the remap the classic view draws) is part of what makes it the same car. A record not drawn for 30 frames whose palette differs (a re-used object) is re-derived at once; a car drawn all along whose palette changes (a respray) holds the new one for 45 frames, as a paint change did. Log: `identity: vehicle [CHANGED palette] ... fp <hex> palette P`. A forced paint (`force_car_paint`) has palette -1. |
+| The driven car's paint input | `car_bodies.cpp` | `identity: driven car art obj O sprite S palette P pixels .. art .. measured r,g,b damage D fire F`, each time the driven car's art changes (200 lines at most): what the record of the player's car is fed. |
+
+### 10.3 Measured (frames opened)
+
+- `out/fci5_pmt4n2` (keys_pm130.sh, the filer's script, bil, this build): the player's Maurice `palette 184 ... measured
+  38,57,37` from its first 3D frame to the end, through dents and fire (damage 0 -> 20 395, fire stage 3), one record
+  (`fp 34f7bb7b palette 184`), no CHANGED line. Frames d1a/d1c (third), d2a/b/c (first: bonnet), d3a/b/c (classic): the
+  same dark green in all nine.
+- `out/fci5_idpbil1` (`gamerun/keys_fci5_idp_bil.sh`: the parity cycle with the F10 car, two rounds in it): the car's
+  probe lines carry one fingerprint in classic, third and first in both rounds. Body colour by the car's hue band inside
+  the probe rectangles (the parity tool's k-means took the pavement in this classic crop and the black ground in the
+  third-person one; read the sheet): classic 31,55,35; third 32,54,36 (CIE76 1.6) in both rounds; first-person bonnet
+  31,54,36 (1.4) in round 2 and 24,40,27 (8.3, same hue 135, the car parked in shade) in round 1. The record's paint
+  38,57,37 is 2.4 from the classic pixels.
+- Classic: `tools/vreg/vreg.sh stage` (`out/vreg_fci5_b`): `spawn_classic` PASS, 0 changed tiles. The one FAIL
+  (`yakuza1_street`, 27 tiles) and 4 WARNs are window panes and figures (FIX-WORLD-7's sky in the panes and the
+  figure/first-person shots, newer than the goldens), no car in those frames.

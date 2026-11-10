@@ -179,6 +179,10 @@ bool SpriteImageFor(const void* record, std::vector<uint32_t>* out, int* width, 
 // The same artwork in another palette of the car sprite: its own when drawn in a remap (*remapped true),
 // else its first remap. The texels that differ are the paint. False when unknown or the sprite has no remap.
 bool CarSpriteOtherImageFor(const void* record, int sprite, std::vector<uint32_t>* out, bool* remapped);
+// FIX-CAR-IDENTITY-5: the sprite's clean style art (no deltas) in `palette` and in that other palette, for a
+// paint that depends on (sprite, palette) only. Read only.
+bool CarSpriteCleanImages(int sprite, int palette, std::vector<uint32_t>* drawn, std::vector<uint32_t>* other, int* width,
+                          int* height, bool* remapped);
 void ForgetDeviceTexture(const void* record);
 void ReleaseDeviceTextures();
 // True once, when the frame table filled up and wants emptying: the caller releases the
