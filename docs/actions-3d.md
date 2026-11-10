@@ -1441,3 +1441,18 @@ presses while firing the machine gun): every frame shows his figure or the gun a
   (reproduced). fig12_p46a (fix, keys_fig12_p46.sh, the filer's first-person sequence): frames 224-266 every 3rd at a
   crop: both hands on the gun throughout, the support hand dipping under the well and coming back, the grip in frame.
 
+### pfl46 third person: a suppressed shot is a small dull puff, not a white bloom on the chest
+- The silenced MG took the plain flash: an orange glow, a white core, three sparks fanning out and a muzzle light;
+  the plain light pass (visuals.cpp) floors a muzzle light at 0.20 with half of it by day, and the game's own flash
+  particle carries another (synthetic lights). Pointed at the camera, all of it sat over his chest: a white blob
+  with streaks to the sides (fig12_p46o, the old path at the same pose).
+- Now (`ShotFxMuzzle`): the silenced MG spawns one small warm puff (alpha 0.6, 0.05 s) and a faint grey smoke wisp,
+  no core, no sparks, no light of its own; every frame a figure (or the view model) holds it, its muzzle is noted
+  (`NoteSilencedMuzzle`) and the light pass turns any muzzle light within 0.8 block of one in the last 4 frames into a
+  faint glow (x0.25, radius 1.2, no day share). In first person the view model's own flash light is x0.3 for it.
+  A/B: `GTA2DX9_SILENCED_FLASH_OLD=1` (both).
+- Frames: fixed camera in front of him (regress cam), fig12_p46o (old) vs fig12_p46a (new) three-quarter, frames
+  104-142: the old white bloom and fanned sparks on shot frames are gone, the shirt no longer flashes; fig12_p46b
+  head-on (the filer's pose): a small warm puff over the hands on shot frames.
+- Not changed: end-on (the gun pointed straight at the camera) the gun is a dark block at the hands about the width
+  of a hand, which is what a 0.17-block gun looks like end-on; against his dark shirt it has little contrast.

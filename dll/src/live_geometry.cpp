@@ -7692,10 +7692,29 @@ bool FlameJetOn() {
 }
 // What leaves the muzzle on a shot: the flash as a glow with a Remix light in
 // it, sparks ahead, a case out of the right side, the electro gun's arc.
+struct SilencedMuzzle { float x, y, z; uint32_t frame; };
+std::vector<SilencedMuzzle> g_silencedMuzzles;   // FIX-FIGURE-12: this and the last frames' suppressed muzzles
+void NoteSilencedMuzzle(const float* pos) {
+    g_silencedMuzzles.push_back({pos[0], pos[1], pos[2], g_carFrame});
+    if (g_silencedMuzzles.size() > 64) g_silencedMuzzles.erase(g_silencedMuzzles.begin());
+}
 void ShotFxMuzzle(int weapon, const float* pos, const float* dir, const float* right, const float* up, bool firstPerson) {
     if (weapon <= 0 || weapon >= kWpnCount) return;
     const WeaponInfo& wi = kWeapons[weapon];
-    if (wi.flashSize > 0.0f) {
+    // FIX-FIGURE-12 (pfl46 third): a suppressed weapon's shot is a small dull puff at the end of the
+    // suppressor: no white core, no star streaks, no sparks and no muzzle light (the plain light pass
+    // floors a muzzle light at 0.20 with a day share: with the gun pointed at the camera it lit his
+    // shirt into a white blob, the sparks fanning sideways over it). GTA2DX9_SILENCED_FLASH_OLD=1: as before.
+    static const bool silencedOld = [] { char v[8] = {}; return GetEnvironmentVariableA("GTA2DX9_SILENCED_FLASH_OLD", v, sizeof v) && v[0] == '1'; }();
+    if (wi.flashSize > 0.0f && weapon == kWpnSilencedMg && !silencedOld) {
+        const float fs = wi.flashSize * (0.85f + 0.25f * ShotRand()) * (firstPerson ? 0.6f : 1.0f);
+        ShotSpawn(pos[0] + dir[0] * fs * 0.3f, pos[1] + dir[1] * fs * 0.3f, pos[2] + dir[2] * fs * 0.3f, 0, 0, 0,
+                  0.05f, fs, fs * 1.15f, 0.80f, 0.66f, 0.45f, 0.6f, 4);
+        NoteSilencedMuzzle(pos);   // the light pass dims the game's flash light here
+        // A wisp of grey gas out of the bore.
+        ShotSpawn(pos[0] + dir[0] * fs * 0.6f, pos[1] + dir[1] * fs * 0.6f + 0.004f, pos[2] + dir[2] * fs * 0.6f, dir[0] * 0.25f, 0.06f + dir[1] * 0.25f, dir[2] * 0.25f,
+                  0.25f, fs * 0.6f, fs * 1.1f, 0.62f, 0.62f, 0.60f, 0.35f, 3);
+    } else if (wi.flashSize > 0.0f) {
         const float fs = wi.flashSize * (0.85f + 0.3f * ShotRand()) * (firstPerson ? 0.75f : 1.0f);
         ShotSpawn(pos[0] + dir[0] * fs * 0.3f, pos[1] + dir[1] * fs * 0.3f, pos[2] + dir[2] * fs * 0.3f, 0, 0, 0,
                   0.07f, fs, fs * 1.3f, wi.r, wi.g, wi.b, 1.0f, 4);
@@ -8281,6 +8300,7 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     }
     const float k = (wi.length * (wi.twoHanded ? 1.2f : 1.4f)) / (std::max)(0.01f, WeaponSpan(*model));
     const float bore = weaponrig::BoreHeight(weapon);   // FIX-FIGURE-11 (pfl42): the muzzle on the bore line
+    if (weapon == kWpnSilencedMg) NoteSilencedMuzzle(pos);   // FIX-FIGURE-12: the game's flash light in first person too
     static int logged = 0;
     if (logged < 12) { ++logged; Log("view model: %s at %.2f,%.2f,%.2f dir %.2f,%.2f,%.2f up %.2f,%.2f,%.2f k %.3f kick %.2f", wi.name, pos[0], pos[1], pos[2], dir[0], dir[1], dir[2], up[0], up[1], up[2], k, kick); }
     gta2::Mat4 place;
@@ -8366,7 +8386,7 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
         {
             D3DLIGHT9 flash = {};
             flash.Type = D3DLIGHT_POINT;
-            const float fi = vmLit ? 2.2f * vmFlash * (std::min)(1.0f, wi.light + 0.4f) : 0.0f;
+            const float fi = vmLit ? 2.2f * vmFlash * (std::min)(1.0f, wi.light + 0.4f) * (weapon == kWpnSilencedMg ? 0.3f : 1.0f) : 0.0f;   // FIX-FIGURE-12: suppressed
             flash.Diffuse = {wi.r * fi, wi.g * fi, wi.b * fi, 1.0f};
             for (int c = 0; c < 3; ++c) (&flash.Position.x)[c] = pos[c] + dir[c] * (model->boundsMax.z * k + 0.02f) + wu[c] * (FpMuzzleOld() ? 0.01f : bore * k);
             flash.Range = 0.6f;
@@ -11427,6 +11447,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                                 for (int c = 0; c < 3; ++c) muzzle[c] = place.m[3][c] + place.m[2][c] * weapon->boundsMax.z;
                             }
                             track.muzzleX = muzzle[0]; track.muzzleY = muzzle[1]; track.muzzleZ = muzzle[2];
+                            if (track.weapon == kWpnSilencedMg) NoteSilencedMuzzle(muzzle);   // FIX-FIGURE-12: every frame he holds it
                             if (g_logPedFrames && heroFigure && track.muzzleFrame == g_carFrame)
                                 Log("rig gun: f=%u wpn=%d act=%d by=%d src=%d muzzle=%.3f,%.3f,%.3f shot=%d", g_carFrame, track.weapon, track.action,
                                     placedBy ? placedBy : 3, weaponrig::GunSource(), muzzle[0], muzzle[1], muzzle[2], track.muzzleFrame == g_carFrame ? 1 : 0);
@@ -13967,4 +13988,15 @@ const char* WeaponName(int weapon) {
     return weapon > 0 && weapon < kWpnCount ? kWeapons[weapon].name : (weapon == 0 ? "none" : "?");
 }
 uint32_t LiveDrawFrame() { return g_carFrame; }
+// FIX-FIGURE-12 (pfl46 third): a muzzle light (renderer space) within 0.8 block of a suppressed shot
+// fired in the last 4 drawn frames: the plain light pass dims it (the game's own flash particle carries
+// a muzzle light whatever the gun).
+bool SilencedMuzzleNear(const float* pos) {
+    for (const SilencedMuzzle& m : g_silencedMuzzles) {
+        if (g_carFrame - m.frame > 4) continue;
+        const float dx = pos[0] - m.x, dy = pos[1] - m.y, dz = pos[2] - m.z;
+        if (dx * dx + dy * dy + dz * dz < 0.64f) return true;
+    }
+    return false;
+}
 }  // namespace gta2dx9

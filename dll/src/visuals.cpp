@@ -24,6 +24,7 @@
 #include "../../src/sky.h"
 
 namespace gta2dx9 {
+bool SilencedMuzzleNear(const float* pos);   // live_geometry.cpp (FIX-FIGURE-12)
 namespace {
 
 char g_ini[MAX_PATH] = "";
@@ -192,6 +193,9 @@ void ProvideLights(std::vector<gta2::VisualLight>* out) {
         // FIX-FIGURE-6 pfeel50: a muzzle flash pulses on the walls by day too (half its night
         // strength), a short warm reach round the shooter.
         if (d.source == kLightSourceMuzzle) { l.day = 0.5f; l.radius = 2.6f; l.intensity = 0.20f + 0.35f * (d.intensity < 1.0f ? d.intensity : 1.0f); }
+        // FIX-FIGURE-12 (pfl46 third): a suppressed shot's flash light (the game's flash particle) is a
+        // faint glow, no day share: at 0.20+ by day it lit his shirt and face on every shot.
+        if (d.source == kLightSourceMuzzle && SilencedMuzzleNear(d.pos)) { l.day = 0.0f; l.intensity *= 0.25f; l.radius = 1.2f; }
         out->push_back(l);
         // A pool under each of the map's lamps (QB-35): a GTA2 lamp sits 1.5-3 blocks over the
         // street, and with the soft falloff above only ~3 % of it reached the pavement, so the
