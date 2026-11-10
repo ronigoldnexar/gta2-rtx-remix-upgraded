@@ -1873,3 +1873,16 @@ so every reaction here is draw-only; the game's positions, damage and knock-down
 Still short: no stumble or fall for a glancing hit (the game keeps her running, and a drawn fall would leave the
 body behind the game's person); a contact at the bumper of a high-dash van is below the first-person view; the
 filer's exact sideswipe along the plaza wall was not re-hit (traffic is not repeatable).
+
+### pfl51 (the free half): the rocket's recoil, a backblast at the breech, the tube beside the head
+
+- Seen (HEAD, fig15_rk1, side fixed camera 30 fps): the launch kick was a small step of the tube, the breech showed
+  nothing, and the tube sat across the head's height inboard of the shoulder (from behind it hid the head).
+- Fix: weapon_rig.cpp: the tube's butt on top of the right shoulder 0.045 outboard (was 0.03 inboard), so the head
+  is beside it; the launch kick harder (0.07 m back, 7 deg climb, shoulder 10 deg, chest 7). live_geometry.cpp
+  ShotFxMuzzle: a backblast at the breech (a hot flash, a cone of grey smoke driven out behind him, sparks).
+- Verified: fig15_rk3/rk4 side-on (flash, sparks and smoke out of the breech on the launch; tube kicks and settles;
+  head beside the tube), fig15_rk2 behind-right (head beside the tube, the flash at the breech).
+- Short of a shipping frame: no camera shake; the smoke is the shot particles' grey puffs (no dust kicked off the
+  ground behind); FP unchanged (no backblast seen from the eye).
+- A/B: `GTA2DX9_ROCKET_FX_OLD=1`.

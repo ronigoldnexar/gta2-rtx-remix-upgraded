@@ -8027,6 +8027,11 @@ bool ReloadFixOn() {   // FIX-FIGURE-12 (pfl39): GTA2DX9_RELOAD_FIX=0 restores t
     if (on < 0) { char v[8] = {}; on = (GetEnvironmentVariableA("GTA2DX9_RELOAD_FIX", v, sizeof v) && v[0] == '0') ? 0 : 1; }
     return on == 1;
 }
+bool RocketBackblastOld() {   // FIX-FIGURE-15 (pfl51): GTA2DX9_ROCKET_FX_OLD=1: no backblast (and the rig's old tube place and kick)
+    static int on = -1;
+    if (on < 0) { char v[8] = {}; on = (GetEnvironmentVariableA("GTA2DX9_ROCKET_FX_OLD", v, sizeof v) && v[0] == '1') ? 1 : 0; }
+    return on != 0;
+}
 // FIX-FIGURE-15 (pfl76 first person, feel12 third person): the flamethrower's jet, one mechanism for both
 // views. A continuous stream emitted for the frame's real time (`span` seconds) from the nozzle along `dir`:
 // textured flame tongues (FlameTexture, kind 7) that leave the nozzle thin and hot and swell, redden and
@@ -8213,6 +8218,27 @@ void ShotFxMuzzle(int weapon, const float* pos, const float* dir, const float* r
         }
         // A wisp of dark smoke off the tip of the stream.
         if (ShotRand() < 0.3f) ShotFxSmoke(pos[0] + dir[0] * 1.9f * fp, pos[1] + dir[1] * 1.9f * fp + 0.08f, pos[2] + dir[2] * 1.9f * fp);
+    }
+    if (weapon == kWpnRocket && !firstPerson && !RocketBackblastOld()) {
+        // FIX-FIGURE-15 (pfl51): the backblast: a hot flash at the breech, a cone of grey smoke driven out behind him
+        // and a few sparks, so a launch reads at both ends of the tube (the breech showed nothing).
+        const float back = wi.length * 1.05f;
+        const float bx = pos[0] - dir[0] * back, by = pos[1] - dir[1] * back, bz = pos[2] - dir[2] * back;
+        ShotSpawn(bx - dir[0] * 0.03f, by - dir[1] * 0.03f, bz - dir[2] * 0.03f, -dir[0] * 0.4f, -dir[1] * 0.4f, -dir[2] * 0.4f,
+                  0.09f, 0.08f, 0.20f, 1.0f, 0.80f, 0.50f, 0.9f, 4);
+        for (int i = 0; i < 14; ++i) {
+            const float sp = 1.2f + 1.4f * ShotRand();
+            const float sx = (ShotRand() - 0.5f) * 0.9f, sy = (ShotRand() - 0.5f) * 0.6f;
+            ShotSpawn(bx, by, bz, (-dir[0] + right[0] * sx + up[0] * sy) * sp, (-dir[1] + right[1] * sx + up[1] * sy) * sp + 0.10f,
+                      (-dir[2] + right[2] * sx + up[2] * sy) * sp, 0.9f + 0.6f * ShotRand(), 0.08f, 0.42f + 0.15f * ShotRand(),
+                      0.78f, 0.77f, 0.75f, 0.85f, 3);
+        }
+        for (int i = 0; i < 6; ++i) {
+            const float sp = 2.0f + 2.0f * ShotRand();
+            const float sx = (ShotRand() - 0.5f) * 0.8f, sy = (ShotRand() - 0.5f) * 0.8f;
+            ShotSpawn(bx, by, bz, (-dir[0] + right[0] * sx + up[0] * sy) * sp, (-dir[1] + right[1] * sx + up[1] * sy) * sp,
+                      (-dir[2] + right[2] * sx + up[2] * sy) * sp, 0.12f + 0.1f * ShotRand(), 0.012f, 0.004f, 1.0f, 0.8f, 0.45f, 1.0f, 0);
+        }
     }
     if (weapon == kWpnElectro) {
         // The arc: a jagged line of short-lived sparks a block and a half out.

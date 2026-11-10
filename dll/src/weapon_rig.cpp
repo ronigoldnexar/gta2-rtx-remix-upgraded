@@ -308,6 +308,11 @@ struct Params {   // recoil, per class
     float spine, shoulder, head;     // degrees: chest back, right shoulder driven back, head nod
     float shove;                     // metres the figure is pushed back
 };
+bool RocketFxOld() {
+    static int on = -1;
+    if (on < 0) { char v[8] = {}; on = (GetEnvironmentVariableA("GTA2DX9_ROCKET_FX_OLD", v, sizeof v) && v[0] == '1') ? 1 : 0; }
+    return on != 0;
+}
 Params ParamsFor(int weapon) {
     switch (weapon) {
         case wPistol: case wDual: return {24.0f, 0.42f, 1.0f, 0.035f, 10.0f, 1.0f, 2.5f, 2.0f, 2.5f, 0.012f};
@@ -315,7 +320,9 @@ Params ParamsFor(int weapon) {
         case wMg:                return {30.0f, 0.55f, 0.75f, 0.028f, 4.5f, 1.8f, 2.2f, 4.0f, 1.5f, 0.007f};
         case wElectro:           return {30.0f, 0.60f, 0.35f, 0.012f, 2.0f, 0.8f, 1.0f, 1.5f, 0.5f, 0.002f};
         case wShotgun:           return {17.0f, 0.38f, 1.0f, 0.065f, 14.0f, 1.5f, 7.0f, 10.0f, 5.0f, 0.040f};
-        case wRocket:            return {13.0f, 0.50f, 1.0f, 0.050f, 5.0f, 0.5f, 6.0f, 7.0f, 3.0f, 0.045f};
+        // FIX-FIGURE-15 (pfl51): a launch shoves the tube and the shoulder back harder (0.07 m, 7 deg climb, shoulder 10).
+        case wRocket:            return RocketFxOld() ? Params{13.0f, 0.50f, 1.0f, 0.050f, 5.0f, 0.5f, 6.0f, 7.0f, 3.0f, 0.045f}
+                                                      : Params{12.0f, 0.48f, 1.0f, 0.070f, 7.0f, 0.6f, 7.0f, 10.0f, 4.0f, 0.050f};
         case wFlame:             return {20.0f, 0.70f, 0.12f, 0.010f, 1.0f, 1.5f, 0.5f, 0.5f, 0.0f, 0.0f};
         default:                 return {20.0f, 0.60f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
     }
@@ -498,7 +505,9 @@ Hold HoldFor(const Ctx& c, int mode, const std::vector<Mat4>& W, const Vec3& F, 
     // read as a hand at the ear with the flash beside his head. GTA2DX9_MG_STANCE_OLD=1: at the cheek as before.
     else if (mgOut) put(0.0f, geo.bore, (shR + shL) * 0.5f + R * 0.06f + F * 0.38f + U * 0.01f);   // fig15_mg2: 0.48 out locked both elbows straight
     else if (longGun) put(geo.buttZ, geo.buttY, pocket + U * 0.065f);
-    else if (cls == cLauncher) put(geo.buttZ, geo.buttY, shoulderTop);
+    // FIX-FIGURE-15 (pfl51): the tube on top of the right shoulder, outboard of the neck (shoulder 0.045 out, was 0.03 in):
+    // from the chase camera behind him the tube crossed his head at its height and hid it.
+    else if (cls == cLauncher) put(geo.buttZ, geo.buttY, RocketFxOld() ? shoulderTop : shR + U * 0.060f + R * 0.045f);
     else if (cls == cFlame) { g.o = shR - U * 0.30f + F * 0.22f + R * 0.02f; pitchAt(-5.0f, g.o); }
     const Vec3 butt = at(geo.buttZ, geo.buttY);
     float reloadPitch = 0.0f;
