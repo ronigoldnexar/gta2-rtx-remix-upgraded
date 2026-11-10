@@ -42,6 +42,9 @@ Results of a run: `out/<run>/gta2dx9.log` (look for `FAULT`, `view:`,
 
 ## Rules from round 2 (multi-agent host; details in docs/HANDOVER.md section 0)
 
+- Never `git stash push`/`pop` in any worktree of `repo/`: `refs/stash` is shared by every worktree, so a pop
+  takes another agent's hunks (16:16 UTC 10 Nov: FIX-CAMERA-16 and FIX-PERF-5 swapped stashes). Park work
+  as a patch (`git diff > /tmp/x.patch; git checkout -- <files>`) or a WIP commit on your worktree branch.
 - Never put a shell variable in an `rm` command typed into the agent shell (`rm -rf "$X"`):
   the harness safety check hangs the call forever. Use literal absolute paths or Python.
 - Restage the shared `stage/` only with `linux/docker/restage.sh` (waits for the build lock
