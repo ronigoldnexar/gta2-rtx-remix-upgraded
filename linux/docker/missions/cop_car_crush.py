@@ -26,6 +26,7 @@ sys.path.insert(0, "/work")
 sys.argv = sys.argv[:1]
 os.environ["MISSIONS"] = " "
 os.environ.setdefault("WARP_OK", "0")
+os.environ.setdefault("DI_CHASE_LEG", "1")     # MISSIONS-BATCH2: the long Cop Car legs by chase_path (skills/deliver_intact.py)
 import drive_lib as D
 import mission_lib as M
 import mission_play_wil as P          # the session: start, calibration, views, answer
@@ -81,6 +82,49 @@ def chase_shot(tag):
     chase(); time.sleep(0.6); M.shot(f"ccc_{tag}")
 
 
+OWN_KEYS = {"1982", "1681"}
+OTHER_KEYS = {"1113", "1161", "1983"}      # "already on a job" / the WHEELER-DEALING phone (ccc6: 1161, 1113)
+
+
+def step_answer(entry):
+    """MISSIONS-BATCH2: the answer from the launch cell (one block east of the phone) as small aimed
+    steps in the classic view (P.nudge_to: no router, no sideways unstick). mg_ccc5 stuck 1.3 south of
+    the phone in walk3 and never answered; mg_ccc6's walk3 unstick wandered onto WHEELER-DEALING's phone
+    two cells north (1161, 1113) and started the wrong job. Between steps: back to the launch cell's
+    line if he drifts north of y 58.25; step off east and on again when the phone stays silent.
+    Falls back to the session's answer (P.answer) after the tries"""
+    px, py = entry["x"], entry["y"]
+    m0 = MSGS.mark()
+    M.arrows_baseline()
+    def heard():
+        MSGS.poll(); new = MSGS.seen[m0:]
+        if any(k in OWN_KEYS for k in new): return "own"
+        if any(k in OTHER_KEYS for k in new): return "other"
+        return None
+    for k in range(4):
+        t0 = time.time()
+        while time.time() - t0 < CC._scale(10):
+            h = heard()
+            if h: break
+            s = D.wait_state()
+            if not s or s["driving"]: break
+            if s["y"] > py + 0.75:                     # toward the neighbour (208.5,59.5): back south
+                P.nudge_to(s["x"], py, tol=0.2, tries=3); continue
+            P.nudge_to(px, py, tol=0.12, tries=4)
+            time.sleep(0.4)
+        h = heard()
+        if h: break
+        M.mark(f"step_answer: phone silent after try {k + 1}; off east and on again")
+        P.nudge_to(px + 1.15, py, tol=0.2, tries=8); time.sleep(0.6)
+    h = heard()
+    M.mark(f"step_answer: {h or 'nothing'} (messages {MSGS.seen[m0:]})")
+    ms = dict(M.mission_state() or {})
+    if h == "own":
+        ms["msg"] = next(k for k in MSGS.seen[m0:] if k in OWN_KEYS); return True, ms
+    if h == "other": return False, ms
+    return P.answer(entry)
+
+
 def phone(entry):
     if os.environ.get("CCC_WARP_PHONE", "0") == "1":
         os.environ["WARP_OK"] = "1"
@@ -89,7 +133,7 @@ def phone(entry):
         return ok, ms, {"warp": True}
     for k in range(3):
         g0 = M.frames_rendered()
-        ok, ms, info = RA.answer_roof_phone(world, entry, P.answer)
+        ok, ms, info = RA.answer_roof_phone(world, entry, step_answer if os.environ.get("CCC_STEP_ANSWER", "1") == "1" else P.answer)
         if ok or info.get("reached"): break
         # the climb's budget is wall time: a governor pause (ccc1: 16 min) spends it with the game
         # frozen. Try again while little game time went by

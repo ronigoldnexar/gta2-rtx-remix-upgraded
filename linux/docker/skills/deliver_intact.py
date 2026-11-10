@@ -41,6 +41,10 @@ FIRE_LIFE = 28.0       # game seconds a burning car lasts, roughly (pt7-pt9: 25-
 RESPRAY_COST = int(os.environ.get("SP_RESPRAY_COST", "5000"))   # a shop does nothing below this (pt8_respray2, br7)
 SHOP_DETOUR = 1.6      # a respray is taken when it is at most this many times nearer than the goal
 CARE_STEPS = ((26000, 2.6), (22000, 2.0), (18000, 1.6))   # carhp -> speed cap of the fragile drive
+CHASE_LEG = os.environ.get("DI_CHASE_LEG", "0") == "1"     # MISSIONS-BATCH2: long legs by shake_police.chase_path
+CHASE_LEG_MIN = float(os.environ.get("DI_CHASE_LEG_MIN", "18"))   # blocks: nearer than this, drive3 alone
+CHASE_LEG_VMAX = float(os.environ.get("DI_CHASE_LEG_VMAX", "2.4"))  # game blocks / game s on a straight
+CHASE_LEG_STATS = {"legs": 0, "arrived": 0, "lost": 0, "pinned": 0, "other": 0}
 DRIVE_CALL = 240.0    # one drive3 call at most this long, then the leg re-plans (dl_zz5 spent 420 s in one)
 EVENTS = []            # (wall time, event) for the job's doc
 
@@ -272,11 +276,11 @@ def deliver(world, box, car=None, approach=None, done=None, check=None, view_swi
         if ms.get("msg") in M.FAILED_KEYS: return "failed"
         return why
 
-    t0 = time.time(); repaired = 0
+    t0 = time.time(); repaired = 0; warm = [False]
     saved = (M.CARE_HP, M.CARE_CAP, M.SMOOTH_SLOW_CAP)
     _ev(f"to {label} {x},{y} ({w} x {h}), carhp {car_hp()}")
     try:
-        for attempt in range(tries):
+        for attempt in range(tries + (3 if CHASE_LEG else 0)):     # the pull-out and chase legs are attempts too
             if time.time() - t0 > budget: break
             if check: check()
             if reacted(): return finish("delivered")
@@ -313,6 +317,41 @@ def deliver(world, box, car=None, approach=None, done=None, check=None, view_swi
                 try: side = open_side(world, box, M.ped_level(s))
                 except Exception: side = None
             on_open = side is None or ((s["x"] - x) * side[1][0] + (s["y"] - y) * side[1][1]) > -0.2
+            # MISSIONS-BATCH2 (COP CAR CRUSH): mg_ccc2/ccc4 lost the Cop Car to many 300-600 carhp knocks
+            # at near-zero speed on 120-160-block drive3 legs (queueing, crawling into traffic, a 460 s
+            # leg to Shady); chase_path (the getaway's no-stop pursuit driver: overtakes, never queues,
+            # backs off a stall) takes the long part at a calm pace, drive3 the last CHASE_LEG_MIN blocks
+            tgt = ap or (x, y)
+            if CHASE_LEG and math.hypot(tgt[0] - s["x"], tgt[1] - s["y"]) > CHASE_LEG_MIN + 4:
+                try:
+                    from skills import shake_police as SP
+                except Exception:
+                    SP = None
+                sx0, sy0 = s["x"], s["y"]
+                if SP is not None and not warm[0]:
+                    # mb2_ccc1: from the Cop Car's parking spot (206.5,38.5) chase_path stalled 3 times
+                    # at once (carhp 32000 -> 28324): drive3 pulls out of a standstill, chase_path from 8 blocks on
+                    warm[0] = True
+                    pin = _pin_guard(lambda: reacted() or (lambda q: bool(q and math.hypot(q["x"] - sx0, q["y"] - sy0) > 8))(D.state()))
+                    _ev(f"chase leg: drive3 pulls out first (carhp {hp})")
+                    M.drive3(world, tgt[0], tgt[1], tol=CHASE_LEG_MIN, budget=60, view_switch=view_switch, slow=True, precious=True, until=pin)
+                    if getattr(pin, "fired", 0) and not reacted(): _pin_back_off(world)
+                    continue
+                if SP is not None:
+                    pin = _pin_guard(reacted)
+                    vmax = min(CHASE_LEG_VMAX, cap) if cap else CHASE_LEG_VMAX
+                    CHASE_LEG_STATS["legs"] += 1
+                    _ev(f"chase leg to {tgt[0]:.1f},{tgt[1]:.1f} ({math.hypot(tgt[0] - s['x'], tgt[1] - s['y']):.0f} blocks, vmax {vmax}, carhp {hp})")
+                    s2, why = SP.chase_path(world, tgt[0], tgt[1], tol=CHASE_LEG_MIN, budget=min(DRIVE_CALL, max(60, budget - (time.time() - t0))),
+                                            until=pin, check=check, vmax=vmax)
+                    _ev(f"chase leg: {why} at {s2['x']:.1f},{s2['y']:.1f} (carhp {car_hp()})" if s2 else f"chase leg: {why}")
+                    if getattr(pin, "fired", 0) and not reacted():
+                        CHASE_LEG_STATS["pinned"] += 1; _pin_back_off(world); continue
+                    CHASE_LEG_STATS[why if why in ("arrived", "lost") else "other"] += 1
+                    if reacted(): keys_off(); break
+                    if why in ("arrived", "budget", "on foot"): continue      # re-plan (pace, respray, board)
+                    s = D.wait_state()
+                    if not (s and s["driving"]): continue
             if math.hypot(x - s["x"], y - s["y"]) < 6.0 and on_open:
                 # already at the box: the creep only (dl_zz4: a 2-block drive3 back to the approach
                 # point re-routed itself 50 blocks away from 53.1,177.9)
