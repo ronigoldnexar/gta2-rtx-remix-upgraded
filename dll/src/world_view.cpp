@@ -3585,6 +3585,15 @@ void WorldView::RenderFrame() {
     // game asks its renderer to initialise, so this is retried from the frame
     // loop until it takes, exactly like the device is.
     RemixApiInit();
+    // FIX-STABILITY-1: [sky] follow_clock=auto turns into 1 the first frame the Remix API answers.
+    {
+        gta2::SkySettings& sky = gta2::SkyConfig();
+        if (sky.followClockAuto && RemixApiAvailable()) {
+            sky.followClockAuto = false;
+            sky.followClock = true;
+            Log("sky: follow_clock=auto: RTX Remix runtime detected, the sun follows the clock (one sun with Remix's sky)");
+        }
+    }
     // Not conditional on that: when Remix is absent the menu is the thing that
     // says so, which it cannot do if it only exists once Remix is there.
     DebugMenuInit(gameWindow_, window_, renderer_.Device());

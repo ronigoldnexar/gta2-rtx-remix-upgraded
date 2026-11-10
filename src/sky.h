@@ -34,6 +34,11 @@ struct SkySettings {
     // time_of_day.h (so 02:00 is a night sky); otherwise it stands still where
     // these say. Compass azimuth: 0 north (+Z), 90 east (+X).
     bool  followClock = false;
+    // FIX-STABILITY-1 (owner-5090-daynight-too-fast): [sky] follow_clock=auto (the default) leaves
+    // followClock off until the RTX Remix API answers, then turns it on (world_view.cpp RenderFrame):
+    // under Remix the runtime's own sky follows the clock, and a fixed dome sun lit a 4 pm street under
+    // its 02:00 star field. In plain GL nothing else goes dark at night, so it stays off there.
+    bool  followClockAuto = false;
     float sunElevationDeg = 24.0f;
     float sunAzimuthDeg = 235.0f;
     // Distance fog, in blocks: full colour from fogEnd, none before fogStart.

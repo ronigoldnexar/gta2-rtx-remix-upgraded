@@ -516,7 +516,13 @@ void LoadConfig() {
     {
         gta2::SkySettings& sky = gta2::SkyConfig();
         sky.enabled = GetPrivateProfileIntA("sky", "enabled", 1, ini) != 0;
-        sky.followClock = GetPrivateProfileIntA("sky", "follow_clock", 0, ini) != 0;
+        {
+            // FIX-STABILITY-1: "auto" (or no key) = 1 under a Remix runtime, 0 without; see SkySettings.
+            char follow[16] = {};
+            GetPrivateProfileStringA("sky", "follow_clock", "auto", follow, sizeof(follow), ini);
+            sky.followClockAuto = _stricmp(follow, "auto") == 0 || follow[0] == '\0';
+            sky.followClock = !sky.followClockAuto && atoi(follow) != 0;
+        }
         sky.sunElevationDeg = GetPrivateProfileIntA("sky", "sun_elevation_tenths", 240, ini) / 10.0f;
         sky.sunAzimuthDeg = GetPrivateProfileIntA("sky", "sun_azimuth_tenths", 2350, ini) / 10.0f;
         sky.fogStart = static_cast<float>(GetPrivateProfileIntA("sky", "fog_start_blocks", 18, ini));
@@ -526,7 +532,7 @@ void LoadConfig() {
         sky.ambient = GetPrivateProfileIntA("sky", "ambient_percent", 80, ini) / 100.0f;
         sky.sunLight = GetPrivateProfileIntA("sky", "sun_light_percent", 40, ini) / 100.0f;
         gta2dx9::Log("sky: %s, sun %s at elevation %.0f azimuth %.0f, fog %.0f..%.0f blocks, clouds %.0f%%, ambient %.0f%% sun %.0f%%",
-                     sky.enabled ? "on in the street views" : "off", sky.followClock ? "from the clock" : "fixed",
+                     sky.enabled ? "on in the street views" : "off", sky.followClockAuto ? "from the clock under Remix, fixed without (follow_clock=auto)" : sky.followClock ? "from the clock" : "fixed",
                      sky.sunElevationDeg, sky.sunAzimuthDeg, sky.fogStart, sky.fogEnd, sky.cloudCover * 100.0f,
                      sky.ambient * 100.0f, sky.sunLight * 100.0f);
     }
