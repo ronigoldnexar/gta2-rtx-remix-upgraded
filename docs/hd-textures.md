@@ -124,6 +124,27 @@ before the photo tile, never on a Remix device; the classic view keeps the plain
 (`[renderer] road_markings`, default 1). Sheets: `qb24/roads_sheets/re_<style>.png` in the
 working folder. Defect pm-road-lane-dashes-dark-gaps-and-garbled-road-text.
 
+### bil 765: the flat olive lane (qav6, qav8; FIX-WORLD-13, 10 Nov 2026)
+
+qav6 (bil 180.5,60.5) and qav8 (bil 110.5,40.5) filed a smooth, crack-free olive trapezoid with hard
+edges in the kerb lane, with smeared yellow lane lettering on its edge. Raycast from the logged
+camera pose (`GTA2DX9_LOG_CAMERA=1`, the `cam: pose` line, through tools/world_raycast) put the
+patch on tile 765, the kerb-lane tile with GTA2's own yellow lettering strip; a magenta-marked
+photo 757 in a private stage proved the photo set does reach its neighbours. 765 is one of the four
+road tiles the photo set does not have, so its street copy in `roads/bil/` was QB-24's plain HD
+upscale: asphalt high-pass sd 1.8 against ~6 on every neighbour. `tools/regrain_road_tile.py`
+rebuilt it from its sibling 764 (same kerb, white edge line and cracked photo asphalt) for rows
+0-430, kept 765's own rows from 446 down (the lettering strip, as the game draws it), cross-faded
+over 16 rows and shifted to 765's own asphalt mean, so the runtime tone match is unchanged:
+
+    regrain_road_tile.py roads/bil/tile_0764.dds roads/bil/tile_0765.dds <out>/tile_0765.dds --keep-from 446 --blend 16
+
+Street set only (classic and Remix never load `roads/`); the HD 765 under `assets/textures_hd/bil`
+is untouched. Original kept in the host's `backup_fw13_roads/bil`. The lettering itself is the
+original art's ("RULLHT..." glyphs), unchanged. Frames: out/qa_fw13qav8 t_s0_third0 and
+out/qa_fw13qav6 t_s0_third_walk1 against the filer's crops (cracked asphalt to the kerb line).
+wil 685 and ste 696/813 are the other three plain-HD road copies; not filed, not changed.
+
 ## Cutouts
 
 GTA2's alpha is one bit at 64 px. Scaled up nearest, a chain-link fence or a railing
