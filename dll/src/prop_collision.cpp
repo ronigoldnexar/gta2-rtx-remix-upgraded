@@ -490,9 +490,22 @@ void PropCollisionLogNear(float x, float z, float y) {
         for (const CollisionShape& s : *list) {
             if (std::fabs(s.cx - x) > 5.0f || std::fabs(s.cz - z) > 5.0f || std::fabs(s.y0 - y) > 1.0f) continue;
             if (n >= static_cast<int>(sizeof line) - 64) break;
-            // Game frame (x east, y south) for the probes.
-            n += snprintf(line + n, sizeof line - n, " %s@%.2f,%.2f/%.2f", s.kind ? s.kind : "?", s.cx, static_cast<float>(gta2::kMapHeight) - s.cz,
-                          s.hb < 0.0f ? s.ha : (std::max)(s.ha, s.hb));
+            // Game frame (x east, y south) for the probes. FIX-COLLISION-2: a circle as "/r<radius>", a box as
+            // "/box<length>x<width>h<heading>" (full sides; the heading of its length in degrees, 0 east, 90
+            // along +y): the bare "/0.28" this printed for a box (its longer half side) read as a 0.28 circle
+            // (mg-wil-bank-stair-girder-collider-blocks-entry: the girder at the City Bank stair is a 0.56x0.19
+            // plate across the flight's foot, and the walkers were held by the game's own object, not by it).
+            const float gy = static_cast<float>(gta2::kMapHeight) - s.cz;
+            if (s.hb < 0.0f) {
+                n += snprintf(line + n, sizeof line - n, " %s@%.2f,%.2f/r%.3f", s.kind ? s.kind : "?", s.cx, gy, s.ha);
+            } else {
+                const bool alongA = s.ha >= s.hb;
+                const float lx = alongA ? s.ax : -s.az, lz = alongA ? s.az : s.ax;   // the longer side's axis
+                int heading = static_cast<int>(std::lround(std::atan2(-lz, lx) * 57.29578f));   // game y = -z
+                heading = ((heading % 180) + 180) % 180;
+                n += snprintf(line + n, sizeof line - n, " %s@%.2f,%.2f/box%.2fx%.2fh%03d", s.kind ? s.kind : "?", s.cx, gy,
+                              2.0f * (std::max)(s.ha, s.hb), 2.0f * (std::min)(s.ha, s.hb), heading);
+            }
             if (OverPickup(s) && n < static_cast<int>(sizeof line) - 16) n += snprintf(line + n, sizeof line - n, "(over a pickup)");
         }
     }

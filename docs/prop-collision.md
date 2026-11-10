@@ -153,3 +153,36 @@ noted (`PropCollisionNotePickup`), and no prop shape within reach of one is soli
 pickup on overlap. `GTA2DX9_LOG_PROPS_NEAR=1` lists the pickups near him (`pickup@x,y,z`) and tags a shape
 `(over a pickup)`. Verified out/fig4_pk5 (third) and fig4_pk6f (first): weapon none -> machine_gun(4) on the
 walk; vreg classic 0 px.
+
+## The City Bank stair girder (FIX-COLLISION-2, 10 Nov)
+
+Defect mg-wil-bank-stair-girder-collider-blocks-entry: BANK ROBBERY walkers pinned at the foot of the
+City Bank flight (wil 191-192,177, rising west), at 193.4,177.2-177.6, beside the game's `obj_girder`
+object at 193.20,177.50. The report read the near line's `obj_girder@193.20,177.50/0.28` as a 0.28 circle.
+It is not one, and our collider is not what holds them:
+
+- **What the footprint is.** `FootprintOf` gives the girder the bottom-band bounds of its drawn model, an
+  oriented box: `collide: footprint obj_girder (scale 1.00, height 0.05): box 0.562x0.188`, turned with
+  the object. In the world, a 0.56 x 0.19 steel plate, 0.05 block (19 cm) thick, lying across the foot of
+  the flight (its length along y, 177.22-177.78), as drawn. The near line printed only a box's longer half
+  side, so `/0.28` looked like a radius. It now prints a box as `/box<length>x<width>h<heading>` (full
+  sides, the heading of the length in the game frame, 0 east, 90 along +y) and a circle as `/r<radius>`:
+  `obj_girder@193.20,177.50/box0.56x0.19h090`. Probes parse only the `x,y` before the `/`.
+- **Who pins them: the game.** Run fcol2_base2 (HEAD DLL, `gamerun/fcol2_girder.py`, walks west from x
+  194.7 on fixed lines) gives the same result in classic, where prop_collision never runs, as in third
+  person: on y 177.50 and 177.95 he stops at x 193.39 (193.45 in other runs: 0.10-0.16 east of the drawn plate), and on the job's line
+  y 178.05 at 193.15,177.89, wedged between the plate's end and the wall that runs along y 178 west of x 193.
+  On y 177.20 he climbs the flight in both views. The `collide:` lines show no contact with the girder in
+  any of these runs. Of the filer's six pinned runs, only mg_km8 ever touched our box (11 frames, standing
+  west of the plate). GTA2's own object collision holds a walker about one ped half-width off the plate.
+  That happens in the classic view too, and the renderer cannot change it without changing the game.
+- **The way on.** It is the strip between the building face (y 177) and the plate's end (177.22). The game
+  lets him through there at y 177.10-177.11; our box leaves y up to 177.135 for the body (r 0.085), so it is
+  never the tighter limit. Run fcol2_fix1 (this DLL): the y 177.18 line climbs to the top (z 3.00) 10 of 10
+  (5 third, 5 first person), and head-on on y 177.50 he stops at the plate 10 of 10. The frames show him
+  passing beside the plate's end along the wall, not on it. The job's route north of the plate (y
+  177.85-178.15) is the side the game closes.
+
+Still short of the bar: a 19 cm plate is something a person steps over or onto. Here the game stops him at
+it, a hand short of its edge, legs still walking. Making it walkable needs the game's object collision for
+that object type, not this file.

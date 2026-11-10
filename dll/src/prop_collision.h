@@ -77,7 +77,8 @@ bool PropCollisionResolvePed(float* x, float* z, float y, float dt, bool (*walle
 void PropCollisionStepPushables(float dt, bool (*walled)(void*, float, float, float), void* context);
 
 // Developer log: GTA2DX9_LOG_PROPS_NEAR=1 writes the shapes within 5 blocks of the player
-// every 60 frames ("collide: near ..."), for the probes that walk into each kind.
+// every 60 frames ("collide: near ..."), for the probes that walk into each kind: each shape as
+// name@x,y (game frame) then "/r<radius>" for a circle or "/box<length>x<width>h<heading deg>" for a box.
 void PropCollisionLogNear(float x, float z, float y);
 
 }  // namespace gta2dx9
