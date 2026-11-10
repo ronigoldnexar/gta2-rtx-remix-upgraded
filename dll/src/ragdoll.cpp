@@ -256,6 +256,19 @@ void RollFrame(Body& b, float dt, float gy) {
     b.age += dt;
     if (b.rollLeft <= 0.0f) { b.settled = false; b.still = 0.0f; }
 }
+// FIX-KNOCKDOWN-3 (pfl77): no head-down handstand. A slow car carried the head on its bonnet past the pelvis while
+// the feet dragged on the road: the body somersaulted forward and stood on its head, legs straight up, for 0.3-1 s
+// (the filer's 30 fps frames; the offline harness: 106 of 288 hits with legs vertical for 3+ frames). The body
+// may turn about its long axis (roll) as it likes; about the cross axis it is held: the line from the hips to the
+// feet rises at most kLegRise above the level, the hips to the knees kKneeRise (knees up on his back), and the
+// head falls at most kHeadDrop below the pelvis (draped over a bonnet). GTA2DX9_KD_NO_FLIP=0 = as before (A/B).
+
+constexpr float kKd3Spin = 4.5f;   // the slow knock: rad/s of pitch given at the impact
+bool Kd3NoFlip() {
+    static int on = -1;
+    if (on < 0) { const char* e = getenv("GTA2DX9_KD_NO_FLIP"); on = (e && *e == '0') ? 0 : 1; }
+    return on == 1;
+}
 bool Kd2Fix() {
     static int on = -1;
     if (on < 0) { const char* e = getenv("GTA2DX9_KD_GROUND_LATCH"); on = (e && *e == '0') ? 0 : 1; }
@@ -406,7 +419,7 @@ bool Seed(Body& b, uintptr_t ped, int kind, const Model& model, const Rig& rig, 
     // The throw.
     const float hx = std::sin(heading), hz = std::cos(heading);
     const float jitter = Hash01(static_cast<uint32_t>(ped >> 2) * 2654435761u + frame) - 0.5f;
-    float vx = 0.0f, vz = 0.0f, lift = 0.0f, upper = 1.0f;
+    float vx = 0.0f, vz = 0.0f, lift = 0.0f, upper = 1.0f, spin = 0.0f;
     if (kind == 1) {
         // The car that hit him: the nearest seen this frame or the last, within 1.6 blocks.
         const CarNote* best = nullptr;
@@ -468,6 +481,17 @@ bool Seed(Body& b, uintptr_t ped, int kind, const Model& model, const Rig& rig, 
         }
         lift = sp * 0.30f * (std::min)(1.0f, sp / 2.5f);   // at speed, up onto the bonnet
         upper = 0.45f;                                       // the upper body lags: he folds over the bonnet
+        // FIX-KNOCKDOWN-3 (pfl77, kd3_lane1 #2): below 3 blocks/s the car does not fold him over its bonnet (a slow
+        // van carried the head on its bonnet past the pelvis: a handstand) and does not lift him (a taxi at 1.7
+        // lifted the feet 0.23 and he glided upright 1.2 blocks for half a second): he is knocked over along its
+        // travel, a pitch of kKd3Spin rad/s about his feet, so he is down on the road in about half a second.
+        // From 3 blocks/s the old throw (fold over the bonnet, lifted) as before.
+        if (Kd3NoFlip()) {
+            const float t = (std::min)(1.0f, (std::max)(0.0f, (sp - 1.5f) / 1.5f));
+            spin = kKd3Spin * (1.0f - t);
+            upper = 1.0f + (0.45f - 1.0f) * t;
+            lift *= t;
+        }
     } else {
         // Away from the blast, the nearest within three blocks in the last second.
         const BlastNote* best = nullptr;
@@ -494,7 +518,13 @@ bool Seed(Body& b, uintptr_t ped, int kind, const Model& model, const Rig& rig, 
     for (int k = 0; k < kParticles; ++k) {
         const float h = (std::min)(1.0f, (std::max)(0.0f, (b.q[k].p.y - gy) / 0.46f));
         const float f = 1.0f + (upper - 1.0f) * h;
-        const float pvx = (vx + sideX) * f, pvz = (vz + sideZ) * f;
+        float pvx = (vx + sideX) * f, pvz = (vz + sideZ) * f;
+        if (spin > 0.0f) {
+            // The pitch: the head along the car's travel, the feet held back (about 0.3 of his height).
+            const float vl = (std::max)(0.05f, std::sqrt(vx * vx + vz * vz));
+            const float add = spin * 0.46f * (h - 0.3f);
+            pvx += vx / vl * add; pvz += vz / vl * add;
+        }
         const float pvy = lift * (0.6f + 0.6f * h) * (kind == 1 ? 1.0f : 1.0f);
         const float h30 = 1.0f / 30.0f;   // velocity is position minus previous over the step: seeded per 1/30 s
         b.q[k].prev = b.q[k].p - Vec3{pvx, pvy, pvz} * h30;
@@ -508,6 +538,38 @@ bool Seed(Body& b, uintptr_t ped, int kind, const Model& model, const Rig& rig, 
             reinterpret_cast<const void*>(b.car), b.walls ? "" : " (no wall checks: his spot reads solid)");
     }
     return true;
+}
+
+// FIX-KNOCKDOWN-3: the cross-axis hold (see Kd3NoFlip). Positions only, as the links: the speed into the limit goes.
+void NoFlip(Particle* q) {
+    constexpr float kLegRise = 0.34f;    // sin 20 deg: hips -> feet
+    constexpr float kKneeRise = 0.77f;   // sin 50 deg: hips -> knees
+    constexpr float kHeadDrop = 0.50f;   // sin 30 deg: pelvis -> neck, downward
+    auto rise = [&](int root, int end, float most, float endShare) {
+        const Vec3 d = q[end].p - q[root].p;
+        const float len = Len(d);
+        if (len < 1e-4f) return;
+        const float over = d.y - most * len;
+        if (over <= 0.0f) return;
+        q[end].p.y -= over * endShare;
+        q[root].p.y += over * (1.0f - endShare);
+    };
+    rise(kLHip, kLFoot, kLegRise, 0.8f);
+    rise(kRHip, kRFoot, kLegRise, 0.8f);
+    rise(kLHip, kLKnee, kKneeRise, 0.8f);
+    rise(kRHip, kRKnee, kKneeRise, 0.8f);
+    // The torso: the upper part up, the lower part down, by where each joint sits along pelvis -> neck.
+    const Vec3 axis = q[kNeck].p - q[kPelvis].p;
+    const float len = Len(axis);
+    if (len < 1e-4f) return;
+    const float under = -kHeadDrop * len - axis.y;
+    if (under <= 0.0f) return;
+    const Vec3 dir = axis * (1.0f / len);
+    static const int kUpper[] = {kPelvis, kChest, kNeck, kHead, kHeadTop, kLShoulder, kRShoulder, kLHip, kRHip};
+    for (int k : kUpper) {
+        const float t = (std::min)(1.2f, (std::max)(0.0f, gta2::Dot(q[k].p - q[kPelvis].p, dir) / len));
+        q[k].p.y += under * (t - 0.35f);
+    }
 }
 
 void Step(Body& b, float dt, float gy, uint32_t frame) {
@@ -580,6 +642,7 @@ void Step(Body& b, float dt, float gy, uint32_t frame) {
             hinge(kRHip, kRKnee, kRFoot, 1.0f);
             hinge(kLShoulder, kLElbow, kLHand, -1.0f);
             hinge(kRShoulder, kRElbow, kRHand, -1.0f);
+            if (Kd3NoFlip()) NoFlip(b.q);
             // The car: a box from its sills to the bonnet, the cabin higher in the middle,
             // where it is at this point of the frame.
             if (car) {
@@ -960,9 +1023,19 @@ bool RagdollFigure(uintptr_t ped, int kind, bool down, const Model& model, const
             const Vec3 v = (b.q[k].p - b.q[k].prev) * (1.0f / hd);
             vmax = (std::max)(vmax, Len(v)); vup = (std::max)(vup, v.y); top = (std::max)(top, b.q[k].p.y - gy);
         }
-        Log("kdtrace: f=%u #%u age %.2f pel %.2f,%.3f,%.2f gy %.3f top %.3f vmax %.2f vup %.2f anchor %.2f,%.2f moved %.3f drift %.3f walls %d car %d settled %d",
+        // FIX-KNOCKDOWN-3: the head, the higher foot, the torso's up (1 upright, -1 on his head) and whether a leg
+        // points within 35 deg of straight up (hips -> foot): the handstand measured on every body, on camera or not.
+        Vec3 ts, tu, tf;
+        TorsoFrameAxes(b.q, &ts, &tu, &tf);
+        auto legUp = [&](int hip, int foot) {
+            const Vec3 d = b.q[foot].p - b.q[hip].p;
+            const float l = Len(d);
+            return l > 1e-4f && d.y > 0.819f * l;
+        };
+        Log("kdtrace: f=%u #%u age %.2f pel %.2f,%.3f,%.2f gy %.3f top %.3f vmax %.2f vup %.2f anchor %.2f,%.2f moved %.3f drift %.3f walls %d car %d settled %d head %.3f foot %.3f tup %.2f legup %d",
             frame, b.id, b.age, b.q[kPelvis].p.x, b.q[kPelvis].p.y - gy, b.q[kPelvis].p.z, gy, top, vmax, vup, gx, gz, b.dbgMove,
-            b.dbgDrift, b.dbgWalls, b.dbgCar, b.settled ? 1 : 0);
+            b.dbgDrift, b.dbgWalls, b.dbgCar, b.settled ? 1 : 0, b.q[kHead].p.y - gy,
+            (std::max)(b.q[kLFoot].p.y, b.q[kRFoot].p.y) - gy, tu.y, (legUp(kLHip, kLFoot) ? 1 : 0) + (legUp(kRHip, kRFoot) ? 1 : 0));
     }
     bool turned = false;   // the placement changed (it carries the pose to model space)
     for (int r = 0; r < 4 && !turned; ++r)

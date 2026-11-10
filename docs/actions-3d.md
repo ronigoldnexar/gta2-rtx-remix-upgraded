@@ -1657,6 +1657,37 @@ pass, not the knock-down code). The get-up is still the reversed `fall_front`.
 - The captures run 30 fps, but the game rendered about 20-25 fps on the loaded host (repeated frames in the
   recording).
 
+## FIX-KNOCKDOWN-3 (10 Nov 2026): no head-down handstand when a car knocks a person over (pfl77)
+
+pfl77 (first person, the F9 van nosing into a plaza pedestrian at ~0.3-1.4 blocks/s): for about half a second the
+run-over man stood on his head beside the bonnet, both legs straight up. **Diagnosis** with an offline harness of
+the solver (`ragdoll.cpp` compiled natively with stub headers, a synthetic running figure, the car a moving box; 288
+hits: 6 speeds x 8 facings x 3 offsets across the car x 2 overlaps): 106 hits had a leg within 35 degrees of
+vertical for 3+ frames (worst 32 frames). At low speed the car's friction carried the head along its bonnet past
+the pelvis while the feet dragged on the road, so the body somersaulted forward onto its head. A second fault
+showed in the lane (kd3_lane1 #2, a taxi from behind at 1.7 blocks/s): the throw lifted the feet 0.23 and gave the
+upper body too little pitch, so he glided upright 1.2 blocks for 0.47 s before falling.
+
+Now (`ragdoll.cpp`):
+- *No cross-axis somersault.* Inside the solver's iterations the body may roll about its long axis as it likes, but
+  the hips-to-feet line rises at most 20 degrees above level, hips-to-knees 50 degrees (knees up on his back), and
+  the neck drops at most 30 degrees below the pelvis (draped over a bonnet). Positions only, like the links: the
+  speed into the limit is removed, nothing is added (pelvis and head peaks unchanged in the harness).
+- *Slow knock.* Below 3 blocks/s the car no longer folds him over its bonnet and does not lift him. He is knocked
+  over along the car's travel with a pitch of 4.5 rad/s about his feet (head along the travel, feet held back), so
+  he lands on his front (hit from behind) or his back (hit facing the car) in about 0.35 s. From 3 blocks/s the old
+  throw (folded over the bonnet, lifted) blends back in.
+- `kdtrace:` (`GTA2DX9_LOG_KD=1`) also logs `head`, the higher `foot`, the torso's up `tup` (1 upright, -1 on his
+  head) and `legup` (legs within 35 degrees of vertical), for every body on camera or not.
+- A/B: `GTA2DX9_KD_NO_FLIP=0` (both changes off).
+
+| run | hits | legs-vertical frames | landed (pelvis < 0.07, torso flat) |
+|---|---|---|---|
+| harness, before / after | 288 | 1310 (106 hits with 3+) / 0 | f10-f11 (0.33-0.37 s) at up to 1.7 blocks/s after |
+| kd3_lane0 (lane, GTA2DX9_KD_NO_FLIP=0) | 2 | 0 | 0.53-0.57 s |
+| kd3_lane1 (no-flip, before the slow knock) | 5 | 0 | 0.47-0.57 s; #2 upright glide 0.47 s (frames) |
+| kd3_lane2 (this change) | 6 | 0 | 0.37-0.40 s |
+
 ## FIX-FIGURE-14 (10 Nov 2026): first-person fists, the shotgun, the pistol's last round
 
 ### pfl67: the first-person bare hands are fists on forearms, held up in a guard, swinging with the stride
