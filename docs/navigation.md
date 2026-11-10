@@ -1445,6 +1445,34 @@ flat front still makes a bus, never a tank). Adding a vehicle means one table en
   reach him). Same probe with the game camera settled first (gamerun/fire017_settled.py, keys_fire017s.sh): the
   first first-person frame has the header, pillars, dash, gauges and both hands (one frame of open hands closing
   on the rim). In play the camera is always on him: no code change.
+- qav46 (the first-person bonnet "lit near daylight orange at night, 1.6x the third-person body"): measured on HEAD
+  at the filer's spot (wil kerb 164.5,149.5, the own car forced to 018, clock paused) as the SAME panel: the bonnet
+  from a fixed camera ahead of the nose in the third-person view (the whole body drawn by its own path) against the
+  seat bonnet from his eyes (gamerun/cab6_bonfix.py, boxes on the bonnet clear of the lamps' glow): noon 217-221 vs
+  210 (0.96), 22:30 43 vs 40 (0.94). Both are drawn under the same night-scaled ambient (0x15) and moon (0.18) of the
+  cars stage (new log line `car bodies: seat bonnet drawn under ambient ...`). Against the rear deck (the filer's
+  roof box) the bonnet reads brighter at night only because the low moon is ahead of the car and the bonnet slopes
+  toward it. The orange (229,121,57) of the filing is not seen on HEAD at that spot; the lamp quads FIX-LIGHTS-1
+  removed from under the 018 (68b37518) are the likely source (not proven). The seat bonnet's paint lift (CAB-3) is
+  what brings it to the body's level: without it 0.56 at noon. `[devtools] fp_bonnet_lift` (live) for the A/B.
+- pfl79 (first-person exit: the cockpit vanished in one frame, a 300 ms stall, the van not seen): the cab WAS drawn
+  through the exit glide, anchored to the seat in the van's frame, but the glide's start was fixed in the world and
+  the van was still rolling back off the wall: in its frame the eye went forward 0.09 block on the first frame
+  (through the dash 0.10 ahead of the seat) and on to 0.35 ahead, so the cockpit fell behind the eye at once and
+  the eye ended where the van had been. Now (view_modes.cpp) the seat eye is kept in its car's frame every seated
+  frame and the exit glide starts from it, re-placed each frame on the car (its footprint list is a frame behind
+  the car drawn: one step of the car's own motion is added): the eye keeps the seat's depth (car-frame z
+  0.376-0.392) and goes out sideways through the door, the dash, wheel and gauges round it. No on-foot fists while
+  the glide runs (they came up inside the cab). GTA2DX9_FP_EXIT_CAR_FRAME=0: as before.
+- The stall: the on-foot hands' first draw (their textures, the sleeves' mean, the driver's programs for their
+  states) cost 180-310 ms on the first frame they were drawn (the exit, or right after the glide). One unseen draw
+  of the view model (colour and depth writes off) is made 0.7 s after he is first seen from his seat
+  (`view model: warmed unseen from the seat`); exit frame gaps 50-99 ms after (the host's 15-20 fps), the one-time
+  cost (~120 ms) now falls just after the seat glide-in. GTA2DX9_FP_VM_WARM=0: off.
+- Still short of a shipping frame (pfl79 left open): the eye passes through the shut driver's door for about four
+  frames (a dark panel fills the lower frame, 0.33-0.47 s into the glide), his hands leave the wheel on the exit
+  frame and nothing holds the door, and the on-foot view does not turn to the car (a van rolling back is behind
+  him). fpe-residual (the entry's step at the threshold) not reached.
 - Classic top-down: see the vreg line in the commit.
 
 ## The third-person turn budget; no swing cut ping-pong; the boom past a phone box; peds at the lens (FIX-CAMERA-17, 10 Nov 2026)

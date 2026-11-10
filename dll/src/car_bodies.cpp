@@ -58,6 +58,7 @@ int g_forceModel = -1;      // [devtools] force_car_model=N: every traffic car d
 int g_cabInterior = 1;     // [devtools] cab_interior=0: QB-5's plain dashboard instead of the QB-31 cab
 int g_driverGlass = 1;     // [devtools] driver_glass=0: FIX-SEATED's see-through window band off
 int g_tyreContactDev = 1;  // [devtools] tyre_shadows=0: no tyre contact patches (A/B)
+int g_fpBonnetLiftDev = -1;   // FIX-COCKPIT-CAB-6 (qav46) [devtools] fp_bonnet_lift=0|1: the seat bonnet's paint lift live (-1 = GTA2DX9_FP_BONNET_LIFT)
 int g_glassSeat = 1;      // FIX-DRIVER-GEOM [devtools] glass_seat=0: a generated body's driver on the sprite's seat (pfl74 A/B)
 int g_bandInterior = 1;    // [devtools] band_interior=0: no dark cabin behind that band (feel20 A/B)
 int g_glassRearGate = 0;   // VEHICLE-ART-21 [devtools] glass_rear_gate=1: a seated car needs a rear screen for glass (old; qav50)
@@ -1689,6 +1690,17 @@ void DrawBonnet(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, const Bo
             Log("car bodies: seat bonnet light: tint %.2f,%.2f,%.2f dull %.2f, paint texels %.0f mean %.2f,%.2f,%.2f, body diffuse %.2f,%.2f,%.2f ambient %.2f,%.2f,%.2f emissive %.2f, lighting %lu light0 %lu ambient %08lx, %s",
                 tint[0], tint[1], tint[2], dull, w, w ? m[0] / w : 0, w ? m[1] / w : 0, w ? m[2] / w : 0, body.Diffuse.r, body.Diffuse.g, body.Diffuse.b,
                 body.Ambient.r, body.Ambient.g, body.Ambient.b, body.Emissive.r, lighting, l0, ambient, gainOld ? "clamped (old)" : "gain after the light");
+        }
+    }
+    {   // FIX-COCKPIT-CAB-6 (qav46): the light state the bonnet is drawn under, logged whenever it changes (the hour's
+        // ambient and sun against the body's, car_bodies' cars stage).
+        static DWORD lastAmb = 0xFFFFFFFFu; static float lastSun = -1.0f; static int n = 0;
+        DWORD ambient = 0; device->GetRenderState(D3DRS_AMBIENT, &ambient);
+        D3DLIGHT9 l0 = {}; device->GetLight(0, &l0);
+        if ((ambient != lastAmb || std::fabs(l0.Diffuse.r - lastSun) > 0.02f) && n++ < 40) {
+            Log("car bodies: seat bonnet drawn under ambient %08lx, sun %.2f,%.2f,%.2f dir %.2f,%.2f,%.2f, tint %.2f,%.2f,%.2f dull %.2f",
+                ambient, l0.Diffuse.r, l0.Diffuse.g, l0.Diffuse.b, l0.Direction.x, l0.Direction.y, l0.Direction.z, tint[0], tint[1], tint[2], dull);
+            lastAmb = ambient; lastSun = l0.Diffuse.r;
         }
     }
     D3DMATRIX identity = {};
@@ -4261,6 +4273,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         g_bandInterior = GetPrivateProfileIntA("devtools", "band_interior", 1, g_devIni);
         g_glassRearGate = GetPrivateProfileIntA("devtools", "glass_rear_gate", 0, g_devIni);
         g_glassSeat = GetPrivateProfileIntA("devtools", "glass_seat", 1, g_devIni);
+        g_fpBonnetLiftDev = GetPrivateProfileIntA("devtools", "fp_bonnet_lift", -1, g_devIni);   // FIX-COCKPIT-CAB-6 probe
         g_tyreContactDev = GetPrivateProfileIntA("devtools", "tyre_shadows", 1, g_devIni);
         g_shellWheels = GetPrivateProfileIntA("devtools", "shell_wheels", 1, g_devIni);
         g_forceSteerDeg = GetPrivateProfileIntA("devtools", "force_steer_deg", 0, g_devIni);
@@ -5486,7 +5499,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                         static const bool liftOn = [] { char b[4] = {}; return !(GetEnvironmentVariableA("GTA2DX9_FP_BONNET_LIFT", b, sizeof b) && b[0] == '0'); }();
                         static std::map<const BonnetSurface*, float> lifts;
                         float lift = 1.0f;
-                        if (liftOn && !RemixApiAvailable()) {
+                        if ((g_fpBonnetLiftDev >= 0 ? g_fpBonnetLiftDev != 0 : liftOn) && !RemixApiAvailable()) {
                             auto li = lifts.find(seatBonnet);
                             if (li != lifts.end()) lift = li->second;
                             else {
@@ -5584,6 +5597,12 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                         CarPartTimer partTimer(kPartCab);
                         CabInteriorSetRemixAlbedo(g_cabRemixAlbedo && RemixApiAvailable());
                         DrawCabInterior(device, posed, cp, material);
+                        {   // FIX-COCKPIT-CAB-6 (pfl79): the cab drawn for a held car after the exit (GTA2DX9_LOG_SEAT)
+                            static int logSeatCab = -1;
+                            if (logSeatCab < 0) { char v[8] = {}; logSeatCab = GetEnvironmentVariableA("GTA2DX9_LOG_SEAT", v, sizeof v) ? atoi(v) : 0; }
+                            if (logSeatCab && !use.driven)
+                                Log("seat gate: f=%u cab drawn for the held car (eye local %.3f,%.3f,%.3f fade %.2f)", frame, eyeLocalX, eyeLocalY, eyeLocalZ, use.fade);
+                        }
                     } else {
                         DrawDash(device, posed, *hood, eyeLocalZ + 0.10f, paint, material);
                     }

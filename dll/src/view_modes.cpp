@@ -64,6 +64,22 @@ double Now() {
 // FIX-FP-ENTRY (pfeel32): the seat eye's raw position and car_bodies' answer (view_modes.h).
 struct FpSeat { bool valid = false; gta2::Vec3 raw{}; gta2::Vec3 delta{}; double rawAt = 0.0, deltaAt = 0.0; };
 FpSeat g_fpSeat;
+// FIX-COCKPIT-CAB-6 (pfl79): a car footprint's frame: its middle, the unit direction of its first edge and that
+// edge's normal (any consistent pair: the exit glide stores its start in it and reads it back the same way).
+bool CarFrameOf(const CameraCar& c, float* cx, float* cz, float* ex, float* ez, float* nx, float* nz) {
+    *cx = 0.25f * (c.x[0] + c.x[1] + c.x[2] + c.x[3]);
+    *cz = 0.25f * (c.z[0] + c.z[1] + c.z[2] + c.z[3]);
+    const float dx = c.x[1] - c.x[0], dz = c.z[1] - c.z[0], l = std::hypot(dx, dz);
+    if (l < 1e-4f) return false;
+    *ex = dx / l; *ez = dz / l; *nx = -*ez; *nz = *ex;
+    return true;
+}
+float g_fpExitGlideLeft = 0.0f;   // FIX-COCKPIT-CAB-6: FpExitGlideLeft()
+// GTA2DX9_FP_EXIT_CAR_FRAME=0: the exit glide's start fixed in the world, as before (A/B).
+bool FpExitCarFrameOn() {
+    static const bool on = [] { char b[4] = {}; return !(GetEnvironmentVariableA("GTA2DX9_FP_EXIT_CAR_FRAME", b, sizeof b) && b[0] == '0'); }();
+    return on;
+}
 // FIX-FP-ENTRY: an ease in and out over 0..1.
 float Smooth01(float x) { x = x < 0.0f ? 0.0f : (x > 1.0f ? 1.0f : x); return x * x * (3.0f - 2.0f * x); }
 // GTA2DX9_FP_BOARD_EYE=0: the old first-person entry/exit (the eye at the game's spot, a 0.12 s glide).
@@ -3769,7 +3785,15 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                     // a long way (a hand-over far from where he was shown): no frame steps more than ~0.25 block
                     fpGlideDur_ = (std::max)(fpGlideDur_, off * 1.5f / (0.25f * 30.0f));
                     fpOffX_ = fpOffY_ = fpOffZ_ = 0.0f;
-                    Log("view: fp seat glide %s %.2f blocks over %.1f s", inVehicle ? "in" : "out", off, fpGlideDur_);
+                    fpGlideCar_ = 0;
+                    if (!inVehicle && FpExitCarFrameOn() && fpSeatCar_) {
+                        // FIX-COCKPIT-CAB-6 (pfl79): the start is the seat's eye where it last was in its car's frame
+                        // (kept every seated frame below): this frame the car may already have rolled on under it.
+                        fpGlideCar_ = fpSeatCar_;
+                        fpGlideCarA_ = fpSeatCarA_; fpGlideCarB_ = fpSeatCarB_; fpGlideCarY_ = fpSeatCarY_;
+                    }
+                    Log("view: fp seat glide %s %.2f blocks over %.1f s%s", inVehicle ? "in" : "out", off, fpGlideDur_,
+                        fpGlideCar_ ? " (from the seat in the car's frame)" : "");
                 } else if (fpGlideDur_ > 0.0f && off > 0.03f && off < 1.0f && inVehicle == lastFpInVehicle_) {
                     // a late step of the seat's own eye (the cab measured a frame or two after the hand-over):
                     // absorbed into the glide, which keeps the eye where it is shown
@@ -3783,9 +3807,52 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                     fpOffZ_ = shownZ_ - eye.z - fpGlideZ_ * (fpGlideDur_ > 0.0f ? 1.0f - Smooth01(fpGlideT_ / fpGlideDur_) : 0.0f);
                 }
             }
+            // FIX-COCKPIT-CAB-6 (pfl79): out of the seat, the glide starts where the seat is NOW: a car still rolling
+            // (backwards off a wall) slid the cockpit back under a world-fixed start, the eye passed through the dash
+            // in the first frame and the cockpit vanished; the eye then stood where the van had been, the van behind it.
+            if (fpGlideCar_ && !inVehicle && fpGlideDur_ > 0.0f) {
+                bool found = false;
+                for (const CameraCar& c : LiveCameraCars()) {
+                    if (c.object != fpGlideCar_) continue;
+                    float ex = 0.0f, ez = 0.0f, nx = 0.0f, nz = 0.0f, cx = 0.0f, cz = 0.0f;
+                    if (CarFrameOf(c, &cx, &cz, &ex, &ez, &nx, &nz)) {
+                        // the list is last frame's: the car drawn this frame has moved on by about its last step
+                        const float stepX = fpCarLastObj_ == c.object ? cx - fpCarLastX_ : 0.0f, stepZ = fpCarLastObj_ == c.object ? cz - fpCarLastZ_ : 0.0f;
+                        fpCarLastObj_ = c.object; fpCarLastX_ = cx; fpCarLastZ_ = cz;
+                        if (std::hypot(stepX, stepZ) < 0.3f) { cx += stepX; cz += stepZ; }
+                        fpGlideX_ = cx + fpGlideCarA_ * ex + fpGlideCarB_ * nx - eye.x;
+                        fpGlideZ_ = cz + fpGlideCarA_ * ez + fpGlideCarB_ * nz - eye.z;
+                        fpGlideY_ = c.y0 + fpGlideCarY_ - eye.y;
+                        found = true;
+                    }
+                    break;
+                }
+                if (!found) fpGlideCar_ = 0;
+            } else if (fpGlideDur_ <= 0.0f || inVehicle) {
+                fpGlideCar_ = 0;
+            }
             fpRawX_ = eye.x; fpRawY_ = eye.y; fpRawZ_ = eye.z;
             fpEyeKnown_ = true;
             lastFpInVehicle_ = inVehicle;
+            if (inVehicle && FpExitCarFrameOn()) {
+                // FIX-COCKPIT-CAB-6 (pfl79): the seat's eye as shown last frame, in the frame of the car it is in now.
+                const CameraCar* best = nullptr;
+                float bestD = 1.0f;
+                for (const CameraCar& c : LiveCameraCars()) {
+                    const float cx = 0.25f * (c.x[0] + c.x[1] + c.x[2] + c.x[3]), cz = 0.25f * (c.z[0] + c.z[1] + c.z[2] + c.z[3]);
+                    const float d = std::hypot(cx - eye.x, cz - eye.z);
+                    if (d < bestD) { bestD = d; best = &c; }
+                }
+                float ex = 0.0f, ez = 0.0f, nx = 0.0f, nz = 0.0f, cx = 0.0f, cz = 0.0f;
+                fpSeatCar_ = 0;
+                if (best && CarFrameOf(*best, &cx, &cz, &ex, &ez, &nx, &nz)) {
+                    fpCarLastObj_ = best->object; fpCarLastX_ = cx; fpCarLastZ_ = cz;
+                    fpSeatCar_ = best->object;
+                    fpSeatCarA_ = (shownX_ - cx) * ex + (shownZ_ - cz) * ez;
+                    fpSeatCarB_ = (shownX_ - cx) * nx + (shownZ_ - cz) * nz;
+                    fpSeatCarY_ = shownY_ - best->y0;
+                }
+            }
             const float k = std::exp(-dt / 0.12f);
             fpOffX_ *= k; fpOffY_ *= k; fpOffZ_ *= k;
             if (fpGlideDur_ > 0.0f) {
@@ -3796,6 +3863,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                 }
             }
             const float glideLeft = fpGlideDur_ > 0.0f ? 1.0f - Smooth01(fpGlideT_ / fpGlideDur_) : 0.0f;
+            g_fpExitGlideLeft = fpGlideCar_ && !inVehicle ? glideLeft : 0.0f;
             // (the glide is carried in fpOff for the wall test below, then taken out again)
             const float gX = fpGlideX_ * glideLeft, gY = fpGlideY_ * glideLeft, gZ = fpGlideZ_ * glideLeft;
             fpOffX_ += gX; fpOffY_ += gY; fpOffZ_ += gZ;
@@ -6220,6 +6288,7 @@ bool FirstPersonSeatEyeRaw(gta2::Vec3* eye) {
 }
 void SetFirstPersonSeatCorrection(const gta2::Vec3& delta) { g_fpSeat.delta = delta; g_fpSeat.deltaAt = Now(); }
 bool FirstPersonBoardEyeOn() { return FpSeatGlideOn(); }
+float FpExitGlideLeft() { return g_fpExitGlideLeft; }
 
 // FIX-CAMERA-16: see view_modes.h.
 void SetChaseTrees(std::vector<ChaseTree>&& trees) { g_chaseTrees = std::move(trees); }

@@ -8840,7 +8840,36 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
         const float dx = g_playerPosX - e.x, dy = g_playerPosY - e.y, dz = g_playerPosZ - e.z;
         if (reach > 0.0f && dx * dx + dy * dy + dz * dz > reach * reach) atLens = false;
     }
-    if (CurrentViewMode() != ViewMode::FirstPerson || !g_playerObject || (g_hiddenObjects[0] != g_playerObject && !atLens) || !g_pedWeapons) return;
+    // FIX-COCKPIT-CAB-6 (pfl79): the on-foot hands' first draw (their textures, the sleeves' mean, the driver's programs
+    // for their states) cost 180-310 ms on the frame he got out of a car in first person: one unseen draw (no colour, no
+    // depth) of this path is made once, 0.7 s after he is first seen from his seat (just after the seat glide-in). GTA2DX9_FP_VM_WARM=0: off (A/B).
+    static const bool vmWarmOn = [] { char b[4] = {}; return !(GetEnvironmentVariableA("GTA2DX9_FP_VM_WARM", b, sizeof b) && b[0] == '0'); }();
+    static bool vmWarmed = false;
+    static int vmSeatedFrames = 0;
+    const bool seatedFp = CurrentViewMode() == ViewMode::FirstPerson && g_hiddenObjects[1] != nullptr && FpExitGlideLeft() <= 0.0f;
+    vmSeatedFrames = seatedFp ? vmSeatedFrames + 1 : 0;
+    if (vmSeatedFrames == 30) Log("view model: seated in first person (hidden %p %p, player %p, weapons %d)", g_hiddenObjects[0], g_hiddenObjects[1], g_playerObject, g_pedWeapons ? 1 : 0);
+    const bool vmWarmNow = vmWarmOn && !vmWarmed && seatedFp && vmSeatedFrames > 20 && g_pedWeapons;
+    if (!vmWarmNow && (CurrentViewMode() != ViewMode::FirstPerson || !g_playerObject || (g_hiddenObjects[0] != g_playerObject && !atLens) || !g_pedWeapons)) return;
+    // FIX-COCKPIT-CAB-6 (pfl79): no on-foot hands while the eye glides out of the seat (the cab still round it); they come
+    // up once he stands outside. GTA2DX9_FP_EXIT_CAR_FRAME=0 keeps them, as before.
+    if (!vmWarmNow && FpExitGlideLeft() > 0.0f) return;
+    struct VmWarmGuard {
+        IDirect3DDevice9* d; bool on; DWORD cw = 0xF, zw = TRUE; LARGE_INTEGER t0{};
+        VmWarmGuard(IDirect3DDevice9* dev, bool o) : d(dev), on(o) {
+            if (!on) return;
+            QueryPerformanceCounter(&t0);
+            d->GetRenderState(D3DRS_COLORWRITEENABLE, &cw); d->GetRenderState(D3DRS_ZWRITEENABLE, &zw);
+            d->SetRenderState(D3DRS_COLORWRITEENABLE, 0); d->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+        }
+        ~VmWarmGuard() {
+            if (!on) return;
+            d->SetRenderState(D3DRS_COLORWRITEENABLE, cw); d->SetRenderState(D3DRS_ZWRITEENABLE, zw);
+            LARGE_INTEGER t1, fq; QueryPerformanceCounter(&t1); QueryPerformanceFrequency(&fq);
+            Log("view model: warmed unseen from the seat (%.1f ms)", 1000.0 * static_cast<double>(t1.QuadPart - t0.QuadPart) / static_cast<double>(fq.QuadPart));
+        }
+    } vmWarmGuard(device, vmWarmNow);
+    if (vmWarmNow) vmWarmed = true;
     const gta2::Vec3 eye = camera.Position();
     const gta2::Vec3 f = g_viewForward;
     // FIX-FIGURE (fp-viewmodel-box-gun-no-hands): this frame's fresh effects too
@@ -8898,7 +8927,7 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
         if (g_fpShotFrame == g_carFrame) { shotFrame = g_carFrame; g_ownShotFrame = g_carFrame; }
         lastAmmo = g_playerWeapon > 0 ? g_playerAmmo : -1;
         const float fl = std::sqrt(f.x * f.x + f.z * f.z);
-        if (g_playerPosValid && fl > 1e-3f)
+        if (g_playerPosValid && fl > 1e-3f && !vmWarmNow)
             g_figuresNow.push_back({reinterpret_cast<uintptr_t>(g_playerObject), g_playerPosX, g_playerPosZ, false, false, shotFrame,
                                     f.x / fl, f.z / fl, g_playerWeapon > 0 ? g_playerWeapon : kWpnPistol});
     }

@@ -544,6 +544,14 @@ private:
     float fpRidePitch_ = 0.0f;
     gta2::Vec3 fpSeatFix_{0.0f, 0.0f, 0.0f};
     float fpGlideX_ = 0.0f, fpGlideY_ = 0.0f, fpGlideZ_ = 0.0f, fpGlideT_ = 0.0f, fpGlideDur_ = 0.0f;
+    // FIX-COCKPIT-CAB-6 (pfl79): the exit glide's start held in the frame of the car he left (its footprint's middle,
+    // one footprint edge and its normal, the floor), so a car still rolling carries the start with it.
+    uintptr_t fpGlideCar_ = 0;
+    float fpGlideCarA_ = 0.0f, fpGlideCarB_ = 0.0f, fpGlideCarY_ = 0.0f;
+    uintptr_t fpCarLastObj_ = 0;   // that car's footprint middle last frame (the list is a frame behind the car drawn: its step is added)
+    float fpCarLastX_ = 0.0f, fpCarLastZ_ = 0.0f;
+    uintptr_t fpSeatCar_ = 0;   // the seat eye in its car's frame, kept every seated frame (the exit starts from the last)
+    float fpSeatCarA_ = 0.0f, fpSeatCarB_ = 0.0f, fpSeatCarY_ = 0.0f;
     const char* status_ = "classic";
     ViewMode lastMode_ = ViewMode::Classic;
 };
@@ -559,6 +567,8 @@ void SetFirstPersonSeatCorrection(const gta2::Vec3& delta);
 // FIX-FP-ENTRY: whether the first-person eye rides the boarding plan into and out of a car
 // (GTA2DX9_FP_BOARD_EYE=0: off, the old 0.12 s glide).
 bool FirstPersonBoardEyeOn();
+// FIX-COCKPIT-CAB-6 (pfl79): how much of the first-person exit glide (seat to door) is left, 1..0 (0: none running).
+float FpExitGlideLeft();
 
 // QB-6: aiming in the street views. Updated once a frame by the camera solver from the
 // player's ped: armed (on foot, a gun in his hands, standing), his shots (his weapon's
