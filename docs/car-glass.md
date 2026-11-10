@@ -285,3 +285,30 @@ Still short: 012's rear screen (white bake on a dark body, not attempted again);
 still partly glass; 030's pale rear-door pane (light on a dark body, the rule GLASS-2 dropped for 012); the
 films of 5.x's list (first-person seat, a traffic driver behind the side glass, the 013/068 rim) not made in
 this round; Fresnel still off.
+
+## 7. FIX-DRIVER-GEOM (10 Nov 2026): the driver sits on the cabin's own front seat (pfl74)
+
+A generated body (an image-to-3D shell with no manifest `driver_seat`, 57 of the car models) used to seat its
+driver where the game's sprite suggests: the CARI window rows (`SeatZ`: the rear window's row plus 0.38 of a door).
+On the 001 Wellard the sprite's rows put the hip at z -0.295, on the rear deck behind the hardtop: in third person
+his head and shoulders stood outside the glass on the trunk lid while the cabin seen through the windows was empty
+(pfl74).
+
+Now the cabin this module builds behind the glass names the seat (`CarGlassDriverSeat`): the hip 0.06 ahead of the
+drawn front seat back's face, on that seat's middle line, the cushion at its foot, and the head kept under the hull's
+own roof over the seat (its middle strip, less 6 % of the height; not the cabin's headliner, which follows the
+glass's top and sank him under the 001's high waist). A long cabin (a van's or a bus's side glass to the tail) keeps
+the hip at most 0.30 behind the dash. car_bodies passes it to boarding exactly as a manifest seat; an authored
+body's manifest seat still wins. The log line `car bodies: driver's seat of <model> (glass cabin): ...` shows it
+next to the sprite's.
+
+- `[devtools] glass_seat` (1; 0 = the sprite's seat, re-read live) for same-spot A/B.
+- Verified (runs dg74a/b/d, `gamerun/keys_dg74.sh`: warp to the parked car, F9, fixed regression-camera poses with
+  glass_seat 1/0, a third-person drive): 001 hip z -0.295 -> +0.026 (headliner 0.322); nothing of him outside the
+  hardtop from above (dg_high_001), his head inside the cabin behind the windscreen from the rear three-quarter and
+  the side.
+- Still short: from straight behind (the chase view) the 001's rear screen shows no head (the bake paints most of
+  the rear screen opaque and the cabin's seat back and headrest stand in front of him); from the side only the top
+  of his head clears the 001's thin side-glass band (the hero, 0.46 block tall, is large against cars modelled at
+  5 m a block). 005 Beamer (301 glass texels) shows no driver with either seat. The other 55 generated bodies were
+  not swept side-on.

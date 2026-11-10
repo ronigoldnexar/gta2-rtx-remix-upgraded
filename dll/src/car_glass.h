@@ -51,6 +51,10 @@ bool CarGlassHasRear(const Model& base);
 // VEHICLE-GLASS-3: the mesh has a hard top (built with the masks): a game open-top whose generated body
 // has a roof and windows (030 Land Roamer) takes glass.
 bool CarGlassClosedRoof(const Model& base);
+// FIX-DRIVER-GEOM (pfl74): the driver's seat in the cabin built behind the glass (its front seat), in the manifest's
+// "driver_seat" frame ([x, cushion, z, headliner], model units, heights over the model's lowest point). False until the
+// cabin is built, or when it has no seats (an authored body with its own glass names its seat in the manifest).
+bool CarGlassDriverSeat(const Model& base, float out[4]);
 
 // Cut mode, set around one car's hull draws: ModelDraw calls in between bind the mask on a free
 // stage (CarGlassCutMask) and queue themselves for the glass pass (CarGlassCutQueue).

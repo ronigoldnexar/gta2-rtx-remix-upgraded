@@ -53,6 +53,7 @@ int g_forceModel = -1;      // [devtools] force_car_model=N: every traffic car d
 int g_cabInterior = 1;     // [devtools] cab_interior=0: QB-5's plain dashboard instead of the QB-31 cab
 int g_driverGlass = 1;     // [devtools] driver_glass=0: FIX-SEATED's see-through window band off
 int g_tyreContactDev = 1;  // [devtools] tyre_shadows=0: no tyre contact patches (A/B)
+int g_glassSeat = 1;      // FIX-DRIVER-GEOM [devtools] glass_seat=0: a generated body's driver on the sprite's seat (pfl74 A/B)
 int g_bandInterior = 1;    // [devtools] band_interior=0: no dark cabin behind that band (feel20 A/B)
 int g_forceOwnModel = -1;   // [devtools] force_own_car_model=N: the player's car drawn as model N (QB-5 seat checks)
 int g_forceCarPaint[3] = {-1, -1, -1};   // [devtools] force_car_paint=R,G,B: every non-livery car's live paint (QA of dark paint)
@@ -3998,6 +3999,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         g_cabInterior = GetPrivateProfileIntA("devtools", "cab_interior", 1, g_devIni);
         g_driverGlass = GetPrivateProfileIntA("devtools", "driver_glass", 1, g_devIni);
         g_bandInterior = GetPrivateProfileIntA("devtools", "band_interior", 1, g_devIni);
+        g_glassSeat = GetPrivateProfileIntA("devtools", "glass_seat", 1, g_devIni);
         g_tyreContactDev = GetPrivateProfileIntA("devtools", "tyre_shadows", 1, g_devIni);
         g_shellWheels = GetPrivateProfileIntA("devtools", "shell_wheels", 1, g_devIni);
         g_forceSteerDeg = GetPrivateProfileIntA("devtools", "force_steer_deg", 0, g_devIni);
@@ -4830,14 +4832,19 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                 BoardingPublishOpenTop(use.object, CabOpenTop(modelNumber));   // FIX-JACK-SEAT (pm19)
                 // VEHICLE-ART-4 (playfeel1): an authored body's own seat, through the same fit as its mesh
                 // (the 036 Schmidt's central tandem seat under the bubble, not the sprite's rear deck).
-                const bool ownSeat = model->hasDriverSeat && !sideways;
-                const float* ms = model->driverSeat;
+                // FIX-DRIVER-GEOM (pfl74): a generated body (no manifest seat) seats him on the front seat of the
+                // cabin car_glass built behind its glass, the seat drawn through the windows (the sprite's window
+                // rows put the 001 Wellard's driver on the rear deck, outside the glass). [devtools] glass_seat=0: the sprite's.
+                float glassSeat[4];
+                const bool fromGlass = g_glassSeat != 0 && !model->hasDriverSeat && CarGlassDriverSeat(*model, glassSeat);
+                const bool ownSeat = (model->hasDriverSeat || fromGlass) && !sideways;
+                const float* ms = fromGlass ? glassSeat : model->driverSeat;
                 BoardingPublishSeat(use.object, ownSeat, std::fabs(ms[0]) * sx, ms[2] * sz * f, ms[1] * sy, ms[3] * sy);
                 if (ownSeat) {
                     static std::set<const Model*> seatPubLogged;
                     if (seatPubLogged.size() < 40 && seatPubLogged.insert(model).second) {
-                        Log("car bodies: driver's seat of %s (manifest): u %.3f z %+.3f cushion %.3f headliner %.3f (the sprite's: u %.3f z %+.3f roof %.3f)",
-                            model->name.c_str(), std::fabs(ms[0]) * sx, ms[2] * sz * f, ms[1] * sy, ms[3] * sy, 0.25f * b->bodyWidth,
+                        Log("car bodies: driver's seat of %s (%s): u %.3f z %+.3f cushion %.3f headliner %.3f (the sprite's: u %.3f z %+.3f roof %.3f)",
+                            model->name.c_str(), fromGlass ? "glass cabin" : "manifest", std::fabs(ms[0]) * sx, ms[2] * sz * f, ms[1] * sy, ms[3] * sy, 0.25f * b->bodyWidth,
                             zf - 0.27f * b->bodyLength + 0.38f * (std::max)(0.12f, 0.27f * b->bodyLength), roofY);
                     }
                 }
@@ -5152,6 +5159,8 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                         for (int k = 0; k < 3; ++k)
                             cp.paint[k] = (ident.shownTop[0] + ident.shownTop[1] + ident.shownTop[2] > 1.0f ? ident.shownTop[k] / 255.0f : paint[k] / dull) * dull;
                         cp.steer = feel.on ? feel.steer : 0.0f;
+                        // FIX-DRIVER-GEOM: [devtools] force_steer_deg turns the cab's wheel too (a stopped car's hands at a fixed lock)
+                        if (g_forceSteerDeg) cp.steer = static_cast<float>(g_forceSteerDeg) * kPi / 180.0f;
                         cp.speed = feel.speed;
                         cp.night = g_lampDark;
                         cp.openTop = CabOpenTop(modelNumber);

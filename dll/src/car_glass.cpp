@@ -41,6 +41,10 @@ struct Glass {
     int glassTexels = 0;
     int rearTexels = 0;          // of them on a rear screen (the seated driver seen from behind)
     bool closedRoof = false;     // VEHICLE-GLASS-3: the mesh has a hard top (CarGlassClosedRoof)
+    // FIX-DRIVER-GEOM (pfl74): the driver's place on the cabin's own front seat (CarGlassDriverSeat), the
+    // manifest's "driver_seat" frame: x from the centre line, cushion and headliner over the model's lowest point, z.
+    bool hasSeat = false;
+    float seat[4] = {};
 };
 
 std::mutex g_lock;                                   // g_models, g_stemTex, g_meshTris
@@ -844,6 +848,31 @@ void Build(const Model* model, std::shared_ptr<Glass> glass) {
         };
         seat(cx - halfW * 0.95f, cx - halfW * 0.95f + seatW, frontBack);
         seat(cx + halfW * 0.95f - seatW, cx + halfW * 0.95f, frontBack);
+        // FIX-DRIVER-GEOM (pfl74): the driver sits on this seat (hip ahead of its back, on its middle line,
+        // the cushion at the back's foot, his head under this cabin's headliner): the figure and the seat drawn
+        // through the glass come from one measure of the body. The sprite's window rows put the 001 Wellard's
+        // driver on the rear deck, outside the glass.
+        glass->seat[0] = halfW * 0.95f - 0.5f * seatW;
+        glass->seat[1] = floorY + 0.05f * H - minY;
+        // (a long cabin, a van's or a bus's side glass running back to its tail: his hip at most 0.30 behind the dash,
+        // not on the middle of the cabin where the seats are drawn)
+        // The hip 0.06 ahead of the back's face: the seated figure leans back a little, and at 0.025 his head stood inside
+        // the seat back and headrest drawn here (dg74a: no driver seen from any side).
+        glass->seat[2] = (std::max)(frontBack + 0.06f, zf - 0.07f * L - 0.30f);
+        // The headliner his head must clear: the hull's own roof over the seat (its middle strip, from the hip back to
+        // the seat back, less the skin), as the sprite's seat used the hull's top; not this cabin's headliner, which
+        // follows the glass's top (0.26 on the 001 against a 0.34 roof): sunk under it his head sat below the
+        // Wellard's high waist, no driver seen through any window (dg74b).
+        {
+            float roofAt = 1e9f;
+            const float za = frontBack - 0.04f * L, zb = glass->seat[2];
+            const int ba = (std::max)(0, (std::min)(kNb - 1, static_cast<int>((za - minZ) / L * kNb)));
+            const int bb = (std::max)(0, (std::min)(kNb - 1, static_cast<int>((zb - minZ) / L * kNb)));
+            for (int b = ba; b <= bb; ++b) if (hmC[b] > -1e8f) roofAt = (std::min)(roofAt, hmC[b]);
+            const float inner = roofAt < 1e8f ? roofAt - 0.06f * H : ceil;
+            glass->seat[3] = (std::max)(ceil, inner) - minY;
+        }
+        glass->hasSeat = glass->seat[3] > glass->seat[1] + 0.02f;
         if (cabLen > 0.33f * L) {
             box(cx - halfW * 0.95f, cx + halfW * 0.95f, floorY + 0.05f * H, belt + 0.08f * H, zr + 0.02f * L, zr + 0.06f * L, false,
                 0xFF2A2522u, 0xFF332D29u, 0xFF2A2522u);
@@ -854,6 +883,9 @@ void Build(const Model* model, std::shared_ptr<Glass> glass) {
     }
     Log("car glass: %s: %d glass texels in %zu texture(s), cabin z %.3f..%.3f, half width %.3f, floor %.3f, headliner %.3f (roof %.3f)",
         model->name.c_str(), totalGlass, glass->masks.size(), zr, zf, halfW, floorY, ceil, top);
+    if (glass->hasSeat)
+        Log("car glass: %s: driver's seat (front seat) u %.3f cushion %.3f z %+.3f headliner %.3f", model->name.c_str(),
+            glass->seat[0], glass->seat[1], glass->seat[2], glass->seat[3]);
     glass->state = 2;
 }
 
@@ -1125,6 +1157,14 @@ bool CarGlassHasRear(const Model& base) {
     std::lock_guard<std::mutex> lk(g_lock);
     auto it = g_models.find(&base);
     return it != g_models.end() && it->second->rearTexels >= 40;
+}
+
+bool CarGlassDriverSeat(const Model& base, float out[4]) {
+    std::lock_guard<std::mutex> lk(g_lock);
+    auto it = g_models.find(&base);
+    if (it == g_models.end() || it->second->state.load() < 2 || !it->second->hasSeat) return false;
+    for (int k = 0; k < 4; ++k) out[k] = it->second->seat[k];
+    return true;
 }
 
 bool CarGlassClosedRoof(const Model& base) {
