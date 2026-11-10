@@ -568,3 +568,19 @@ change what is drawn). Private stages: `stage_va11` (HEAD 1f812d5 DLLs, the ee51
   renderer's own masks (`GTA2DX9_GLASS_DUMP=1`).
 - **Per-model list:** 069 heading already fixed and verified (fixed/pl19, `forward: +z` on the round-11 mesh); 050 is
   ART-7's authored body; 010 left as ART-8/10 judged it; the 063's black door glass is the pmx11 change above.
+
+## VEHICLE-ART-12 (10 Nov 2026)
+
+- **018 Shark front (vr-prewar-sedans-headlamps-melted-blobs-grille-smear, audit item 7 residue):** the sprite
+  (`out/vr_review/sheet_016_021.png`, x4) is a streamlined fastback with a narrow chrome prow, pontoon wing bulges
+  either side of it and a long roof to a teardrop tail, and no tail fins: the catalog's Sharknose, which ART-9's
+  `car_018.py` body already follows, so the body was kept and the front re-authored (the audit's "1950s finned sedan"
+  does not match the sprite). Before: a 14-bar black/white vertical-bar patch over both prow flanks AND the wing faces
+  (a zebra), the lamps 0.1 m ahead of the wing floating on it, the prow's tip open (a dark slot in the front view).
+  Now: horizontal satin bars on the V prow flanks only (`tex_vgrille`, shaded per bar), a chrome strip down the knife
+  edge (the sprite's chrome prow; it closes the tip), the wings fuller over the front tyre (`NOSE` 0.58, plan exponent
+  3.2: the wing tucked in and its black arch liner showed as a chin) with the headlamps half sunk in the wing face
+  where it passes x 0.80 (found on the surface, not a constant) inside a paint fairing ring. Paint albedo unchanged
+  (mean 196.4 vs 195.7: not darker). `wheel_split_check.py`: only the wheels' own 160 triangles. Evidence (parked, PAINT
+  139,98,74, poses front34/eye/nose/side/rear34/far/chase/cab3q): before `out/va12_018b0`, after `out/va12_018a1`.
+  Textures changed: `018_shark_grille.tga`, `018_shark_paint_body_paint.tga` (AO re-bake), `018_shark.mesh`.

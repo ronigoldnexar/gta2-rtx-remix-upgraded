@@ -51,11 +51,11 @@ def build():
             lift = np.maximum(lift, np.where(dz < R_ARCH, y, 0))
         return lift
 
-    NOSE, TAILL = 0.75, 0.55
+    NOSE, TAILL = 0.58, 0.55   # VEHICLE-ART-12: was 0.75 (the wing tucked in over the front tyre, its liner showed as a black chin)
     def plan(z):
         """plan multipliers: the prow narrows to a rounded vertical edge (a V in plan), the tail closes in a teardrop"""
         fn = np.clip((zn - z) / NOSE, 0, 1)
-        fn = 0.10 + 0.90 * (1 - (1 - fn) ** 2.2)
+        fn = 0.10 + 0.90 * (1 - (1 - fn) ** 3.2)
         ft = np.clip((z - zt) / TAILL, 0, 1)
         ft = np.sqrt(np.clip(1 - (1 - ft) ** 2, 0, 1))
         return fn, ft
@@ -121,7 +121,7 @@ def build():
         u = np.asarray(u, float)
         return np.maximum(np.abs(np.asarray(v) - 1.0) * SV - 0.05, np.abs(u - (zt + 0.42)) - 0.12)
     trim = sdf_union(crease, spear, handle)
-    G0, G1, GV0, GV1 = zn - 0.40, zn, 0.18, 0.56
+    G0, G1, GV0, GV1 = zn - 0.18, zn, 0.22, 0.52   # the V prow's flanks only (VEHICLE-ART-12: was zn-0.40, 0.18..0.56, over the wing faces)
     def grille(u, v):
         u = np.asarray(u, float); v = np.asarray(v, float)
         return np.maximum(np.maximum(G0 - u, u - G1), np.maximum(GV0 - v, v - GV1))
@@ -144,15 +144,28 @@ def build():
                 return side * x, R_TYRE + (R_ARCH - 0.01) * np.sin(a), zc + (R_ARCH - 0.01) * np.cos(a)
             car.surface(liner, 0.05, math.pi - 0.05, 0.60, 1.20, 16, 2, default="underbody", uvfn=lambda u, v: (0.5 + 0 * u, 0.5 + 0 * v))
 
+    # the lamp sits half sunk where the wing face passes x 0.80 at y 0.86
+    uu, vv = np.meshgrid(np.linspace(1.4, zn, 200), np.linspace(0.3, 0.7, 120))
+    bx, by, bz = body(uu.ravel(), vv.ravel())
+    k = np.argmin(np.abs(bx - 0.80) + np.abs(by - 0.86) - 0.0 * bz)
+    LAMP = np.array([0.80, 0.86, bz[k] - 0.03])
     for side in (1, -1):
-        # headlamps faired into the wing noses, raked back with the prow
-        c = np.array([side * 0.72, 0.82, 2.03])
-        ax = (side * 0.50, 0.10, 1.0)
-        car.revolve([(0.098, -0.07), (0.102, 0.010), (0.090, 0.026)], c, ax, 22, default="chrome", uv_mode="disc")
-        car.revolve([(0.090, 0.022), (0.06, 0.036), (0.0, 0.041)], c, ax, 22, default="lamp_head", uv_mode="disc")
+        # headlamps faired into the wing faces beside the prow (VEHICLE-ART-12: they sat 0.1 m ahead of the wing,
+        # floating on the grille): the bucket half sunk in the wing at x 0.80 (wing face z ~1.96), a paint fairing ring
+        c = LAMP * np.array([side, 1.0, 1.0])
+        ax = (side * 0.38, 0.06, 1.0)
+        car.revolve([(0.150, -0.17), (0.142, -0.03), (0.126, 0.005)], c, ax, 24, default="paint_wheel", uv_mode="disc")
+        car.revolve([(0.126, -0.02), (0.122, 0.014), (0.108, 0.027)], c, ax, 24, default="chrome", uv_mode="disc")
+        car.revolve([(0.108, 0.023), (0.08, 0.037), (0.0, 0.043)], c, ax, 24, default="lamp_head", uv_mode="disc")
         # tail lamps: small teardrops on the rear wings
         car.sweep(lambda u, side=side: np.stack([side * 0.98 + 0 * u, 0.70 + 0.16 * u, zt + 0.30 - 0.05 * u], 1), 0.045, 6, 10,
                   "lamp_tail", squash=(1.0, 0.6))
+    # the sprite's chrome prow: a vertical chrome strip along the knife edge (it also closes the open tip of the body)
+    def prow(t):
+        v = 0.17 + 0.78 * np.asarray(t, float)
+        x, y, z = body(np.full_like(v, zn - 0.004), v)
+        return np.stack([0 * v, y, z + 0.012], 1)
+    car.sweep(prow, 0.078, 24, 12, "chrome", up=(0, 0, 1), squash=(1.0, 0.75))
     # bumpers: chrome blades wrapping round the corners with over-riders
     def wrap(zc, sign, y, half):
         def path(u):
@@ -207,14 +220,16 @@ def build():
     return car
 
 
-def tex_vgrille(size=128, bars=14):
-    """vertical chrome bars on black, a chrome surround (the cap's uv: s across, t up)"""
+def tex_vgrille(size=128, bars=9):
+    """VEHICLE-ART-12: the Sharknose's horizontal bars wrapping the prow (t = up the patch), satin chrome on a dark
+    back, shaded per bar (lit top edge, dark underside), a thin surround; was 14 stark black/white vertical bars"""
     yy, xx = np.mgrid[0:size, 0:size] / float(size)
-    bar = np.abs(((xx * bars) % 1.0) - 0.5) < 0.20
-    v = np.where(bar, 190 + 30 * (1 - yy), 22)
-    edge = (yy < 0.05) | (yy > 0.95)
-    v = np.where(edge, 215, v)
-    return Image.fromarray(np.dstack([v, v, v * 1.03]).clip(0, 255).astype(np.uint8))
+    f = (yy * bars) % 1.0
+    bar = f < 0.58
+    shade = np.where(bar, 118 + 62 * (1 - f / 0.58), 34 + 10 * f)
+    edge = (yy < 0.045) | (yy > 0.955) | (xx < 0.03)
+    v = np.where(edge, 168, shade)
+    return Image.fromarray(np.dstack([v, v * 0.99, v * 0.97]).clip(0, 255).astype(np.uint8))
 
 
 if __name__ == "__main__":
