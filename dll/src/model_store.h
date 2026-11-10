@@ -155,6 +155,8 @@ const Model* ModelForVehicle(int modelNumber, int sprite);
 // Meshes whose texture name contains "_paint" are multiplied by this factor
 // (0..2 per channel) in ModelDraw until it is cleared with null: a car's repaint.
 void ModelSetPaintTint(const float* rgb);
+// [devtools] ini path for the live Remix paint-factor toggle (remix_tint_linear)
+void ModelSetDevIni(const char* ini);
 // FIX-CAR-IDENTITY: a car model's own paint (0-255), the mean of the texels its "_paint" meshes cover in
 // the shipped files; cached. False (rgb = paintRgb) when it has no paint meshes. identity.cpp divides by it.
 // mean (optional): the plain mean of the same texels (for a sprite paint measured from its remap's texels).

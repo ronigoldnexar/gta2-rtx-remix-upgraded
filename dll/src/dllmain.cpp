@@ -218,6 +218,7 @@ void LoadConfig() {
         vm.logKeys = GetPrivateProfileIntA("devtools", "log_keys", 0, ini) != 0;
         gta2dx9::CarBodiesSetWreckTest(GetPrivateProfileIntA("devtools", "wreck_models", 0, ini) != 0);
         gta2dx9::CarBodiesSetDevIni(ini);
+        gta2dx9::ModelSetDevIni(ini);
         gta2dx9::PedRemapOverride(GetPrivateProfileIntA("devtools", "ped_remap_override", -1, ini));
         {
             char warpKey[32] = {};

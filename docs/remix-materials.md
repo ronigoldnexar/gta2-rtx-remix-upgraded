@@ -1622,3 +1622,27 @@ see the FIX-REMIX-MATERIALS-4 journal line for the run names and what each frame
   4ae2112 layer and on this one, horizontal cream/dark ribbons with torn ends. The coverage-preserving mips (in both) do not
   clear it; what is torn is a thin alpha-tested structure a few pixels high at grazing angle (sub-pixel alpha test and the
   denoiser), not the mips.
+
+## The paint tint under Remix, glass prims, prim coverage (FIX-REMIX-MATERIALS-5, 10 Nov 2026)
+
+**Every repainted car was too dark and brown under path tracing: Remix drops the tint stage's 2X.** The plain renderer
+multiplies a car's `_paint` texels by its identity tint with stage 1 `MODULATE2X` of a texture factor of tint / 2
+(`model_store.cpp`). RTX Remix applies that factor to its albedo without the 2X (and as a colour), so a tint of
+0.41,0.54,0.71 (the 000 Romero in 84,109,144) became a near-black charcoal and the 063 cab's 121,63,48 a desaturated
+brown (pt-remix-first-truck-classic-red-orange-cab-third-brown-maroon). Measured in one Remix session with a live
+`[devtools] remix_tint_mode` (0 the plain factor, 1 tint x 255, 2 tint^2.2 / 2), own car forced to 000/063 with the
+identity paints, `gamerun/fm5_own.py` side and three-quarter poses at 13:00 (`out/fm5_tint3`, plain twin `fm5_plain2`):
+truck cab median hue 13 deg plain, 26 deg (brown) in mode 0, 13 deg in mode 1, 51 deg in mode 2; Romero door 216 deg
+plain, 45 deg (grey-brown) in mode 0, 207 deg in mode 1. Mode 1 is the default under Remix (only there: the plain
+renderer's factor is unchanged, the classic view draws no car models). A tint over 1 (a paint brighter than the model's
+own) clips at 255 under Remix. `models: Remix car paint <texture>: texture factor` lines name the path per paint texture.
+
+**Glass.** A carkit body's translucent glass (`<car>_glass.tga`, alpha ~0.45, drawn blended; VEHICLE-ART-11's 063) and a
+prop's `__glass` panes (bus shelter, phone booth, alpha ~0.15) now get an `AperturePBR_Translucent` prim (thin-walled,
+IOR 1.5, transmittance = texel colour over the alpha, 0.35-0.92) from `remix_model_materials.py` instead of an opaque
+diffuse prim: a low-alpha blended quad path traces dark (memory note on blend colour x alpha).
+
+**Prim coverage** (`remix_car_prim_check.py --pattern '.*'` over every manifest model): 1140 textures of 279 models,
+33 without a prim before (063's re-authored `_0` atlas and its new glass; 31 prop, pickup and weapon textures re-imported
+at 00:11: bus shelter, phone booth and its ring/lit/glass companions, mailbox, stop sign, pistol pickups, machine gun),
+0 after. Cars alone: 584 textures of 83 models, 2 missing before, 0 after.

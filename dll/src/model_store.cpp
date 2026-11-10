@@ -1882,6 +1882,10 @@ IDirect3DTexture9* FigurePairMerged(IDirect3DDevice9* device, const Model& model
 }
 IDirect3DTexture9* FigurePairMergedBake(IDirect3DDevice9* device, const Model& model, const ModelMesh& mesh) {
     if (!g_bakeTints || !g_paintRests.count(mesh.texture)) return nullptr;
+    if (RemixApiAvailable() && !mesh.texture.empty() && isdigit(static_cast<unsigned char>(mesh.texture[0]))) {
+        static int s_n = 0;
+        if (s_n++ < 20) Log("models: Remix car pair %s drawn as a merged bake (model %s)", mesh.texture.c_str(), model.name.c_str());
+    }
     const std::string paintFile = mesh.texture.substr(0, mesh.texture.size() - 4) + "_paint.tga";
     // The tints: per zone (top, bottom) for a zoned avatar, one for a tinted one, none for an untinted split.
     float tint[2][3] = {{1, 1, 1}, {1, 1, 1}};
@@ -2189,6 +2193,45 @@ bool ModelPrepareOneTexture(IDirect3DDevice9* device, const Model& model) {
 void ModelSetPaintTint(const float* rgb) {
     g_paintTintOn = rgb != nullptr;
     if (rgb) for (int i = 0; i < 3; ++i) g_paintTint[i] = (std::max)(0.0f, (std::min)(2.0f, rgb[i]));
+}
+
+// FIX-REMIX-MATERIALS-5 (ptrx6-remix-third-white-sedan-chalky): the plain renderer multiplies the sRGB
+// texel by the paint tint (stage 1: MODULATE2X of a factor of tint / 2). How RTX Remix applies the stage-1
+// factor to its linear albedo is measured with [devtools] remix_tint_mode (re-read once a second, Remix only):
+// 0 the plain renderer's factor, 1 the factor at full scale (tint x 255: right when Remix decodes the factor
+// as an sRGB colour and drops the 2X), 2 the tint to the 2.2 power at half scale (right when it keeps the
+// 2X and takes the factor as linear).
+namespace {
+char g_modelDevIni[MAX_PATH] = {};
+int g_remixTintMode = 1;
+DWORD g_remixTintReadAt = 0;
+}
+void ModelSetDevIni(const char* ini) {
+    if (ini) { strncpy(g_modelDevIni, ini, sizeof(g_modelDevIni) - 1); g_modelDevIni[sizeof(g_modelDevIni) - 1] = 0; }
+}
+static DWORD PaintFactor(const float* t) {
+    const bool remix = RemixApiAvailable();
+    static bool s_logged = false;
+    if (!s_logged) { s_logged = true; Log("models: paint factor in use (Remix %d, devtools ini %s)", remix ? 1 : 0, g_modelDevIni[0] ? "set" : "unset"); }
+    if (remix && g_modelDevIni[0]) {
+        const DWORD now = GetTickCount();
+        if (g_remixTintReadAt == 0 || now - g_remixTintReadAt > 1000) {
+            g_remixTintReadAt = now ? now : 1;
+            const int mode = GetPrivateProfileIntA("devtools", "remix_tint_mode", 1, g_modelDevIni);
+            if (mode != g_remixTintMode) Log("models: Remix paint factor mode %d", mode);
+            g_remixTintMode = mode;
+        }
+    }
+    const int mode = remix ? g_remixTintMode : 0;
+    DWORD out = 0xFF000000u;
+    for (int k = 0; k < 3; ++k) {
+        float v = (std::max)(0.0f, (std::min)(2.0f, t[k]));
+        float b = v * 127.5f;
+        if (mode == 1) b = (std::min)(255.0f, v * 255.0f);
+        else if (mode == 2) b = (std::min)(255.0f, std::pow(v, 2.2f) * 127.5f);
+        out |= static_cast<DWORD>(b) << (16 - 8 * k);
+    }
+    return out;
 }
 
 std::map<std::string, const Model*> g_propMerged;   // role -> the merged copy (MergeStatic)
@@ -3014,6 +3057,11 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
         if (g_paintTintOn) {
             const bool paint = mesh.texture.find("_paint") != std::string::npos;
             IDirect3DTexture9* baked = paint && g_bakeTints && !LayerPrimFor(device, mesh.texture) ? BakedTint(device, mesh.texture, g_paintTint) : nullptr;
+            if (paint && RemixApiAvailable()) {
+                static std::set<std::string> s_seen;
+                if (s_seen.size() < 40 && s_seen.insert(mesh.texture).second)
+                    Log("models: Remix car paint %s: %s (bake flag %d)", mesh.texture.c_str(), baked ? "baked copy" : "texture factor", g_bakeTints ? 1 : 0);
+            }
             if (baked) {
                 device->SetTexture(0, baked);
                 bound = baked;
@@ -3021,8 +3069,7 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
             } else if (paint) {
                 // The factor is half the tint and the stage doubles it, so a repaint
                 // brighter than the model's own paint still gets there.
-                const DWORD t = 0xFF000000u | (static_cast<DWORD>(g_paintTint[0] * 127.5f) << 16) |
-                                (static_cast<DWORD>(g_paintTint[1] * 127.5f) << 8) | static_cast<DWORD>(g_paintTint[2] * 127.5f);
+                const DWORD t = PaintFactor(g_paintTint);
                 device->SetRenderState(D3DRS_TEXTUREFACTOR, t);
                 device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_MODULATE2X);
                 device->SetTextureStageState(1, D3DTSS_COLORARG1, D3DTA_CURRENT);
@@ -3094,7 +3141,8 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
                 }
                 const float* zt = zb == 0 ? nullptr : (g_zoneOn && model.pedZones) ? g_zoneTint[zb - 1] : g_paintTint;
                 if (zt) {
-                    const DWORD t = 0xFF000000u | (static_cast<DWORD>(zt[0] * 127.5f) << 16) |
+                    const DWORD t = zt == g_paintTint ? PaintFactor(zt)
+                                  : 0xFF000000u | (static_cast<DWORD>(zt[0] * 127.5f) << 16) |
                                     (static_cast<DWORD>(zt[1] * 127.5f) << 8) | static_cast<DWORD>(zt[2] * 127.5f);
                     device->SetRenderState(D3DRS_TEXTUREFACTOR, t);
                     device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_MODULATE2X);

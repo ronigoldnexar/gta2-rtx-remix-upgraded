@@ -72,6 +72,28 @@ TAIL = '''                custom bool inputs:use_legacy_alpha_state = {legacy_al
         }}
 '''
 PRIM = re.compile(r' {8}over "mat_([0-9A-F]{16})"\n {8}\{\n.*?\n {8}\}\n', re.S)
+# FIX-REMIX-MATERIALS-5: a carkit body's translucent glass (tools/vehicle_art/glass_translucent.py writes
+# <car>_glass.tga, alpha ~0.45, drawn blended). Under Remix a low-alpha blended quad is path traced as a dark
+# smear (memory: blend colour x alpha), and an opaque prim would black the cab out: the glass is a thin-walled
+# translucent dielectric instead, its transmittance the texel colour over the alpha (dark tinted cab glass that
+# reflects the sky and shows the cab behind it). The same for a prop's translucent "__glass" companion (alpha ~0.15).
+GLASS_RE = re.compile(r"^\d{3}_.*_glass\.tga$|__glass_\d+\.tga$")   # car glass; a prop's "<name>__glass" panes (bus shelter, phone booth)
+GLASS = '''        over "mat_{h}"
+        {{
+            over "Shader"
+            {{
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Translucent.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Translucent"
+                custom color3f inputs:transmittance_color = ({r:.3f}, {g:.3f}, {b:.3f})
+                custom float inputs:transmittance_measurement_distance = 1
+                custom bool inputs:thin_walled = 1
+                custom float inputs:thin_wall_thickness = 1
+                custom float inputs:ior_constant = 1.5
+                token outputs:out
+            }}
+        }}
+'''
 
 
 def read_mesh(path):
@@ -169,6 +191,16 @@ def write_unit(job):
         albedo = rm.to_rgba(bgr_r)
         mp = pbr.texture_maps(rest, albedo, spec, G["ends"].get(rest), is_car=is_car)
         targets = [(rest, bgr_r)]; legacy, kind = 1, "lone"
+    if kind == "lone" and GLASS_RE.search(rest):
+        px = albedo[..., :3].astype(np.float32) / 255.0; al = albedo[..., 3].astype(np.float32) / 255.0
+        a = float(al.mean()); c = px.reshape(-1, 3).mean(0)
+        t = np.clip((1.0 - a) + a * c, 0.35, 0.92)
+        h = rm.remix_hash(bgr_r)
+        for s in "anmre":
+            q = os.path.join(tex, f"{h}.{s}.rtex.dds")
+            if os.path.lexists(q): os.remove(q)
+        return [{"hash": h, "file": rest, "prim": GLASS.format(h=h, r=t[0], g=t[1], b=t[2]), "sizes": {}, "kind": "glass",
+                 "source": "glass", "stats": {"alpha": round(a, 3)}, "gain": 0.0, "size": list(albedo.shape[:2])}]
     out = []
     for f, b in targets:
         h = rm.remix_hash(b)
