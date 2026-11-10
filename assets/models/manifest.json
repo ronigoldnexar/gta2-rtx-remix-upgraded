@@ -1605,15 +1605,45 @@
   },
   {
    "name": "051_taxi_xpress",
-   "glb": "cars/models3d/051_taxi_xpress.glb",
+   "glb": "cars/vehicle_art2/051_taxi_xpress.glb",
    "scale": 1.0,
    "paint_rgb": [
-    194.0,
-    147.4,
-    69.7
+    236.0,
+    160.0,
+    40.0
    ],
    "texture_max": 512,
-   "paint_split": true
+   "material_textures": {
+    "seal": "cars/vehicle_art2/051_taxi_xpress/seal.png",
+    "chequer": "cars/vehicle_art2/051_taxi_xpress/chequer.png",
+    "chequer_roof": "cars/vehicle_art2/051_taxi_xpress/chequer_roof.png",
+    "pin": "cars/vehicle_art2/051_taxi_xpress/pin.png",
+    "chrome": "cars/vehicle_art2/051_taxi_xpress/chrome.png",
+    "underbody": "cars/vehicle_art2/051_taxi_xpress/underbody.png",
+    "paint_body": "cars/vehicle_art2/051_taxi_xpress/paint_body.png",
+    "interior_dark": "cars/vehicle_art2/051_taxi_xpress/interior_dark.png",
+    "grille": "cars/vehicle_art2/051_taxi_xpress/grille.png",
+    "sign_body": "cars/vehicle_art2/051_taxi_xpress/sign_body.png",
+    "sign": "cars/vehicle_art2/051_taxi_xpress/sign.png",
+    "sign_top": "cars/vehicle_art2/051_taxi_xpress/sign_top.png",
+    "chrome_disc": "cars/vehicle_art2/051_taxi_xpress/chrome_disc.png",
+    "lamp_head": "cars/vehicle_art2/051_taxi_xpress/lamp_head.png",
+    "lamp_amber": "cars/vehicle_art2/051_taxi_xpress/lamp_amber.png",
+    "lamp_tail": "cars/vehicle_art2/051_taxi_xpress/lamp_tail.png",
+    "seat": "cars/vehicle_art2/051_taxi_xpress/seat.png",
+    "tyre_side": "cars/vehicle_art2/051_taxi_xpress/tyre_side.png",
+    "tyre_tread": "cars/vehicle_art2/051_taxi_xpress/tyre_tread.png",
+    "whitewall": "cars/vehicle_art2/051_taxi_xpress/whitewall.png",
+    "paint_wheel": "cars/vehicle_art2/051_taxi_xpress/paint_wheel.png",
+    "glass": "cars/vehicle_art2/051_taxi_xpress/glass.png"
+   },
+   "generator": "tools/vehicle_art2/car_051.py",
+   "driver_seat": [
+    0.09,
+    0.14,
+    -0.008,
+    0.317
+   ]
   },
   {
    "name": "052_swat_van",
@@ -8076,13 +8106,15 @@
   },
   {
    "name": "039_morton",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 11172,
+   "nodes": 4,
+   "meshes": 4,
+   "vertices": 12108,
    "animations": [],
    "textures": [
     "039_morton_0.tga",
-    "039_morton_0_paint.tga"
+    "039_morton_0_paint.tga",
+    "039_morton_1.tga",
+    "039_morton_3.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -8138,13 +8170,15 @@
   },
   {
    "name": "042_a_type",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 12904,
+   "nodes": 4,
+   "meshes": 4,
+   "vertices": 13841,
    "animations": [],
    "textures": [
     "042_a_type_0.tga",
-    "042_a_type_0_paint.tga"
+    "042_a_type_0_paint.tga",
+    "042_a_type_1.tga",
+    "042_a_type_3.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -8272,13 +8306,33 @@
   },
   {
    "name": "051_taxi_xpress",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 7230,
+   "nodes": 26,
+   "meshes": 22,
+   "vertices": 20078,
    "animations": [],
    "textures": [
-    "051_taxi_xpress_0.tga",
-    "051_taxi_xpress_0_paint.tga"
+    "051_taxi_xpress_chequer.tga",
+    "051_taxi_xpress_chequer_roof.tga",
+    "051_taxi_xpress_chrome.tga",
+    "051_taxi_xpress_chrome_disc.tga",
+    "051_taxi_xpress_glass.tga",
+    "051_taxi_xpress_grille.tga",
+    "051_taxi_xpress_interior_dark.tga",
+    "051_taxi_xpress_lamp_amber.tga",
+    "051_taxi_xpress_lamp_head.tga",
+    "051_taxi_xpress_lamp_tail.tga",
+    "051_taxi_xpress_paint_body_paint.tga",
+    "051_taxi_xpress_paint_wheel_paint.tga",
+    "051_taxi_xpress_pin.tga",
+    "051_taxi_xpress_seal.tga",
+    "051_taxi_xpress_seat.tga",
+    "051_taxi_xpress_sign.tga",
+    "051_taxi_xpress_sign_body.tga",
+    "051_taxi_xpress_sign_top.tga",
+    "051_taxi_xpress_tyre_side.tga",
+    "051_taxi_xpress_tyre_tread.tga",
+    "051_taxi_xpress_underbody.tga",
+    "051_taxi_xpress_whitewall.tga"
    ],
    "skins": 0,
    "forward": "",

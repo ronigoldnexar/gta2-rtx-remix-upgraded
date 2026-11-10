@@ -395,3 +395,49 @@ Still short of a shipping-AAA frame: the 050 is clean but plain (no stamped wing
 1948 car, lamps a little small); the 018's 1930s body against its 1950s sprite; the 051's door ghosts, roof blotches
 and C-pillar stub (needs re-authoring like the 050); the train cars are seen only as forced models at street level
 (not yet filmed on the elevated line in motion); the trailers' coupling with the 063 cab is not filmed.
+
+## VEHICLE-ART-8 (10 Nov): paint by geometry, 051 authored, 042/039 lamps
+
+**Paint by geometry** (pmm1: the bil 082 Jagular XK was copper only on its roof and bonnet; boot, rear wings, tail
+and lower flanks near-black teal). The generator baked deep shading into many bodies, so the shaded half of a body
+is near-black: no hue, and `car_paint_resplit.py` (hue-based) leaves it in the untinted half. The 3D car then shows
+the generator's undercoat with patches of the sprite's colour. `tools/vehicle_art/geo_paint.py` re-splits the body
+atlas by where each texel is on the mesh (`uvraster.py`: UV rasterisation, each texel's point and normal):
+- paint = the outer shell (not the underside, above the sills) minus the wheels (a cylinder round each axle found from
+  the ground-contact vertices), minus bright grey texels where chrome lives (bumper ends, the window band, low
+  trim; `--chrome-ends`, `--glass-zone`, `--chrome-low`: elsewhere a bright grey texel is a baked highlight and is
+  painted), minus strongly coloured texels of another hue (lamps, badges), minus a grille zone (`--grille`);
+- the paint is written neutral and nearly flat (`--level`, plus the texel's fine detail as a clipped high-pass), so
+  the renderer's light, not the generator's, shades the panel; the gutter round each painted UV island takes the
+  paint too (`--gutter`), or bilinear/mip sampling draws pale seams at the island edges;
+- **the `_paint` texture must keep the original RGB where its alpha is 0**: with `car_paint_soft_mask=1` the renderer
+  draws the paint mesh opaque as texel x lerp(1, tint, coverage) (model_store.cpp softPaint), so a coverage-0 texel
+  shows its own RGB. Writing 0 there drew every tyre, whitewall and bumper black (out/va8_a1).
+- `tools/vehicle_art/preview_pair.py` previews a generated glb with a texture pair, tinted, in the kit's views.
+Applied: 082 (`--detail 0.10 --grille 0,0.24,0.20,0.75 --grille-lum 32 --chrome-ends 0.80 --glass-zone 0.62
+--glass-lum 40 --chrome-low 0.30`; upper-shell paint 48 % -> 86 %), 038 Big Bug (`--wheel-r 0.16 --wheel-x 0.40
+--hue-tol 22 --sill 0.38 --glass-zone 0.82 --chrome-low 0.40 --chrome-ends 0.96`; 25 % -> 77 %), 058 Tow Truck
+(`--grille 0,0.62,0.12,0.60 --grille-lum 70`; 66 % -> 88 %). Only `NNN_0.tga` / `NNN_0_paint.tga` change.
+
+Paint-share audit (upper shell, area-weighted, from each generated glb's UVs over the shipped `_0_paint.tga`):
+bodies under 60 % that are not liveries: 038 30 57 53 046 062 005 019 004 039 003 002 044 069 031 064 021 042 049
+037 016 007 (and 082 before this pass). The generic settings are NOT safe on these (tried 005, 039: dark glass,
+chrome bumpers and an open cockpit get painted); each needs its own zones and a look at its preview before it ships.
+Liveries (011 012 017 022 023 027 034 052 054 086 ...) are drawn untinted and are not paint-split defects.
+
+**051 Taxi Xpress authored** (vr-taxi-051-residue): `tools/vehicle_art2/car_051.py` is the 050 B-Type's body (the
+catalog: "Checker cab livery on the B-Type") in the cab livery: yellow 236,160,40 (a livery, untinted), a two-row
+chequer belt under the chrome spear clear of the wheel openings, a three-cell chequer strip down the roof from the
+back light to the windscreen, a long flat roof sign (dark box, TAXI faces), a navy pin line down the bonnet and boot
+(the sprite's), a waterfall grille. Seat as the 050. It replaces the image-to-3D shell and its door ghosts, bonnet
+spots and C-pillar stub.
+
+**042 A-Type, 039 Morton lamps** (item 7): `add_lamps.py` at 042 x 0.10 y 0.245 r 0.030 and 039 x 0.11 y 0.235 r
+0.030 (positions read off a z-max grid of the glb's front). Only the `.mesh` and the new lamp textures `_1`/`_3`
+change; the body textures are kept. `assets-src/cars/models3d/042_a_type.glb`, `039_morton.glb` include the lamps
+(lamp-less originals in `<workspace>/backup_va8/src`).
+
+Still short of a shipping-AAA frame: the 082 is the right colour but its TRELLIS shell keeps jagged bumper edges and a
+red/green streak baked across the rear window; the 038 is copper but its body is faceted and its headlamp faces got
+painted; the 058 has a white blotch on the bonnet and one yellow rear hub; the 039's body keeps its dark undercoat
+(its open cockpit needs a zone); 22 bodies of the audit are untouched.
