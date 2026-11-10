@@ -303,6 +303,9 @@ def build_phone(im, ring=0):
     ends.quad((sx0, sy0, sz0), (sx0, sy1, sz0), (sx1, sy1, sz0), (sx1, sy0, sz0))
     ends.quad((sx1, sy0, sz1), (sx1, sy1, sz1), (sx0, sy1, sz1), (sx0, sy0, sz1))
     ends.quad((sx0, sy1, sz1), (sx1, sy1, sz1), (sx1, sy1, sz0), (sx0, sy1, sz0))
+    # and its bottom (FIX-WORLD-7 pm50): seen from below through the faded booth roof, the open
+    # bottom showed the far face's lettering upside down under the sign.
+    ends.quad((sx0, sy0, sz0), (sx1, sy0, sz0), (sx1, sy0, sz1), (sx0, sy0, sz1))
     # the sign box's ends and top: the roof's dark blue (an unlit near-white read as a
     # floating white tab from the side, demo of 9 Nov)
     ends_m = ends.mesh(mat(flat((34, 62, 124)), 0.0, 0.6, name="sign_rim"))
@@ -415,6 +418,65 @@ def brighten(scene, lift=0.45, add=70):
         m.baseColorTexture = Image.fromarray(np.clip(a, 0, 255).astype(np.uint8), "RGB")
 
 
+def steel_texture(base, size=64, seed=1, stripes=0):
+    """Blued steel with a faint brushed grain; `stripes` slide serrations across u."""
+    rng = np.random.default_rng(seed)
+    a = np.zeros((size, size, 3), np.float32) + np.array(base, np.float32)
+    a += rng.normal(0, 3.0, (size, 1, 1)).astype(np.float32)          # grain along the length
+    if stripes:
+        u = np.arange(size)
+        band = ((u * stripes // size) % 2 == 0)
+        a[:, band] *= 0.62
+    return Image.fromarray(np.clip(a, 0, 255).astype(np.uint8), "RGB")
+
+
+def build_pistol_pickup(count=1):
+    """FIX-WORLD-7 (pmr1-ste-third-weapon-pickup-reads-as-blurry-grey-slab-no-pistol-shape): the pistol
+    pickup authored as a pistol, not the hand-held model blown up to 0.28 block (a 108-triangle slab
+    that floated 0.42..1.2 m up and read as a grey plank). A side profile that reads as it turns:
+    slide with rear serrations and sights, frame, muzzle, an open trigger guard with its trigger,
+    a raked walnut grip and a hammer. 0.20 block long (0.77 m: a pickup is drawn larger than life
+    to read like the classic sprite), lying on its side at knee height (0.05..0.19 block).
+    Returns (main, lit)."""
+    L = 0.10          # half length (z)
+    T = 0.013         # half thickness of the slide (x)
+    sy0, sy1 = 0.150, 0.186   # slide
+    fy0 = 0.128               # frame below the slide
+    steel = mat(steel_texture((92, 98, 112), seed=2), 0.75, 0.32, name="slide")
+    serr = mat(steel_texture((92, 98, 112), seed=3, stripes=10), 0.75, 0.35, name="serrations")
+    frame_m = mat(steel_texture((54, 58, 66), seed=4), 0.5, 0.5, name="frame")
+    dark = mat(flat((14, 14, 16)), 0.2, 0.7, name="bore")
+    wood = mat(steel_texture((128, 74, 38), seed=5), 0.0, 0.65, name="grip")
+    meshes = []
+    for k in range(count):
+        dx = (k - (count - 1) / 2) * (2 * T + 0.03)
+        slide = Part(); box_part(slide, dx - T, dx + T, sy0, sy1, -L + 0.022, L)
+        box_part(slide, dx - 0.003, dx + 0.003, sy1, sy1 + 0.009, L - 0.014, L - 0.006)        # front sight
+        box_part(slide, dx - T, dx - 0.004, sy1, sy1 + 0.010, -L + 0.008, -L + 0.018)          # rear sight, two ears
+        box_part(slide, dx + 0.004, dx + T, sy1, sy1 + 0.010, -L + 0.008, -L + 0.018)
+        rear = Part(); box_part(rear, dx - T, dx + T, sy0, sy1, -L, -L + 0.022)                  # serrated rear of the slide
+        fr = Part()
+        box_part(fr, dx - T + 0.002, dx + T - 0.002, fy0, sy0, -L + 0.004, L - 0.018)           # frame / dust cover
+        box_part(fr, dx - 0.006, dx + 0.006, fy0 - 0.036, fy0 - 0.028, -0.050, 0.030)           # trigger guard, bottom bar
+        box_part(fr, dx - 0.006, dx + 0.006, fy0 - 0.036, fy0, 0.022, 0.030)                    # trigger guard, front bar
+        box_part(fr, dx - 0.003, dx + 0.003, fy0 - 0.026, fy0, -0.018, -0.010)                  # trigger
+        box_part(fr, dx - 0.005, dx + 0.005, sy1 - 0.020, sy1 + 0.008, -L - 0.012, -L)          # hammer
+        bore = Part(); box_part(bore, dx - 0.007, dx + 0.007, sy0 + 0.010, sy1 - 0.008, L, L + 0.004)  # the muzzle's dark bore
+        # the grip: raked back 14 degrees, walnut panels over a steel core, a magazine base plate
+        grip = Part(); box_part(grip, dx - T - 0.003, dx + T + 0.003, 0.058, fy0 + 0.004, -L + 0.006, -0.052)
+        base = Part(); box_part(base, dx - T, dx + T, 0.050, 0.058, -L + 0.002, -0.048)
+        rake = trimesh.transformations.rotation_matrix(math.radians(14), [1, 0, 0], point=[dx, fy0, -0.075])
+        for part, m, nm in ((slide, steel, "slide"), (rear, serr, "rear"), (fr, frame_m, "frame"), (bore, dark, "bore"),
+                            (grip, wood, "grip"), (base, frame_m, "base")):
+            g = part.mesh(m)
+            if nm in ("grip", "base"):
+                g.apply_transform(rake)
+            meshes.append((f"{nm}{k}", g))
+    main = scene_with(meshes)
+    lit = scene_with([("glow", glow_ring((90, 230, 110), 0.20, 0.235))])
+    return main, lit
+
+
 def build_weapon_model(src, name):
     """A weapon pickup in the street views: the hand-held weapon model (the same
     one a figure aims with), at pickup size, standing on its side a hand above
@@ -422,6 +484,8 @@ def build_weapon_model(src, name):
     Authored at its final size in blocks: the renderer draws spinning pickups
     at scale 1, not fitted to each frame's sprite extent (which made them pulse).
     Returns (main, lit)."""
+    if name in ("pickup_pistol", "pickup_dual_pistol"):
+        return build_pistol_pickup(2 if name == "pickup_dual_pistol" else 1)
     kind, length, count = WEAPON_SRC[name]
     w = trimesh.load(os.path.join(src, "weapons", f"weapon_{kind}.glb"), force="scene")
     w = w.copy()

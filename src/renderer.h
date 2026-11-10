@@ -297,6 +297,7 @@ private:
     // light behind the glass, black elsewhere), added over the wall when the
     // sun is low. Null for tiles without windows. See MakeWindowGlow.
     std::vector<IDirect3DTexture9*> windowGlow_;
+    std::vector<IDirect3DTexture9*> windowSky_;   // FIX-WORLD-7 (pm12): the same glass by day, reflecting the sky
     IDirect3DTexture9* waterNoise_ = nullptr;   // tileable noise for the water's ripples
     double waterClock_ = 0.0;
     IDirect3DTexture9* LoadHdTileTexture(int tile);

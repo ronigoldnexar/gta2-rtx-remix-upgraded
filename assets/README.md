@@ -203,6 +203,18 @@ Window glow (`[renderer] window_glow`, src/renderer.cpp `MakeWindowGlow`): wall 
 dark, cool-toned panes cover a twelfth to two thirds of the tile get a warm room-light
 texture added over them in the street views when the sun is low (nothing at noon, never in
 the classic view); some panes stay dark. Found from the tile pixels at level load, no files.
+FIX-WORLD-7 (pm26, pm12): the panes are only looked for inside the window and shop-window boxes
+the facade pass grounded (`tools/facade_boxes.json` -> `src/facade_windows.inc` by
+`tools/facade_window_table.py`; coordinates only), one level per window; the colour-run detector
+alone had lit ~180 non-window tiles per district (fans, girders, the grime wall 118's stair-stepped
+band). By day the same panes reflect the sky (a cool level, lighter toward each pane's top), faded
+out as the night glow comes in. A/B: `GTA2DX9_WINDOW_GLOW_BOXES=0`, `GTA2DX9_WINDOW_SKY=0`.
+
+Crisp graffiti (`tools/graffiti_crisp_tiles.py`, FIX-WORLD-7 pm11): photo-set copies at 1024 px of the
+Residential graffiti pieces (ste 355, 353, 382, 383, 284): the HD art reduced to its own palette,
+de-speckled, a little spray shading kept, a hard anti-aliased cut-out edge. They embed the game's art:
+`assets/textures_hd/photo/ste/`, shipped in the textures archive, never in git. Not used under Remix
+(the photo set never is).
 
 ## Regenerated models and their textures
 

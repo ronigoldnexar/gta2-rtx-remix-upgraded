@@ -6052,14 +6052,16 @@
   },
   {
    "name": "pickup_pistol",
-   "nodes": 3,
-   "meshes": 3,
-   "vertices": 228,
+   "nodes": 6,
+   "meshes": 6,
+   "vertices": 312,
    "animations": [],
    "textures": [
     "pickup_pistol_0.tga",
     "pickup_pistol_1.tga",
-    "pickup_pistol_2.tga"
+    "pickup_pistol_2.tga",
+    "pickup_pistol_3.tga",
+    "pickup_pistol_4.tga"
    ],
    "skins": 0,
    "forward": "+z",
@@ -6348,14 +6350,16 @@
   },
   {
    "name": "pickup_dual_pistol",
-   "nodes": 6,
-   "meshes": 6,
-   "vertices": 456,
+   "nodes": 12,
+   "meshes": 12,
+   "vertices": 624,
    "animations": [],
    "textures": [
     "pickup_dual_pistol_0.tga",
     "pickup_dual_pistol_1.tga",
-    "pickup_dual_pistol_2.tga"
+    "pickup_dual_pistol_2.tga",
+    "pickup_dual_pistol_3.tga",
+    "pickup_dual_pistol_4.tga"
    ],
    "skins": 0,
    "forward": "+z",
@@ -6889,7 +6893,7 @@
    "name": "code_phone__lit",
    "nodes": 3,
    "meshes": 3,
-   "vertices": 92,
+   "vertices": 96,
    "animations": [],
    "textures": [
     "code_phone__lit_0.tga",
@@ -6938,7 +6942,7 @@
    "name": "code_phone_ring1__lit",
    "nodes": 3,
    "meshes": 3,
-   "vertices": 92,
+   "vertices": 96,
    "animations": [],
    "textures": [
     "code_phone_ring1__lit_0.tga",
@@ -6987,7 +6991,7 @@
    "name": "code_phone_ring2__lit",
    "nodes": 3,
    "meshes": 3,
-   "vertices": 92,
+   "vertices": 96,
    "animations": [],
    "textures": [
     "code_phone_ring2__lit_0.tga",

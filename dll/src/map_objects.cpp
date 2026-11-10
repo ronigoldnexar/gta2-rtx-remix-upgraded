@@ -19,6 +19,7 @@
 #include "prop_collision.h"
 
 namespace gta2dx9 {
+bool FigureTimeOfDayLight(float out[3]);   // live_geometry.cpp (ptm14): the figures' hour light, 1 by day
 namespace {
 double NowSeconds() {
     static LARGE_INTEGER frequency = {};
@@ -156,7 +157,9 @@ std::map<const Model*, std::string> g_pickupLabels;
 // is drawn see-through, down to kFadeMinAlpha at kFadeNear: a phone box or a traffic-light
 // pole a hand from the first-person eye no longer fills the frame with a dark slab.
 constexpr float kFadeNear = 0.10f, kFadeFar = 0.50f, kFadeMinAlpha = 0.18f;
-struct Faded { const Model* model; gta2::Mat4 out; const ModelAnimation* spin; float t, alpha; };
+// litSign: an unspinning model's "__lit" companion (the booth's PHONE sign, a lamp's lens): drawn
+// unlit as in the opaque path, nearly opaque, and only its nearest face (FIX-WORLD-7 pm50).
+struct Faded { const Model* model; gta2::Mat4 out; const ModelAnimation* spin; float t, alpha; bool litSign = false; };
 std::vector<Faded> g_fadedNow;
 int g_fadedLast = 0;
 int g_nearFade = -1;   // GTA2DX9_NEAR_FADE=0 turns the fade off (QA before/after)
@@ -477,13 +480,52 @@ void MapObjectsDraw(IDirect3DDevice9* device, const std::vector<LiveGeometry::Sp
             // Drawn after everything else of this pass, see-through (QB-49).
             g_fadedNow.push_back({&model, out, spin, spinT, alpha});
             auto litF = g_litOf.find(&model);
-            if (litF != g_litOf.end()) g_fadedNow.push_back({litF->second, out, nullptr, 0.0f, alpha});
+            if (litF != g_litOf.end()) {
+                // FIX-WORLD-7 (pm50): the booth's roof sign is a box with PHONE on both long faces.
+                // Faded like the booth, with no depth writes and no culling, the far face's lettering
+                // (mirrored) showed through the near one and the sign read "HONE" over a ghost plate.
+                // An unspinning model's lit part keeps its own small size nearly opaque and shows only
+                // its nearest face (GTA2DX9_FADE_SIGN=0: the old see-through draw, for A/B).
+                static int signFix = -1;
+                if (signFix < 0) { const char* e = getenv("GTA2DX9_FADE_SIGN"); signFix = (e && e[0] == '0') ? 0 : 1;
+                                   Log("objects: faded lit parts %s (FIX-WORLD-7 pm50)", signFix ? "nearest face only, alpha >= 0.9" : "see-through (old)"); }
+                const bool sign = signFix && !spinning;
+                g_fadedNow.push_back({litF->second, out, nullptr, 0.0f, sign ? (std::max)(alpha, 0.9f) : alpha, sign});
+            }
             auto glassF = g_glassOf.find(&model);
             if (glassF != g_glassOf.end()) g_fadedNow.push_back({glassF->second, out, nullptr, 0.0f, alpha * 0.6f});
             continue;
         }
         if (lit) device->SetRenderState(D3DRS_LIGHTING, spinning ? FALSE : TRUE);
+        // FIX-WORLD-7 (ptm14 residual): a spinning pickup stays unlit (no sun-side darkening of a
+        // small turning thing) but takes the hour's level the figures take (FigureTimeOfDayLight:
+        // 1 by day, the walls' fall at night), so a pickup no longer glows at noon brightness on a
+        // night street. GTA2DX9_PICKUP_NIGHT=0: unlit at every hour, as before.
+        float todLight[3] = {1.0f, 1.0f, 1.0f};
+        bool todDim = false;
+        if (spinning) {
+            static int pickupNight = -1;
+            if (pickupNight < 0) { const char* e = getenv("GTA2DX9_PICKUP_NIGHT"); pickupNight = (e && e[0] == '0') ? 0 : 1;
+                                   Log("objects: pickups %s (FIX-WORLD-7 ptm14)", pickupNight ? "take the time of day's level like the figures" : "unlit at every hour (GTA2DX9_PICKUP_NIGHT=0)"); }
+            todDim = pickupNight && FigureTimeOfDayLight(todLight);
+        }
+        DWORD todArg2 = D3DTA_DIFFUSE, todOp = D3DTOP_MODULATE, todFactor = 0xFFFFFFFFu;
+        if (todDim) {
+            auto byte = [](float v) { return static_cast<DWORD>((std::min)(255.0f, (std::max)(0.0f, v * 255.0f + 0.5f))); };
+            device->GetTextureStageState(0, D3DTSS_COLORARG2, &todArg2);
+            device->GetTextureStageState(0, D3DTSS_COLOROP, &todOp);
+            device->GetRenderState(D3DRS_TEXTUREFACTOR, &todFactor);
+            device->SetRenderState(D3DRS_TEXTUREFACTOR, 0xFF000000u | (byte(todLight[0]) << 16) | (byte(todLight[1]) << 8) | byte(todLight[2]));
+            device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
+            device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+            device->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_TFACTOR);
+        }
         ModelDraw(device, model, out, spin, spinT);
+        if (todDim) {
+            device->SetTextureStageState(0, D3DTSS_COLORARG2, todArg2);
+            device->SetTextureStageState(0, D3DTSS_COLOROP, todOp);
+            device->SetRenderState(D3DRS_TEXTUREFACTOR, todFactor);
+        }
         auto litF = g_litOf.find(&model);
         if (litF != g_litOf.end()) g_litNow.push_back({litF->second, out});
         auto glass = g_glassOf.find(&model);
@@ -562,6 +604,29 @@ void MapObjectsDraw(IDirect3DDevice9* device, const std::vector<LiveGeometry::Sp
             const DWORD a = static_cast<DWORD>((std::min)(1.0f, (std::max)(0.0f, d.alpha)) * 255.0f + 0.5f);
             device->SetRenderState(D3DRS_TEXTUREFACTOR, (a << 24) | 0x00FFFFFFu);
             LogLargeSeeThrough(device, "object (near fade)", *d.model, d.out, d.alpha);
+            if (d.litSign) {
+                // Depth first (no colour), then the colour where this part is the nearest surface.
+                DWORD cw = 0xF, zf = D3DCMP_LESSEQUAL, op = D3DTOP_MODULATE, arg = D3DTA_TEXTURE;
+                device->GetRenderState(D3DRS_COLORWRITEENABLE, &cw);
+                device->GetRenderState(D3DRS_ZFUNC, &zf);
+                device->GetTextureStageState(0, D3DTSS_COLOROP, &op);
+                device->GetTextureStageState(0, D3DTSS_COLORARG1, &arg);
+                device->SetRenderState(D3DRS_COLORWRITEENABLE, 0);
+                device->SetRenderState(D3DRS_ZWRITEENABLE, TRUE);
+                ModelDraw(device, *d.model, d.out, nullptr, 0.0f);
+                device->SetRenderState(D3DRS_COLORWRITEENABLE, cw);
+                device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+                device->SetRenderState(D3DRS_ZFUNC, D3DCMP_LESSEQUAL);
+                device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+                device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+                if (lit) device->SetRenderState(D3DRS_LIGHTING, FALSE);
+                ModelDraw(device, *d.model, d.out, nullptr, 0.0f);
+                if (lit) device->SetRenderState(D3DRS_LIGHTING, TRUE);
+                device->SetTextureStageState(0, D3DTSS_COLOROP, op);
+                device->SetTextureStageState(0, D3DTSS_COLORARG1, arg);
+                device->SetRenderState(D3DRS_ZFUNC, zf);
+                continue;
+            }
             ModelDraw(device, *d.model, d.out, d.spin, d.t);
         }
         device->SetRenderState(D3DRS_ALPHABLENDENABLE, blend);

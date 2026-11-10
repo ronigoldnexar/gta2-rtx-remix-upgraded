@@ -141,6 +141,29 @@ Spinning pickups (`objects_anim: spin`) are now drawn at scale 1 (authored in
 blocks) and keep their authored float: fitted to each frame's sprite extent they
 grew and shrank by up to 20 % as the game cycled the eight turning frames.
 
+FIX-WORLD-7 (10 Nov 2026), in the same draw:
+
+- **Faded booth sign** (pm50-wil-third-phone-booth-roof-sign-reads-HONE-with-mirrored-ghost-plate): an
+  object within half a block of the eye is drawn see-through (QB-49 near fade), blended, without depth
+  writes and without culling; the booth's PHONE sign box then showed its far face's lettering mirrored
+  through the near one ("HONE" over a ghost plate). An unspinning model's `__lit` part is now drawn,
+  when faded, at alpha 0.9 or more, unlit as in the opaque path, depth first and then colour where it is
+  the nearest surface: one solid plate. The sign box also got its bottom face (from below, through the
+  faded roof, its open bottom showed the far face upside down). `GTA2DX9_FADE_SIGN=0`: the old draw (A/B).
+- **Pickups at night** (ptm14 residual): a spinning pickup stays unlit (no sun side on a small turning
+  thing) but takes `FigureTimeOfDayLight`, the level the figures take: 1 by day, about 0.25 at 21:30.
+  `GTA2DX9_PICKUP_NIGHT=0`: unlit at every hour (A/B). The ground ring (`__lit`) still glows.
+- **Pistol pickup** (pmr1-ste-third-weapon-pickup-reads-as-blurry-grey-slab-no-pistol-shape): the
+  hand-held pistol blown up to 0.28 block (108 triangles) floated 0.42..1.2 m up and read as a grey
+  plank. `pickup_pistol` and `pickup_dual_pistol` are now authored as pistols (`build_pistol_pickup`:
+  slide with rear serrations and sights, frame, muzzle bore, open trigger guard and trigger, raked
+  walnut grip, hammer), 0.22 block long at knee height (0.05..0.20 block). Regenerate:
+  `python3 tools/gen_code_objects.py ../assets-src /tmp/out`, copy the changed glbs into
+  `assets-src/objects/code_models/` and `python3 tools/import_assets.py ../assets-src/manifest.json
+  assets/models --only pickup_pistol,pickup_dual_pistol,code_phone__lit,...`, then restore
+  `assets/models/manifest.json` and patch only those entries (the importer rewrites the whole file
+  from the source manifest).
+
 ### What changed
 
 | object | before | after | triangles (main + lit + glass) |

@@ -147,8 +147,36 @@ void SetWindowGlow(bool on) { g_windowGlow = on; }
 // window when they cover a twelfth to two thirds of it. The glow texture is
 // warm room light through those texels, with a few panes dark, so the wall
 // reads as lit from inside when the sun is low. Null for everything else.
-IDirect3DTexture9* MakeWindowGlow(IDirect3DDevice9* device, const uint32_t* pixels, int tileIndex) {
+#include "facade_windows.inc"
+
+// FIX-WORLD-7 (pm26): where the facade pass grounded window glass on this tile (tools/facade_boxes.json).
+// Returns false when the style is not covered (the colour-run detector decides alone); with the style
+// covered, `boxes` holds this tile's window rectangles, empty for a tile that has none.
+// GTA2DX9_WINDOW_GLOW_BOXES=0: the old detector alone, for A/B.
+struct GlowBox { int x0, y0, x1, y1; };
+bool FacadeWindowsFor(int tileIndex, std::vector<GlowBox>* boxes) {
+    static int s_on = -1;
+    if (s_on < 0) { const char* e = getenv("GTA2DX9_WINDOW_GLOW_BOXES"); s_on = (e && e[0] == '0') ? 0 : 1; }
+    boxes->clear();
+    if (!s_on) return false;
+    bool covered = false;
+    for (const char* s : kFacadeWindowStyles) covered = covered || g_tileStyle == s;
+    if (!covered) return false;
+    for (const FacadeWindowBox& b : kFacadeWindowBoxes)
+        if (b.tile == tileIndex && g_tileStyle == b.style) boxes->push_back({b.x0, b.y0, b.x1, b.y1});
+    return true;
+}
+
+IDirect3DTexture9* UploadGlowLevels(IDirect3DDevice9* device, const std::vector<uint32_t>& level);
+
+// sky (may be null): FIX-WORLD-7 (pm12) the same glass by day, reflecting the sky: a cool level,
+// lighter toward the top of each pane, added in the street views as the night glow fades.
+IDirect3DTexture9* MakeWindowGlow(IDirect3DDevice9* device, const uint32_t* pixels, int tileIndex, IDirect3DTexture9** sky) {
     constexpr int n = kTileSize;
+    if (sky) *sky = nullptr;
+    std::vector<GlowBox> boxes;
+    const bool boxed = FacadeWindowsFor(tileIndex, &boxes);
+    if (boxed && boxes.empty()) return nullptr;   // no window on this wall tile (fans, girders, grime: pm26)
     std::vector<uint8_t> glass(static_cast<size_t>(n) * n, 0);
     int count = 0;
     for (int y = 0; y < n; ++y) {
@@ -178,8 +206,20 @@ IDirect3DTexture9* MakeWindowGlow(IDirect3DDevice9* device, const uint32_t* pixe
             run = 0;
         }
     }
-    if (kept < n * n / 12 || kept > n * n * 2 / 3) return nullptr;
+    if (boxed) {
+        // Only the glass inside a grounded window: its dark texels, as before.
+        kept = 0;
+        for (int y = 0; y < n; ++y) for (int x = 0; x < n; ++x) {
+            uint8_t& k = keep[static_cast<size_t>(y) * n + x];
+            bool in = false;
+            for (const GlowBox& b : boxes) in = in || (x >= b.x0 && x < b.x1 && y >= b.y0 && y < b.y1);
+            k = k && in;
+            kept += k;
+        }
+        if (kept < 12) return nullptr;
+    } else if (kept < n * n / 12 || kept > n * n * 2 / 3) return nullptr;
     std::vector<uint32_t> level(static_cast<size_t>(n) * n, 0xFF000000u);
+    std::vector<uint32_t> skyLevel(static_cast<size_t>(n) * n, 0xFF000000u);
     uint32_t seed = 0x9E3779B9u ^ static_cast<uint32_t>(tileIndex * 2654435761u);
     auto rnd = [&]() { seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5; return static_cast<float>(seed & 0xFFFF) / 65535.0f; };
     // A pane is a 16x16 cell of the tile; some are dark, some warm, some cool.
@@ -188,14 +228,38 @@ IDirect3DTexture9* MakeWindowGlow(IDirect3DDevice9* device, const uint32_t* pixe
     for (int y = 0; y < n; ++y) {
         for (int x = 0; x < n; ++x) {
             if (!keep[static_cast<size_t>(y) * n + x]) continue;
-            const float c = cell[(y / 16) * 4 + x / 16];
+            float c = cell[(y / 16) * 4 + x / 16];
             // A soft falloff toward the pane's edges: curtains and depth.
-            const float ex = std::min(x % 16, 15 - x % 16) / 7.5f, ey = std::min(y % 16, 15 - y % 16) / 7.5f;
+            float ex = std::min(x % 16, 15 - x % 16) / 7.5f, ey = std::min(y % 16, 15 - y % 16) / 7.5f;
+            float fromTop = (y % 16) / 15.0f;   // 0 at the pane's top, 1 at its foot (the sky reflection)
+            if (boxed) {
+                // One level per window (a room is lit or not), the falloff from the window's own edges.
+                for (size_t i = 0; i < boxes.size(); ++i) {
+                    const GlowBox& b = boxes[i];
+                    if (x < b.x0 || x >= b.x1 || y < b.y0 || y >= b.y1) continue;
+                    c = cell[i % 16];
+                    const float hw = 0.5f * (b.x1 - b.x0), hh = 0.5f * (b.y1 - b.y0);
+                    ex = std::min(x - b.x0 + 0.5f, b.x1 - x - 0.5f) / (std::max)(1.0f, std::min(7.5f, hw));
+                    ey = std::min(y - b.y0 + 0.5f, b.y1 - y - 0.5f) / (std::max)(1.0f, std::min(7.5f, hh));
+                    fromTop = (y - b.y0 + 0.5f) / (std::max)(1.0f, static_cast<float>(b.y1 - b.y0));
+                    break;
+                }
+            }
             const float f = c * std::min(1.0f, 0.35f + 0.65f * std::min(ex, ey));
             const int r = static_cast<int>(255.0f * f * 1.0f), g = static_cast<int>(255.0f * f * 0.78f), b = static_cast<int>(255.0f * f * 0.45f);
             level[static_cast<size_t>(y) * n + x] = 0xFF000000u | (r << 16) | (g << 8) | b;
+            // By day: the sky's cool grey, 0.30 at a pane's top to 0.12 at its foot, softened at the edges.
+            const float s = (0.12f + 0.18f * (1.0f - std::min(1.0f, std::max(0.0f, fromTop)))) * std::min(1.0f, 0.5f + 0.5f * std::min(ex, ey));
+            const int sr = static_cast<int>(255.0f * s * 0.80f), sg = static_cast<int>(255.0f * s * 0.90f), sb = static_cast<int>(255.0f * s);
+            skyLevel[static_cast<size_t>(y) * n + x] = 0xFF000000u | (sr << 16) | (sg << 8) | sb;
         }
     }
+    if (sky) *sky = UploadGlowLevels(device, skyLevel);
+    return UploadGlowLevels(device, level);
+}
+
+IDirect3DTexture9* UploadGlowLevels(IDirect3DDevice9* device, const std::vector<uint32_t>& level) {
+    constexpr int n = kTileSize;
     IDirect3DTexture9* texture = nullptr;
     if (FAILED(device->CreateTexture(n, n, 0, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &texture, nullptr))) return nullptr;
     // Mips by box filter, so the glow fades cleanly with distance.
@@ -554,6 +618,8 @@ void Renderer::ReleaseResources() {
     if (waterNoise_) { waterNoise_->Release(); waterNoise_ = nullptr; }
     for (IDirect3DTexture9* t : windowGlow_) if (t) t->Release();
     windowGlow_.clear();
+    for (IDirect3DTexture9* t : windowSky_) if (t) t->Release();
+    windowSky_.clear();
     // An animated tile's slot points at a frame owned by tileFrames_, so those
     // must not be released twice. Everything else in textures_ is owned here.
     for (IDirect3DTexture9* texture : textures_) {
@@ -773,6 +839,8 @@ bool Renderer::UploadWorld(const WorldMesh& mesh, const Style& style, std::strin
     }
     for (IDirect3DTexture9* t : windowGlow_) if (t) t->Release();
     windowGlow_.assign(textures_.size(), nullptr);
+    for (IDirect3DTexture9* t : windowSky_) if (t) t->Release();
+    windowSky_.assign(textures_.size(), nullptr);
     {
         // Only tiles the map uses on walls (never as lids) can be windows.
         std::vector<uint8_t> wallOnly(textures_.size(), 0), lidUse(textures_.size(), 0);
@@ -785,10 +853,15 @@ bool Renderer::UploadWorld(const WorldMesh& mesh, const Style& style, std::strin
             if (!wallOnly[static_cast<size_t>(i)] || lidUse[static_cast<size_t>(i)] || IsWaterTileIndex(i)) continue;
             const Tile& t = style.GetTile(i);
             if (t.pixels.size() != static_cast<size_t>(kTileSize) * kTileSize) continue;
-            windowGlow_[static_cast<size_t>(i)] = MakeWindowGlow(device_, t.pixels.data(), i);
+            windowGlow_[static_cast<size_t>(i)] = MakeWindowGlow(device_, t.pixels.data(), i, &windowSky_[static_cast<size_t>(i)]);
             if (windowGlow_[static_cast<size_t>(i)]) ++windows;
         }
-        Trace("windows: %d wall tiles glow from inside when the sun is low", windows);
+        {
+            std::vector<GlowBox> probe;
+            const bool boxed = FacadeWindowsFor(-1, &probe);
+            Trace("windows: %d wall tiles glow from inside when the sun is low (%s)", windows,
+                  boxed ? "glass inside the facade pass's window boxes, FIX-WORLD-7 pm26" : "colour-run detector alone");
+        }
     }
     if (!waterNoise_) waterNoise_ = MakeWaterNoise(device_);
     water_.BuildShore(mesh, waterTile_);
@@ -1527,7 +1600,16 @@ void Renderer::DrawWorld(const Camera& camera) {
         // Lit windows: the room glow added on top, scaled by how low the sun
         // is (nothing at noon, full at dusk and night), in the street views only.
         const float glowAmount = g_windowGlow && shading_.sun && !water ? std::min(1.0f, std::max(0.0f, (0.55f - shading_.sunDir.y) / 0.45f)) : 0.0f;
-        IDirect3DTexture9* glow = glowAmount > 0.02f && batch.tile < static_cast<int>(windowGlow_.size()) ? windowGlow_[static_cast<size_t>(batch.tile)] : nullptr;
+        // FIX-WORLD-7 (pm12): by day the same panes reflect the sky (windowSky_), faded out as the
+        // night glow comes in (stage 2 takes the complement of the glow's factor); a dark pane right
+        // beside a first-person eye no longer reads as a black hole. GTA2DX9_WINDOW_SKY=0: off.
+        static int s_windowSky = -1;
+        if (s_windowSky < 0) { const char* e = getenv("GTA2DX9_WINDOW_SKY"); s_windowSky = (e && e[0] == '0') ? 0 : 1;
+                               Trace("windows: %s", s_windowSky ? "panes reflect the sky by day (FIX-WORLD-7 pm12)" : "no daytime pane reflection (GTA2DX9_WINDOW_SKY=0)"); }
+        const bool tileHasWindow = batch.tile < static_cast<int>(windowGlow_.size()) && windowGlow_[static_cast<size_t>(batch.tile)];
+        IDirect3DTexture9* const windowSky = s_windowSky && g_windowGlow && shading_.sun && !water && tileHasWindow && glowAmount < 0.98f &&
+                                             batch.tile < static_cast<int>(windowSky_.size()) ? windowSky_[static_cast<size_t>(batch.tile)] : nullptr;
+        IDirect3DTexture9* glow = (glowAmount > 0.02f || windowSky) && tileHasWindow ? windowGlow_[static_cast<size_t>(batch.tile)] : nullptr;
         if (glow) {
             const int a = static_cast<int>(glowAmount * 255.0f + 0.5f);
             device_->SetTexture(1, glow);
@@ -1542,7 +1624,22 @@ void Renderer::DrawWorld(const Camera& camera) {
             device_->SetSamplerState(1, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
             device_->SetSamplerState(1, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
             device_->SetSamplerState(1, D3DSAMP_MIPFILTER, D3DTEXF_LINEAR);
-            device_->SetTextureStageState(2, D3DTSS_COLOROP, D3DTOP_DISABLE);
+            if (windowSky) {
+                device_->SetTexture(2, windowSky);
+                device_->SetTextureStageState(2, D3DTSS_TEXCOORDINDEX, 0);
+                device_->SetTextureStageState(2, D3DTSS_COLOROP, D3DTOP_MULTIPLYADD);   // current + sky * (1 - factor)
+                device_->SetTextureStageState(2, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+                device_->SetTextureStageState(2, D3DTSS_COLORARG2, D3DTA_TFACTOR | D3DTA_COMPLEMENT);
+                device_->SetTextureStageState(2, D3DTSS_COLORARG0, D3DTA_CURRENT);
+                device_->SetTextureStageState(2, D3DTSS_ALPHAOP, D3DTOP_SELECTARG2);
+                device_->SetTextureStageState(2, D3DTSS_ALPHAARG2, D3DTA_CURRENT);
+                device_->SetSamplerState(2, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
+                device_->SetSamplerState(2, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
+                device_->SetSamplerState(2, D3DSAMP_MIPFILTER, D3DTEXF_LINEAR);
+                device_->SetTextureStageState(3, D3DTSS_COLOROP, D3DTOP_DISABLE);
+            } else {
+                device_->SetTextureStageState(2, D3DTSS_COLOROP, D3DTOP_DISABLE);
+            }
         }
         if (batch.wrapUv) {
             device_->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_WRAP);
@@ -1611,6 +1708,11 @@ void Renderer::DrawWorld(const Camera& camera) {
             device_->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
             device_->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
             device_->SetTexture(1, nullptr);
+            if (windowSky) {
+                device_->SetTextureStageState(2, D3DTSS_COLOROP, D3DTOP_DISABLE);
+                device_->SetTextureStageState(2, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+                device_->SetTexture(2, nullptr);
+            }
         }
         if (water) {
             for (DWORD stage = 1; stage <= 3; ++stage) {
