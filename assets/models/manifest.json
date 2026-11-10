@@ -1508,15 +1508,43 @@
   },
   {
    "name": "039_morton",
-   "glb": "cars/models3d/039_morton.glb",
+   "glb": "cars/vehicle_art2/039_morton.glb",
    "scale": 1.0,
    "paint_rgb": [
-    131.3,
-    95.9,
-    78.6
+    235.0,
+    235.0,
+    235.0
    ],
    "texture_max": 512,
-   "paint_split": true
+   "material_textures": {
+    "interior_dark": "cars/vehicle_art2/039_morton/interior_dark.png",
+    "trim_dark": "cars/vehicle_art2/039_morton/trim_dark.png",
+    "vent": "cars/vehicle_art2/039_morton/vent.png",
+    "underbody": "cars/vehicle_art2/039_morton/underbody.png",
+    "paint_body": "cars/vehicle_art2/039_morton/paint_body.png",
+    "paint_wing_f": "cars/vehicle_art2/039_morton/paint_wing_f.png",
+    "paint_wing_r": "cars/vehicle_art2/039_morton/paint_wing_r.png",
+    "running_board_rubber": "cars/vehicle_art2/039_morton/running_board_rubber.png",
+    "frame": "cars/vehicle_art2/039_morton/frame.png",
+    "grille": "cars/vehicle_art2/039_morton/grille.png",
+    "chrome": "cars/vehicle_art2/039_morton/chrome.png",
+    "chrome_disc": "cars/vehicle_art2/039_morton/chrome_disc.png",
+    "lamp_head": "cars/vehicle_art2/039_morton/lamp_head.png",
+    "lamp_tail": "cars/vehicle_art2/039_morton/lamp_tail.png",
+    "hood": "cars/vehicle_art2/039_morton/hood.png",
+    "tyre_side": "cars/vehicle_art2/039_morton/tyre_side.png",
+    "seat": "cars/vehicle_art2/039_morton/seat.png",
+    "tyre_tread": "cars/vehicle_art2/039_morton/tyre_tread.png",
+    "paint_wheel": "cars/vehicle_art2/039_morton/paint_wheel.png",
+    "glass": "cars/vehicle_art2/039_morton/glass.png"
+   },
+   "generator": "tools/vehicle_art2/car_039.py",
+   "driver_seat": [
+    0.06,
+    0.112,
+    -0.136,
+    0.274
+   ]
   },
   {
    "name": "040_maurice",

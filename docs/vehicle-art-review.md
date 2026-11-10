@@ -513,6 +513,16 @@ wheels' own 160 inner-disc triangles):
   buried them: the wing face is at z 2.07, read it off the mesh before placing a lamp), chrome centre strip down the
   bonnet, four doors, fastback, teardrop tail, whitewalls; the arch liners narrowed to the slimmer nose.
 
+- **039 Morton** (`car_039.py`, audit item 6): a Morgan Plus 4 idiom written on the kit from scratch: a narrow tub
+  with louvres down the bonnet sides, an upright chrome waterfall grille, separate wings (the 008 Bug's fender: long
+  front wings sweeping into running boards, round rear wings), headlamps on stalks with a light bar, a small upright
+  windscreen, an open cockpit (the sprite's dark cockpit) with the folded hood behind the seats, a spare on the tail.
+  The first take put 218 tub triangles in the wheel discs (the tub reached past X_WHEEL - 1.2 r): the tub was
+  narrowed and the track widened.
+- **Renderer note** (not changed, `cab_interior.cpp` belongs to FIX-FIGURE-8): CabOpenTop() lists model 53 as an open
+  top; the authored 053 is a closed fastback (the sprite's painted roof), so 53 should leave that list (glass cut,
+  seated band and first-person roof then treat it as closed). 39 stays (open cockpit).
+
 Train film (item 4): the regression camera set ahead of the logged train still framed a street and undersides
 (out/va10_rail1); the `vehicles:` line gave the trains z 3.0 then 1.0 at x,y with no track in view, so its train
 positions cannot be trusted yet. Trailers 055/065/066 are in no traffic district (catalog).
