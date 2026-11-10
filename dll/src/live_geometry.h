@@ -169,6 +169,8 @@ void SetUprightPeds(bool on);
 void SetCarLamps(int mode);
 // FIX-FX-5: [devtools] remix_flat_lamps=1 lays the game's lamp-delta quads flat under a 3D car model under Remix again (the old white squares on the road); 0 (default) leaves them out in the street views.
 void SetRemixFlatLamps(int on);
+// FIX-FX-5: [devtools] remix_game_specks=1 draws the game's tiny (< 0.06 block) smoke puffs in the street views under Remix again (the dotted bead columns); 0 (default) leaves them out.
+void SetRemixGameSpecks(int on);
 // Street views, plain renderer: the soft contact shadow under cars, peds and props, percent opacity (0 off).
 void SetContactShadows(int percent);
 // Each drawn tyre's own dark contact patch under it, over the car's soft one (1 on, 0 off).

@@ -1495,6 +1495,12 @@ void LightsReconcile() {
                 lastFlatLamps = flatLamps; SetRemixFlatLamps(flatLamps);
                 Log("devtools: Remix flat lamp quads under 3D car models %s", flatLamps ? "on (old: white squares on the road)" : "off");
             }
+            static int lastSpecks = -1;
+            const int specks = GetPrivateProfileIntA("devtools", "remix_game_specks", 0, ini);
+            if (specks != lastSpecks) {
+                lastSpecks = specks; SetRemixGameSpecks(specks);
+                Log("devtools: Remix game smoke specks (< 0.06 block) %s", specks ? "on (old: dotted bead columns)" : "off");
+            }
             {
                 // FIX-REMIX-NIGHT-7: the night palette live (see g_moonRgb).
                 auto rgbKey = [&](const char* key, float* out, const float* def) {

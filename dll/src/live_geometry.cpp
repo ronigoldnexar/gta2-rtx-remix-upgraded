@@ -665,6 +665,8 @@ int PlayerWeapon() { return g_playerWeapon; }
 void SetCarLamps(int mode) { g_carLamps = mode; }
 int g_remixFlatLamps = 0;
 void SetRemixFlatLamps(int on) { g_remixFlatLamps = on; }
+int g_remixGameSpecks = 0;
+void SetRemixGameSpecks(int on) { g_remixGameSpecks = on; }
 bool UprightPeds() { return g_uprightPeds; }
 // FIX-SMOOTH-SWITCH (world_view.cpp): the presentation follows the camera's move, not the key.
 bool StreetPresentation();
@@ -14246,6 +14248,12 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
                 const float angle = static_cast<float>((sprite.object >> 4) & 1023u) * 0.0061f;
                 // The soft texture covers less than the solid flower: a little bigger and
                 // denser than the game's 0x50 so the puff reads at the same weight.
+                // FIX-FX-5 (prem1, tri39 q11: "a vertical column of ~18 pale translucent bubbles" from a man's feet up
+                // past the fence, and on a hospital wall): the game's tiny puffs (gun smoke and the like, 0.01-0.02
+                // block, flags a180) rise from the shooter's ground point; under Remix each path-traces as a lit bead,
+                // so a second of them is a dotted column. In the street views under Remix the specks under 0.06 block
+                // are left out (the muzzle flash and its smoke carry a shot). [devtools] remix_game_specks=1: the old way.
+                if (size < 0.06f && !g_remixGameSpecks && RemixApiAvailable() && CurrentViewMode() != ViewMode::Classic) continue;
                 g_gamePuffs.push_back({c[0], c[1], c[2], size * 1.35f, angle, mul(16), mul(8), mul(0),
                                        (std::min)(0.85f, alpha * (additive ? 1.0f : 1.6f)), additive});
                 continue;

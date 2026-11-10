@@ -1545,6 +1545,18 @@ rim at the bezel. Still short: the head lamp's core is not much hotter than its 
 and the authored carkit cars' head-lamp lens (one shared texture, 920CF946BF67669A) has no emissive at all; their night
 look is the remix_lights beam only.
 
+### The game's tiny smoke specks under Remix (FIX-FX-5, 10 Nov 2026)
+
+prem1 and its second witness (a vertical column of about 18 pale bubbles from a man's feet up past a fence; the same
+dotted column on the ste hospital wall at 209.5,149.5) were the game's own tiny puffs: code object 8/322, flags a180,
+0.01-0.02 block, alpha 40-160 (`game blend: ... -> soft puff` in the log). They rise from an emitter's ground point.
+live_geometry draws them as `g_gamePuffs`. Under Remix each blended speck path-traces as a lit bead, and a second of them
+makes a dotted column. In the street views under Remix the game puffs under 0.06 block are now left out. Classic and the
+plain renderer are unchanged. `[devtools] remix_game_specks=1` draws them again (live). Same session A/B at the second
+witness's spot, ste 209.5,149.5 at 12:00, third person (out/ffx5_sp2, `sp2_NNN_g<v>`): with the specks on, bead columns
+rise from the paving in 5 of 10 frames. With them off, 0 of 19 frames show one. The emitter is intermittent (none in the
+first on phase).
+
 ## Painted walls, murals, road lids, cut-outs and leaves (FIX-REMIX-MATERIALS-3, 10 Nov 2026)
 
 Five path-traced defects filed against what the gta2hd layer draws for a texture (two fixed, one partly, two found
