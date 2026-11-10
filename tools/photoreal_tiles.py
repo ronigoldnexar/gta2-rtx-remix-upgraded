@@ -37,6 +37,8 @@ Remix device, whose PBR layer is keyed by the HD set's texture hashes.
     photoreal_tiles.py resharpen <photo dir> <hd dir> <out dir> --tiles a,b   restore the art-scale contrast
     photoreal_tiles.py frames   <photo dir> <labels.json> <usage.json> <out dir> --style bil
                                         lift thin true-black frame bars of wall tiles (pm12)
+    photoreal_tiles.py voids    <photo dir> <labels.json> <usage.json> <out dir> --style wil [--dry]
+                                        shade wide pure-black openings of wall tiles as dark glass (pmy3)
     photoreal_tiles.py lotfield <tile dir> <out dir> --tiles a,b --target r,g,b
                                         flatten the asphalt's low-frequency tone of a tile family (pmq1)
 
@@ -351,6 +353,72 @@ def cmd_frames(a):
         done.append((t, round(frac, 4)))
     print(json.dumps({"style": a.style, "lifted": len(done), "tiles": done}))
 
+# ----------------------------------------------------------------------------- voids
+VOID_BLACK = 0.06       # texels darker than this are candidates (the art paints openings 0-12/255)
+VOID_FLOOR = 0.085      # luminance at the bottom of a shaded opening (interior shadow)
+VOID_TOP = 0.15         # ... at its top (sky and street caught on the glass)
+
+def void_shade(rgba, black=VOID_BLACK, wide=FRAME_WIDE, floor=VOID_FLOOR, top=VOID_TOP):
+    """pmy3: the wide black areas frame_floor keeps (shop openings, doorways, deep window recesses)
+    are pure 0,0,0 in the art; from the first-person eye on the pavement one fills a third of the
+    frame as a hole into nothing. Paint each one as dark glass in front of a dim interior: a blue-grey
+    tone rising from `floor` at the bottom to `top` under the lintel (the sky and the street opposite
+    reflected), a soft diagonal sheen, the art's own faint variation kept as detail, feathered into
+    the frame around it. Thin black (frame bars) and cutout texels are untouched.
+    Returns (rgba, shaded fraction)."""
+    from scipy import ndimage as ndi
+    size = rgba.shape[0]; k = size / 512.0
+    rgb = rgba[..., :3]
+    L = rgb @ np.array([0.299, 0.587, 0.114], np.float32)
+    b = (L < black) & (rgba[..., 3] > 0.5)
+    r = max(2, int(round(wide * k)))
+    yy, xx = np.mgrid[-r:r + 1, -r:r + 1]; disk = xx * xx + yy * yy <= r * r
+    void = ndi.binary_dilation(ndi.binary_opening(b, disk), structure=np.ones((3, 3), bool), iterations=r, mask=b)
+    if not void.any(): return rgba, 0.0
+    lab, n = ndi.label(void)
+    t = np.zeros(L.shape, np.float32)            # 0 at an opening's top, 1 at its bottom
+    sheen = np.zeros(L.shape, np.float32)
+    Y, X = np.mgrid[0:size, 0:size].astype(np.float32)
+    for i, sl in enumerate(ndi.find_objects(lab), 1):
+        m = lab[sl] == i
+        y0, y1 = sl[0].start, sl[0].stop; x0, x1 = sl[1].start, sl[1].stop
+        h = max(1.0, y1 - y0); w = max(1.0, x1 - x0)
+        ty = (Y[sl] - y0) / h; tx = (X[sl] - x0) / w
+        t[sl][m] = ty[m]
+        # one broad reflection band running down-left across the pane
+        d = (tx + 0.55 * ty) - 0.62
+        sheen[sl][m] = np.exp(-(d / 0.16) ** 2)[m]
+    detail = np.clip(L - ndi.gaussian_filter(L, 6 * k), -0.03, 0.03) * 2.0
+    lum_ = top + (floor - top) * np.sqrt(t) + 0.035 * sheen + detail
+    glass = np.array([0.86, 0.97, 1.12], np.float32)          # cool: glass and shade
+    shade = lum_[..., None] * glass
+    m = ndi.gaussian_filter(void.astype(np.float32), 1.0 * k) * void   # soft only inward: the frame stays
+    m = np.maximum(m, ndi.gaussian_filter(void.astype(np.float32), 1.0 * k) * b)
+    out = rgba.copy()
+    out[..., :3] = np.clip(rgb * (1 - m[..., None]) + np.maximum(shade, rgb) * m[..., None], 0, 1)
+    return out, float(void.mean())
+
+def cmd_voids(a):
+    """photo tiles of building sides: void_shade over each wall tile of `style` (side use more than
+    lid use, a wall class, no cutout). Reads <photo dir>, writes <out dir> (may be the same)."""
+    labels = json.load(open(a.labels)); use = json.load(open(a.usage))[a.style]
+    os.makedirs(a.out, exist_ok=True)
+    walls = set(WALL)
+    want = [int(x) for x in a.tiles.split(",")] if a.tiles else sorted(map(int, labels))
+    done = []
+    for t in want:
+        src = os.path.join(a.photo, "tile_%04d.dds" % t)
+        if not os.path.exists(src): continue
+        lab = labels.get(str(t)); cls = lab["cls"] if isinstance(lab, dict) else lab
+        if not a.tiles and (cls not in walls or use["side"].get(str(t), 0) <= use["lid"].get(str(t), 0)): continue
+        rgba = read_dds_rgba(src)
+        if not a.tiles and rgba[..., 3].min() < 0.5: continue        # cutouts: black there is keyed art
+        out, frac = void_shade(rgba)
+        if frac < a.min_frac or (not a.tiles and frac > a.max_frac): continue   # >max: a dark material, not openings
+        if not a.dry: write_dds(os.path.join(a.out, "tile_%04d.dds" % t), out)
+        done.append((t, round(frac, 4)))
+    print(json.dumps({"style": a.style, "shaded": len(done), "tiles": done}))
+
 # ----------------------------------------------------------------------------- resharpen
 def band(L, k):
     from scipy import ndimage as ndi
@@ -462,6 +530,10 @@ if __name__ == "__main__":
     s.add_argument("--style", required=True); s.add_argument("--tiles", default="", help="only these tiles (no wall test)")
     s.add_argument("--floor", type=float, default=FRAME_FLOOR); s.add_argument("--min-frac", type=float, default=0.002)
     s.add_argument("--max-frac", type=float, default=0.20); s.add_argument("--min-mean", type=float, default=0.20)
+    s = sub.add_parser("voids"); s.add_argument("photo"); s.add_argument("labels"); s.add_argument("usage"); s.add_argument("out")
+    s.add_argument("--style", required=True); s.add_argument("--tiles", default="", help="only these tiles (no wall test)")
+    s.add_argument("--min-frac", type=float, default=0.004); s.add_argument("--max-frac", type=float, default=0.35)
+    s.add_argument("--dry", action="store_true", help="list the tiles, write nothing")
     s = sub.add_parser("lotfield"); s.add_argument("src"); s.add_argument("out")
     s.add_argument("--tiles", required=True); s.add_argument("--target", default="77,80,64")
     s.add_argument("--sigma", type=float, default=40.0); s.add_argument("--tol", type=float, default=20.0)

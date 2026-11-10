@@ -289,3 +289,20 @@ time with the new props (the counts above are small next to the PERF-2 budget).
   the post (`POST_R`, `SIGN_BRACKET`), the clamp strap fills the gap; the back stays plain metal. Only
   sign_stop.mesh and sign_oneway.mesh change (their textures are identical). Verified at wil 167.9,127.5 with fixed
   regression-camera poses (before/after at 1, 1.5 and 3 blocks).
+
+## 12. Openings painted pure black (FIX-WORLD-10, 10 Nov 2026)
+
+- **pmy3, wil first person: shop openings as black voids** (`photoreal_tiles.py voids`). From the Downtown pavement
+  at wil 130.5,34 the right-hand building's ground floor is tile 48 (x=131, y 31..32, level 2; tile 55 above): a tall
+  shop opening whose interior the 64 px art paints 0..12/255 over 18 % of the tile. FIX-WORLD-8's `frames` lifts only
+  THIN black (frame bars) and keeps wide black on purpose, so from 0.5 block the opening filled a third of the frame
+  as a hole into nothing. `voids` takes the same wide-black regions (darker than 0.06, opened by a 22-texel disk and
+  regrown, never cutout texels) of every wall tile and paints each as dark glass in front of a dim interior: a cool
+  blue-grey from luminance 0.085 at the bottom to 0.15 under the lintel, one soft diagonal sheen, the art's own faint
+  variation kept, feathered inward so the frame stays. 82 tiles (wil 23, ste 21, bil 38; wall class, side use over
+  lid use, 0.4..35 % void). In the filer's first-person pose the share of pure-black pixels (luma < 8) on that wall
+  went 9.8 % -> 1.3 %. Regenerate (after `frames`): `photoreal_tiles.py voids <hd>/photo/<st> labels_<st>.json
+  usage.json <hd>/photo/<st> --style <st>` for wil, ste, bil (`--dry` lists the tiles). Street sets only (the photo
+  set is never loaded in classic or on a Remix device; the HD tiles and their Remix hashes are untouched).
+- The "streaked wall" of the same report was not the tile: it was the plain renderer's SSAO drawing 10 px vertical
+  stripes on every wall (docs/visuals-plain.md, SSAO row).

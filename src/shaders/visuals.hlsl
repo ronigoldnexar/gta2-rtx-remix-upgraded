@@ -178,22 +178,35 @@ float4 ps_composite(QuadOut i) : COLOR0 {
 // in view space, compared against the depth buffer, with a range check.
 float4 cAo : register(c2);   // radius (view units), bias, intensity, max distance
 
-float AoSample(float3 p, float3 sampleDir, float radius) {
+float AoSample(float3 p, float3 sampleDir, float radius, float bias) {
     float3 s = p + sampleDir * radius;
     float2 uv = float2(s.x / (s.z * cProj.z) * 0.5 + 0.5, 0.5 - s.y / (s.z * cProj.w) * 0.5);
     float sz = LinearZ(DepthAt(uv));
     float range = saturate(radius / max(abs(p.z - sz), 1e-4));
-    return step(sz, s.z - cAo.y) * range;
+    return step(sz, s.z - bias) * range;
 }
 
 float Hash(float2 v) { return frac(sin(dot(v, float2(12.9898, 78.233))) * 43758.5453); }
 
 float SsaoAt(float2 uv, float2 vpos, int count) {
+    // pmy3 (FIX-WORLD-10): this pass runs at half resolution, so each pixel's uv falls exactly on
+    // the edge between two full-resolution depth texels; the point sample took one or the other as
+    // float rounding fell, in a pattern repeating every few pixels across the screen. A vertical wall
+    // seen by a level camera has one depth down each screen column, so the wrong pick became thin
+    // vertical stripes of false occlusion on every wall (strongest on a wall the eye walks along).
+    // Snap to one texel's centre, and widen the depth bias by the surface's own depth step per
+    // texel: a sample's depth is read at the centre of the texel it lands in, half a texel's
+    // slope away from where the sample is, which on a wall seen edge-on beat the fixed bias.
+    uv = (floor(uv * cScreen.zw - 0.25) + 0.5) * cScreen.xy;
     float d = DepthAt(uv);
     if (d >= 0.999999) return 1.0;
     float3 p = ViewPos(uv, d);
     if (p.z > cAo.w) return 1.0;
     float3 n = ViewNormal(uv, p);
+    float zl = LinearZ(DepthAt(uv - float2(cScreen.x, 0))), zr = LinearZ(DepthAt(uv + float2(cScreen.x, 0)));
+    float zu = LinearZ(DepthAt(uv - float2(0, cScreen.y))), zd = LinearZ(DepthAt(uv + float2(0, cScreen.y)));
+    float slope = min(abs(zr - p.z), abs(p.z - zl)) + min(abs(zd - p.z), abs(p.z - zu));
+    float bias = cAo.y + min(slope, 0.25);
     float a = Hash(floor(vpos)) * 6.2831853;
     float3 rnd = float3(cos(a), sin(a), 0);
     float3 t = normalize(rnd - n * dot(rnd, n));
@@ -206,7 +219,7 @@ float SsaoAt(float2 uv, float2 vpos, int count) {
     float occ = 0;
     [unroll] for (int j = 0; j < count; ++j) {
         float3 v = t * k[j].x + b * k[j].y + n * k[j].z;
-        occ += AoSample(p, v, cAo.x);
+        occ += AoSample(p, v, cAo.x, bias);
     }
     float ao = 1.0 - occ / count * cAo.z;
     float fade = saturate((cAo.w - p.z) / (cAo.w * 0.25));
