@@ -30,6 +30,7 @@
 #include "vehicle_fx.h"
 #include "explosion_fx.h"
 #include "../../src/sky.h"
+#include "../../src/post_fx.h"   // VisualsConfig (feel29 car_shadow_blend)
 
 namespace gta2dx9 {
 namespace {
@@ -61,6 +62,8 @@ float g_paintSpecPower = 50.0f;
 int g_paintRefDev = 1;        // [devtools] paint_ref (FIX-CAR-IDENTITY-4 A/B)
 float g_paintGainDev = 1.25f; // [devtools] paint_gain_percent: the paint's gain at the lid light it was measured under
 int g_forceDamage = -1;     // [devtools] force_car_damage=N: every car body drawn at damage word N, 0..32000 (re-read once a second)
+int g_doorExactCut = 1;    // [devtools] door_exact_cut=0: FIX-SEAT-ENTRY-3's exact door outline off (A/B)
+int g_doorInterior = 1;    // [devtools] door_interior=0: no cab interior drawn behind an open door (A/B)
 int g_forceDoor = 0;        // [devtools] force_car_door=1|-1: every car body drawn with its right|left door open (re-read once a second)
 char g_devIni[260] = {};
 // FIX-VEHICLES (car-bodies-interpenetrate-in-traffic): each car's drawn footprint (its
@@ -1848,20 +1851,20 @@ Model BuildDented(const Model& model, int step, size_t* moved) {
 // on the boarding side) and that panel is drawn on its own, swung about its
 // front edge. Both copies are cached per (model, side, position).
 struct DoorKey {
-    const Model* model; int side, zf, zr;
-    bool operator<(const DoorKey& o) const { return std::tie(model, side, zf, zr) < std::tie(o.model, o.side, o.zf, o.zr); }
+    const Model* model; int side, zf, zr, exact;
+    bool operator<(const DoorKey& o) const { return std::tie(model, side, zf, zr, exact) < std::tie(o.model, o.side, o.zf, o.zr, o.exact); }
 };
 struct DoorSplit { const Model* body; const Model* door; };
 std::map<DoorKey, DoorSplit> g_doorSplits;
 
 DoorKey DoorKeyFor(const Model& model, int side, float zFront, float zRear) {
-    return DoorKey{&model, side, static_cast<int>(std::floor(zFront * 20.0f)), static_cast<int>(std::floor(zRear * 20.0f))};
+    return DoorKey{&model, side, static_cast<int>(std::floor(zFront * 20.0f)), static_cast<int>(std::floor(zRear * 20.0f)), g_doorExactCut ? 1 : 0};
 }
 
 // The split of `model` into the body without the door panel and the panel (with
 // its inner face), built without touching anything shared (worker thread).
 void BuildDoorSplit(const Model& model, const gta2::Mat4& fit, int side, float zFront, float zRear, float roof, float halfW,
-                    Model* bodyOut, Model* doorOut, size_t* doorTrisOut) {
+                    bool exactCut, Model* bodyOut, Model* doorOut, size_t* doorTrisOut) {
     std::vector<gta2::Mat4> worlds;
     ModelRestNodeWorlds(model, &worlds);
     Model& body = *bodyOut;
@@ -1875,7 +1878,7 @@ void BuildDoorSplit(const Model& model, const gta2::Mat4& fit, int side, float z
     }
     body.name = model.name + "#nodoor"; door.name = model.name + "#door";
     size_t doorTris = 0;
-    size_t clippedTris = 0, linerTris = 0;
+    size_t clippedTris = 0, linerTris = 0, cutTris = 0;
     for (size_t n = 0; n < model.nodes.size(); ++n) {
         const int mi = model.nodes[n].mesh;
         if (mi < 0 || mi >= static_cast<int>(model.meshes.size())) continue;
@@ -1897,21 +1900,45 @@ void BuildDoorSplit(const Model& model, const gta2::Mat4& fit, int side, float z
             const gta2::Vec3 nrm = gta2::Cross(q[1] - q[0], q[2] - q[0]);
             const float nl = std::sqrt(gta2::Dot(nrm, nrm));
             const bool lateral = nl > 1e-9f && std::fabs(nrm.x) / nl > 0.45f;
-            const bool isDoor = lateral && static_cast<float>(side) * cx > 0.5f * halfW && cy > 0.10f * roof && cy < 0.95f * roof &&
-                                cz > zRear && cz < zFront;
+            const float m = 0.015f, sgn = static_cast<float>(side);
+            auto inside = [&](const gta2::Vec3& p) {
+                return sgn * p.x >= 0.5f * halfW - m && p.y >= 0.10f * roof - m && p.y <= 0.95f * roof + m &&
+                       p.z >= zRear - m && p.z <= zFront + m;
+            };
+            const bool in0 = inside(q[0]), in1 = inside(q[1]), in2 = inside(q[2]);
+            const bool centred = static_cast<float>(side) * cx > 0.5f * halfW && cy > 0.10f * roof && cy < 0.95f * roof &&
+                                 cz > zRear && cz < zFront;
+            // FIX-SEAT-ENTRY-3 (pfl16 van entry): a side triangle that crosses the door's outline is cut
+            // along it, not only its centroid's piece given to the door (g_doorExactCut, [devtools]
+            // door_exact_cut=0 for the old split). The old body kept such triangles whole, so the hole
+            // the open door left ended in the hull's triangle edges: on the 068 van a row of teeth down
+            // the door's rear edge and along the roof line, with the dark cabin behind them.
+            // How far the triangle faces out of this side, by its vertex normals (an image-to-3D shell
+            // has faces wound either way): 1 straight out, -1 into the cabin (a liner).
+            float outward = 0.0f;
+            {
+                float nxSum = 0.0f;
+                for (int c = 0; c < 3; ++c) {
+                    const ModelVertex& v = src.vertices[src.indices[t + static_cast<size_t>(c)]];
+                    nxSum += v.nx * toCar.m[0][0] + v.ny * toCar.m[1][0] + v.nz * toCar.m[2][0];
+                }
+                outward = static_cast<float>(side) * nxSum / (3.0f * (std::max)(1e-6f, std::fabs(toCar.m[0][0]) + std::fabs(toCar.m[2][0])));
+            }
+            // Exact cut: the panel is every outward-facing face in the box, not only the steep ones; the
+            // roof shoulder's faces between steep and flat left a second row of teeth along the door's top.
+            const bool sideFace = lateral || (exactCut && outward > 0.05f);
+            const bool crosses = exactCut && sideFace && !(in0 && in1 && in2) && (in0 || in1 || in2 || centred);
+            const bool isDoor = sideFace && (centred || crosses);
             // VEHICLE-ART-4 (feel19): an authored body's cabin liner (its normals into the cabin, a
             // near-black interior texture: 188 of the 068 van's door faces) lay in the door's box and
             // swung out with it: the open door, seen from inside, was a flat black slab. Those faces go
             // with neither piece while the door is open: the door shows its own skin from inside (the
             // inner copy below, painted and lit as the panel), the opening the cabin behind it. By the
             // vertex normals, not the winding (an image-to-3D shell has faces wound either way).
+            bool liner = false;
             if (isDoor) {
-                float nxSum = 0.0f;
-                for (int c = 0; c < 3; ++c) {
-                    const ModelVertex& v = src.vertices[src.indices[t + static_cast<size_t>(c)]];
-                    nxSum += v.nx * toCar.m[0][0] + v.ny * toCar.m[1][0] + v.nz * toCar.m[2][0];
-                }
-                if (static_cast<float>(side) * nxSum < -0.3f * 3.0f * (std::fabs(toCar.m[0][0]) + std::fabs(toCar.m[2][0]))) { ++linerTris; continue; }
+                liner = outward < -0.3f;
+                if (liner && !crosses) { ++linerTris; continue; }
             }
             // ANIM-ENTRY-EXIT: the image-to-3D shells have long thin triangles whose centroid lies
             // on the door while a corner reaches the sill, the wheel arch or the road. Swung whole
@@ -1919,61 +1946,66 @@ void BuildDoorSplit(const Model& model, const gta2::Mat4& fit, int side, float z
             // (aee_base1, aee_v1b); left on the body the door had holes the arm behind showed
             // through (aee_i2front); corners pulled onto the box left gaps too (aee_j2front). Such
             // a triangle is clipped to the door's box (1.5 cm margin, car frame): the door gets
-            // exactly its part inside, the body keeps it whole (shut, the two coincide).
-            if (isDoor) {
-                const float m = 0.015f, sgn = static_cast<float>(side);
-                auto inside = [&](const gta2::Vec3& p) {
-                    return sgn * p.x >= 0.5f * halfW - m && p.y >= 0.10f * roof - m && p.y <= 0.95f * roof + m &&
-                           p.z >= zRear - m && p.z <= zFront + m;
+            // exactly its part inside. FIX-SEAT-ENTRY-3: the body gets exactly its part outside
+            // (before, it kept the triangle whole: the teeth above); a liner's inside part goes to neither.
+            if (isDoor && !(in0 && in1 && in2)) {
+                struct CV { gta2::Vec3 p; ModelVertex v; };
+                std::vector<CV> poly, next, outPart;
+                for (int c = 0; c < 3; ++c) poly.push_back({q[c], src.vertices[src.indices[t + static_cast<size_t>(c)]]});
+                // Planes as (signed distance >= 0 inside): sgn*x - (0.5 hw - m), y - lo, hi - y, z - zr, zf - z.
+                auto dist = [&](int plane, const gta2::Vec3& p) {
+                    switch (plane) {
+                        case 0: return sgn * p.x - (0.5f * halfW - m);
+                        case 1: return p.y - (0.10f * roof - m);
+                        case 2: return (0.95f * roof + m) - p.y;
+                        case 3: return p.z - (zRear - m);
+                        default: return (zFront + m) - p.z;
+                    }
                 };
-                if (!(inside(q[0]) && inside(q[1]) && inside(q[2]))) {
-                    struct CV { gta2::Vec3 p; ModelVertex v; };
-                    std::vector<CV> poly, next;
-                    for (int c = 0; c < 3; ++c) poly.push_back({q[c], src.vertices[src.indices[t + static_cast<size_t>(c)]]});
-                    // Planes as (signed distance >= 0 inside): sgn*x - (0.5 hw - m), y - lo, hi - y, z - zr, zf - z.
-                    auto dist = [&](int plane, const gta2::Vec3& p) {
-                        switch (plane) {
-                            case 0: return sgn * p.x - (0.5f * halfW - m);
-                            case 1: return p.y - (0.10f * roof - m);
-                            case 2: return (0.95f * roof + m) - p.y;
-                            case 3: return p.z - (zRear - m);
-                            default: return (zFront + m) - p.z;
+                auto lerpV = [](const ModelVertex& a, const ModelVertex& b, float k) {
+                    ModelVertex r;
+                    r.x = a.x + (b.x - a.x) * k; r.y = a.y + (b.y - a.y) * k; r.z = a.z + (b.z - a.z) * k;
+                    r.nx = a.nx + (b.nx - a.nx) * k; r.ny = a.ny + (b.ny - a.ny) * k; r.nz = a.nz + (b.nz - a.nz) * k;
+                    r.u = a.u + (b.u - a.u) * k; r.v = a.v + (b.v - a.v) * k;
+                    return r;
+                };
+                // Sutherland-Hodgman against one plane, keeping sign * dist >= 0.
+                auto clip = [&](const std::vector<CV>& in, int plane, float sign, std::vector<CV>* out) {
+                    out->clear();
+                    for (size_t i = 0; i < in.size(); ++i) {
+                        const CV& A = in[i];
+                        const CV& B = in[(i + 1) % in.size()];
+                        const float da = sign * dist(plane, A.p), dbb = sign * dist(plane, B.p);
+                        if (da >= 0.0f) out->push_back(A);
+                        if ((da >= 0.0f) != (dbb >= 0.0f)) {
+                            const float k = da / (da - dbb);
+                            out->push_back({A.p + (B.p - A.p) * k, lerpV(A.v, B.v, k)});
                         }
-                    };
-                    auto lerpV = [](const ModelVertex& a, const ModelVertex& b, float k) {
-                        ModelVertex r;
-                        r.x = a.x + (b.x - a.x) * k; r.y = a.y + (b.y - a.y) * k; r.z = a.z + (b.z - a.z) * k;
-                        r.nx = a.nx + (b.nx - a.nx) * k; r.ny = a.ny + (b.ny - a.ny) * k; r.nz = a.nz + (b.nz - a.nz) * k;
-                        r.u = a.u + (b.u - a.u) * k; r.v = a.v + (b.v - a.v) * k;
-                        return r;
-                    };
-                    for (int plane = 0; plane < 5 && poly.size() >= 3; ++plane) {
-                        next.clear();
-                        for (size_t i = 0; i < poly.size(); ++i) {
-                            const CV& A = poly[i];
-                            const CV& B = poly[(i + 1) % poly.size()];
-                            const float da = dist(plane, A.p), dbb = dist(plane, B.p);
-                            if (da >= 0.0f) next.push_back(A);
-                            if ((da >= 0.0f) != (dbb >= 0.0f)) {
-                                const float k = da / (da - dbb);
-                                next.push_back({A.p + (B.p - A.p) * k, lerpV(A.v, B.v, k)});
-                            }
-                        }
-                        poly.swap(next);
                     }
-                    if (poly.size() >= 3) {
-                        const uint32_t base = static_cast<uint32_t>(dd.vertices.size());
-                        for (const CV& cv : poly) dd.vertices.push_back(cv.v);
-                        for (size_t i = 1; i + 1 < poly.size(); ++i) {
-                            dd.indices.push_back(base); dd.indices.push_back(base + static_cast<uint32_t>(i));
-                            dd.indices.push_back(base + static_cast<uint32_t>(i + 1));
-                            ++doorTris;
-                        }
-                        ++clippedTris;
+                };
+                auto emit = [&](ModelMesh& mesh, const std::vector<CV>& pg, bool countDoor) {
+                    if (pg.size() < 3) return;
+                    const uint32_t base = static_cast<uint32_t>(mesh.vertices.size());
+                    for (const CV& cv : pg) mesh.vertices.push_back(cv.v);
+                    for (size_t i = 1; i + 1 < pg.size(); ++i) {
+                        // Same winding as the source triangle (the clip keeps the polygon's order).
+                        mesh.indices.push_back(base); mesh.indices.push_back(base + static_cast<uint32_t>(i));
+                        mesh.indices.push_back(base + static_cast<uint32_t>(i + 1));
+                        if (countDoor) ++doorTris;
                     }
-                    db.indices.push_back(src.indices[t]); db.indices.push_back(src.indices[t + 1]); db.indices.push_back(src.indices[t + 2]);
-                    continue;
+                };
+                const bool exact = crosses;
+                for (int plane = 0; plane < 5 && poly.size() >= 3; ++plane) {
+                    // The part beyond this plane (and inside the planes before it) is outside the box: the body's.
+                    if (exact) { clip(poly, plane, -1.0f, &outPart); emit(db, outPart, false); }
+                    clip(poly, plane, 1.0f, &next);
+                    poly.swap(next);
                 }
+                if (liner) ++linerTris;
+                else if (poly.size() >= 3) { emit(dd, poly, true); ++clippedTris; }
+                if (!exact) { db.indices.push_back(src.indices[t]); db.indices.push_back(src.indices[t + 1]); db.indices.push_back(src.indices[t + 2]); }
+                else ++cutTris;
+                continue;
             }
             ModelMesh& dst = isDoor ? dd : db;
             dst.indices.push_back(src.indices[t]); dst.indices.push_back(src.indices[t + 1]); dst.indices.push_back(src.indices[t + 2]);
@@ -2008,7 +2040,7 @@ void BuildDoorSplit(const Model& model, const gta2::Mat4& fit, int side, float z
             mesh.indices.push_back(base + mesh.indices[t]);
         }
     }
-    if (clippedTris) Log("car bodies: door of %s, side %d: %zu triangles clipped to the door's outline", model.name.c_str(), side, clippedTris);
+    if (clippedTris) Log("car bodies: door of %s, side %d: %zu triangles clipped to the door's outline (%zu cut along it, body keeps the outside)", model.name.c_str(), side, clippedTris, cutTris);
     if (linerTris) Log("car bodies: door of %s, side %d: %zu cabin-liner triangles left out while it is open", model.name.c_str(), side, linerTris);
     *doorTrisOut = doorTris;
 }
@@ -2360,7 +2392,7 @@ DWORD WINAPI WearThread(void*) {
             ModelTextureSampleWarm(*job.model);   // the hood dash's texture samples (HoodDashFor)
         } else if (job.wheels) BuildWheelSplit(*job.model, job.fit, job.zFront, job.zRear, job.halfW, job.roof, job.wkey.shellMode, &r->a, &r->wheels, &r->centres, &r->radii, &r->shell, &r->rings);
         else if (!job.door) r->a = BuildDented(*job.model, job.step, &r->count);
-        else BuildDoorSplit(*job.model, job.fit, job.side, job.zFront, job.zRear, job.roof, job.halfW, &r->a, &r->b, &r->count);
+        else BuildDoorSplit(*job.model, job.fit, job.side, job.zFront, job.zRear, job.roof, job.halfW, job.key.exact != 0, &r->a, &r->b, &r->count);
         r->ms = CarNowMs() - t0;
         const double ms = r->ms;
         EnterCriticalSection(&g_wearLock);
@@ -2574,7 +2606,7 @@ bool DoorReady(const Model& model, const gta2::Mat4& fit, int side, float zFront
     if (!WearStart()) {
         Model body, door;
         size_t tris = 0;
-        BuildDoorSplit(model, fit, side, zFront, zRear, roof, halfW, &body, &door, &tris);
+        BuildDoorSplit(model, fit, side, zFront, zRear, roof, halfW, key.exact != 0, &body, &door, &tris);
         g_doorBytes += ModelBytes(body) + ModelBytes(door);
         g_wearBytes += ModelBytes(body) + ModelBytes(door);
         *out = g_doorSplits[key] = DoorSplit{ModelRegisterDerived(std::move(body), true), ModelRegisterDerived(std::move(door), true)};
@@ -3694,6 +3726,8 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         g_paintGainDev = static_cast<float>(GetPrivateProfileIntA("devtools", "paint_gain_percent", 125, g_devIni)) / 100.0f;
         g_paintSpecPower = static_cast<float>((std::max)(4, static_cast<int>(GetPrivateProfileIntA("devtools", "paint_spec_power", 50, g_devIni))));
         g_forceDoor = GetPrivateProfileIntA("devtools", "force_car_door", 0, g_devIni);
+        g_doorExactCut = GetPrivateProfileIntA("devtools", "door_exact_cut", 1, g_devIni);
+        g_doorInterior = GetPrivateProfileIntA("devtools", "door_interior", 1, g_devIni);
         {   // VEHICLE-GLASS: the glass on/off within one session, for same-spot before/after frames.
             const int glassKey = GetPrivateProfileIntA("devtools", "car_glass", -1, g_devIni);
             if (glassKey >= 0) CarGlassSetEnabled(glassKey);
@@ -3770,6 +3804,21 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         // A car behind the camera costs its whole transform and clip on the
         // software driver for nothing on screen; the margin covers a bus.
         if (!use.own && BehindView(carToWorld.m[3][0], carToWorld.m[3][1], carToWorld.m[3][2], 2.5f)) continue;
+        // feel29 (FIX-SEAT-ENTRY-3): the driven car's pixels carry stencil bit 0x80, where the post pass eases
+        // the sun-shadow mask over ~10 frames ([visuals] car_shadow_blend). Only the plain renderer's post
+        // target has a stencil the pass reads; elsewhere the mark is never read.
+        {
+            const bool markIt = use.driven && gta2::VisualsConfig().carShadowBlend && !RemixApiAvailable();
+            device->SetRenderState(D3DRS_STENCILENABLE, markIt ? TRUE : FALSE);
+            if (markIt) {
+                device->SetRenderState(D3DRS_STENCILFUNC, D3DCMP_ALWAYS);
+                device->SetRenderState(D3DRS_STENCILPASS, D3DSTENCILOP_REPLACE);
+                device->SetRenderState(D3DRS_STENCILFAIL, D3DSTENCILOP_KEEP);
+                device->SetRenderState(D3DRS_STENCILZFAIL, D3DSTENCILOP_KEEP);
+                device->SetRenderState(D3DRS_STENCILREF, 0x80u);
+                device->SetRenderState(D3DRS_STENCILWRITEMASK, 0x80u);
+            }
+        }
         D3DMATRIX wm;
         // The camera inside this car (standing at a parked car's door in the chase
         // view): the body would fill the screen with its underside. Not the own car:
@@ -4338,6 +4387,16 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             }
             if (target > ds.open) { if (haveSplit) ds.open = (std::min)(target, ds.open + dt * (doorRate > 0.0f ? doorRate : 2.5f)); }
             else ds.open = (std::max)(target, ds.open - dt * (doorRate > 0.0f ? doorRate : 1.7f));
+            // FIX-SEAT-ENTRY-3: GTA2DX9_LOG_DOOR=1 prints every frame a door is moving or open (per-frame
+            // diagnosis of an entry: which split, how far, whether the sprite's door frame had art).
+            {
+                static int logDoor = -1;
+                if (logDoor < 0) { char v[8] = {}; logDoor = GetEnvironmentVariableA("GTA2DX9_LOG_DOOR", v, sizeof v) ? atoi(v) : 0; }
+                if (logDoor && (target > 0.0f || ds.open > 0.0f))
+                    Log("door: obj=%08x model=%s side=%+d open=%.3f target=%.2f rate=%.2f split=%d ped=%d sprite=%d art=%d frame=%u",
+                        static_cast<unsigned>(use.object), model->name.c_str(), ds.side, ds.open, target, doorRate, haveSplit ? 1 : 0,
+                        use.doorPed ? 1 : 0, use.sprite, art ? 1 : 0, frame);
+            }
             if (!cpuCut && !WreckModelNumber(modelNumber)) {
                 const float roofY = model->Height() * sy, halfW = 0.5f * b->bodyWidth;
                 float zf = (b->measure.cabinFront - 0.5f * b->measure.h) * b->scale;
@@ -4473,6 +4532,28 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             if (ds.open > 0.02f && haveSplit) {
                 const float halfW = 0.5f * b->bodyWidth;
                 drawHull(*split.body, Mul(fit, posed));
+                // FIX-SEAT-ENTRY-3 (pfl16): the opening shows a cabin, not the black of the far side's liner
+                // (or the street through a shell with no liner): a dark box the door's height and length,
+                // only its inward-seen walls drawn (the hull hides it everywhere but the opening), and on
+                // its far wall the door's own panel mirrored across the car, in the body's own textures,
+                // dimmed: the far side's door seen from inside. [devtools] door_interior=0 for A/B.
+                if (g_doorInterior && ds.open > 0.04f) {
+                    const float roofI = model->Height() * sy;
+                    const float zFrontI = zFront, zRearI = zFront - 0.27f * b->bodyLength;
+                    DrawBandInterior(device, posed, 0.80f * halfW, 0.14f * roofI, 0.88f * roofI, zRearI, zFrontI, 0xFF2E2B27u);
+                    D3DMATERIAL9 keep;
+                    device->GetMaterial(&keep);
+                    D3DMATERIAL9 dim = keep;
+                    dim.Diffuse = {0.28f, 0.28f, 0.28f, 1.0f};
+                    dim.Ambient = {0.30f, 0.30f, 0.30f, 1.0f};
+                    dim.Specular = {0.0f, 0.0f, 0.0f, 1.0f};
+                    dim.Emissive = {0.0f, 0.0f, 0.0f, 0.0f};
+                    device->SetMaterial(&dim);
+                    gta2::Mat4 mirror;
+                    mirror.m[0][0] = -0.76f; mirror.m[1][1] = 1.0f; mirror.m[2][2] = 1.0f; mirror.m[3][3] = 1.0f;
+                    ModelDraw(device, *split.door, Mul(Mul(fit, mirror), posed), nullptr, 0.0f);
+                    device->SetMaterial(&keep);
+                }
                 // Swing about the vertical through the door's front edge, outward.
                 const float theta = -static_cast<float>(ds.side) * ds.open * (60.0f * kPi / 180.0f);
                 const float cs = std::cos(theta), sn = std::sin(theta);
@@ -4757,6 +4838,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         g_carStats[7] += 1;
         ++g_drawn;
     }
+    device->SetRenderState(D3DRS_STENCILENABLE, FALSE);   // feel29: the driven car's stencil mark ends with the cars
     // The texture budget, now and then: the game is a 32-bit process.
     if (frame % 900 == 0) {
         int count = 0;
@@ -4886,6 +4968,8 @@ void CarBodiesSetDevIni(const char* ini) {
     g_forceOwnModel = GetPrivateProfileIntA("devtools", "force_own_car_model", -1, g_devIni);
     g_forceDamage = GetPrivateProfileIntA("devtools", "force_car_damage", -1, g_devIni);
     g_forceDoor = GetPrivateProfileIntA("devtools", "force_car_door", 0, g_devIni);
+    g_doorExactCut = GetPrivateProfileIntA("devtools", "door_exact_cut", 1, g_devIni);
+    g_doorInterior = GetPrivateProfileIntA("devtools", "door_interior", 1, g_devIni);
 }
 const char* CarBodiesDevIni() { return g_devIni; }
 void CarBodiesSetTurret(uintptr_t carObject, float dirX, float dirZ, uint32_t frame) {

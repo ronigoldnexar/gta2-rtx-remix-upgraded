@@ -49,6 +49,7 @@ struct VisualsSettings {
     float ambientScale = 0.84f;   // and its ambient
     int hdr = 1;              // FP16 scene target (0: 8-bit)
     bool shadowStagger = true;   // far cascades refreshed on alternate frames
+    bool carShadowBlend = true;  // feel29: the driven car's shadow eased over ~10 frames (stencil-marked pixels)
     int debug = 0;            // 1: final shows the raw scene target
 };
 VisualsSettings& VisualsConfig();
@@ -189,6 +190,8 @@ private:
     IDirect3DTexture9* blackTex_ = nullptr;
     IDirect3DTexture9* whiteTex_ = nullptr;
     IDirect3DTexture9* maskTex_ = nullptr;  IDirect3DSurface9* maskSurf_ = nullptr;
+    IDirect3DTexture9* maskHistTex_ = nullptr;  IDirect3DSurface9* maskHistSurf_ = nullptr;   // feel29: eased mask
+    bool maskHistFresh_ = true;
     // Wet roads (weather_fx.h): made on first use, while it rains.
     IDirect3DTexture9* wetTex_ = nullptr;   IDirect3DSurface9* wetSurf_ = nullptr;
     IDirect3DPixelShader9* psWet_ = nullptr;

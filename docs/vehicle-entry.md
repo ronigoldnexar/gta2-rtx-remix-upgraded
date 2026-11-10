@@ -335,3 +335,39 @@ are only checked in the IK contact trace (0.000 error) and through glass; the mo
 where `kWheelAhead` puts the rim. When the game stops drawing him 1 frame into the climb (before the ghost
 starts at 0.3 s), he appears seated without the climb (pre-existing). Pillars inside the glass band are
 40 % translucent too. Remix: no glass band.
+
+## FIX-SEAT-ENTRY-3: the door cut along its outline, a cabin behind it (10 Nov 2026)
+
+pfl16 (every walk-up van entry in third person): the opening door showed a flat black strip with a row
+of teeth down its rear edge and along the roof line. Per-frame log (`GTA2DX9_LOG_DOOR=1`: one `door:`
+line per frame a door moves: open fraction, target, split ready, sprite art present) showed the
+sprite's door art present and the split ready on every frame, so not missing artwork. The teeth were
+the split: `BuildDoorSplit` gave the door the clipped part of a side triangle that crosses the door's
+outline but left the body that triangle whole, so the hole the swung door left ended in the hull's
+triangle edges, with the cabin's near-black liner behind. A second, finer row ran along the door's top
+where the roof shoulder's faces were below the 'lateral' normal threshold.
+
+- `door_exact_cut` ([devtools], default 1, live): every outward-facing face crossing the door box is
+  cut along it: the inside part goes to the door, the outside part (as convex pieces, one per box
+  plane) to the body; a liner's inside part goes to neither. 0 is the old split. The cache key holds the flag.
+- `door_interior` ([devtools], default 1, live): behind an open door a dim cabin box (the door's height
+  and length, inward-seen walls only, `DrawBandInterior`) and on its far wall the door's own panel,
+  mirrored and dimmed, in the body's own textures (no new art, no Remix prim).
+- Probe: `gamerun/keys_fse3_door.sh` + `fse3_door_probe.py`: regress camera at fixed poses beside the
+  wil van (F9 to its door), `force_car_door` opened per config in `FSE_CFGS` (`door_exact_cut,door_interior`),
+  30 fps bursts. Same-session A/B in one run.
+- Still short: a 1-2 px dark fringe on the door's top edge (the roof ribs' texture ends on the panel);
+  the hero running along the van side before the door opens can still overlap the panel (the game walks
+  him on the sprite outline): requested from the boarding plan's owner, not changed here.
+
+## FIX-SEAT-ENTRY-3: the driven car's shadow eased (feel29, 10 Nov 2026)
+
+The driven van's body went lit to shaded (36-44 % luma) in two frames beside walls while the road held.
+Live pass toggles in one session (`gamerun/fx3_van.py`): shadows=0 removed every event (max 9 %), AO,
+lights and hemisphere did not. The sun-shadow mask is exact per pixel and per frame, and the chase car
+sits in the middle of the view: a building's shadow edge over its rear or a turn against a grazing sun
+flips the whole face. Now `car_bodies` marks the driven car's pixels in stencil (bit 0x80, the post
+target's INTZ stencil, cleared each frame), and after the mask pass `post_fx` keeps a mask history:
+off the car it is this frame's mask; on the car it moves 20 % a frame toward it (about 10 frames to
+settle). `[visuals] car_shadow_blend=0` (live) is the exact mask for A/B. Plain renderer only (Remix
+does its own shadows). Other cars keep the exact mask (they move across the screen; a history would ghost).

@@ -140,6 +140,7 @@ void PostFx::ReleaseTargets() {
     SafeRelease(blackTex_);
     SafeRelease(whiteTex_);
     SafeRelease(maskSurf_); SafeRelease(maskTex_);
+    SafeRelease(maskHistSurf_); SafeRelease(maskHistTex_);
     SafeRelease(wetSurf_); SafeRelease(wetTex_); SafeRelease(psWet_);
     wetFailed_ = false;
     SafeRelease(lightSumSurf_); SafeRelease(lightSumTex_); SafeRelease(psLightApply_);
@@ -226,6 +227,8 @@ bool PostFx::EnsureTargets() {
     rt(w, h, hdrFormat_, &sceneTex_, &sceneSurf_);
     rt(w, h, hdrFormat_, &litTex_, &litSurf_);
     rt(w, h, D3DFMT_A8R8G8B8, &maskTex_, &maskSurf_);
+    rt(w, h, D3DFMT_A8R8G8B8, &maskHistTex_, &maskHistSurf_);
+    maskHistFresh_ = true;
     rt(w / 2, h / 2, D3DFMT_A8R8G8B8, &aoTex_, &aoSurf_);
     rt(w / 2, h / 2, D3DFMT_A8R8G8B8, &aoBlurTex_, &aoBlurSurf_);
     rt(qw, qh, hdrFormat_, &bloomTex_[0], &bloomSurf_[0]);
@@ -479,7 +482,8 @@ bool PostFx::BeginScene(const PostFrame& frame) {
     // The city sweep's diagnostic clear (Renderer::BeginFrame) holds here too.
     static int magenta = -1;
     if (magenta < 0) { char buf[8] = {}; magenta = GetEnvironmentVariableA("GTA2DX9_CLEAR_MAGENTA", buf, sizeof buf) && buf[0] == '1'; }
-    device_->Clear(0, nullptr, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, magenta ? 0xFFFF00FFu : 0xFF000000u, 1.0f, 0);
+    // The stencil too: car_bodies marks the driven car's pixels (bit 0x80) for the eased shadow below (feel29).
+    device_->Clear(0, nullptr, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER | D3DCLEAR_STENCIL, magenta ? 0xFFFF00FFu : 0xFF000000u, 1.0f, 0);
     frame_ = frame;
     ClearCasters();
     active_ = true;
@@ -957,13 +961,68 @@ void PostFx::Resolve() {
         }
     }
 
+    // feel29 (FIX-SEAT-ENTRY-3): the driven car is always in the middle of the chase view, and the mask
+    // above is exact per pixel and per frame: a building's shadow edge crossing its rear, or a few
+    // degrees of a turn against a grazing sun, took the whole body from lit to shaded in two frames
+    // (36-44 % luma) while the street around it changed little. On the car's own pixels (stencil bit
+    // 0x80, written by car_bodies) the mask is eased: each frame 20 % of the new value (about 10 frames
+    // to settle); everywhere else it is this frame's mask as before. [visuals] car_shadow_blend=0: off.
+    IDirect3DTexture9* maskUsed = maskTex_;
+    if (shadows && cfg.carShadowBlend && maskHistSurf_ && depthSurf_) {
+        device_->SetRenderTarget(0, maskHistSurf_);
+        device_->SetDepthStencilSurface(depthSurf_);
+        D3DVIEWPORT9 vp = {0, 0, static_cast<DWORD>(w), static_cast<DWORD>(h), 0.0f, 1.0f};
+        device_->SetViewport(&vp);
+        for (DWORD s = 1; s < 5; ++s) device_->SetTexture(s, nullptr);   // the depth texture is the depth target now
+        device_->SetPixelShader(nullptr);
+        device_->SetTexture(0, maskTex_);
+        device_->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+        device_->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+        device_->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_POINT);
+        device_->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
+        device_->SetSamplerState(0, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+        device_->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+        device_->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+        device_->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+        device_->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+        device_->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+        device_->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+        device_->SetRenderState(D3DRS_STENCILENABLE, TRUE);
+        device_->SetRenderState(D3DRS_STENCILMASK, 0x80u);
+        device_->SetRenderState(D3DRS_STENCILWRITEMASK, 0u);
+        device_->SetRenderState(D3DRS_STENCILREF, 0x80u);
+        device_->SetRenderState(D3DRS_STENCILFAIL, D3DSTENCILOP_KEEP);
+        device_->SetRenderState(D3DRS_STENCILZFAIL, D3DSTENCILOP_KEEP);
+        device_->SetRenderState(D3DRS_STENCILPASS, D3DSTENCILOP_KEEP);
+        // Off the car (or on the first frame): this frame's mask.
+        device_->SetRenderState(D3DRS_STENCILFUNC, maskHistFresh_ ? D3DCMP_ALWAYS : D3DCMP_NOTEQUAL);
+        DrawQuad(w, h);
+        // On the car: eased toward it.
+        if (!maskHistFresh_) {
+            device_->SetRenderState(D3DRS_STENCILFUNC, D3DCMP_EQUAL);
+            device_->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+            device_->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_BLENDFACTOR);
+            device_->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVBLENDFACTOR);
+            device_->SetRenderState(D3DRS_BLENDFACTOR, 0x33333333u);
+            DrawQuad(w, h);
+            device_->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
+        }
+        maskHistFresh_ = false;
+        device_->SetRenderState(D3DRS_STENCILENABLE, FALSE);
+        device_->SetDepthStencilSurface(nullptr);
+        device_->SetTexture(0, nullptr);
+        maskUsed = maskHistTex_;
+    } else {
+        maskHistFresh_ = true;
+    }
+
     // Composite: the shadow mask, AO, hemisphere.
     {
         SetTarget(litSurf_, w, h);
         device_->SetPixelShader(psComposite_);
         sampler(4, sceneTex_, false);
         sampler(1, depthTex_, false);
-        sampler(2, shadows ? static_cast<IDirect3DBaseTexture9*>(maskTex_) : whiteTex_, false);
+        sampler(2, shadows ? static_cast<IDirect3DBaseTexture9*>(maskUsed) : whiteTex_, false);
         sampler(3, ssao ? aoBlurTex_ : whiteTex_, true);
         const Vec3 upV = Normalize(XformDir(view_, Vec3{0.0f, 1.0f, 0.0f}));
         float c[4][4] = {};
