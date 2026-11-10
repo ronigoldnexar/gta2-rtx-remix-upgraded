@@ -1427,6 +1427,39 @@ for return addresses in the DLL, and each `mem: minute` line is followed by the 
 of the last minute as DLL offsets (symbolise with `i686-w64-mingw32-nm -C` on the same build's DLL, or its
 gta2dx9.map for exported functions).
 
+What the 20-minute soak (`qa_perf5_soak20`, the steady third-person scenario at Industrial, this host:
+~1.9 million allocations a minute, 32 000 a second) allocates once the warm-up is over, per minute
+(minute 20):
+- ~45 % from `NodeWorldsBlend` (model_store.cpp, posing a figure): its working vectors were created per
+  call, four to ten per posed figure per frame, plus the caller's matrix vector.
+- ~18 % from `LightsReconcile` (an `unordered_map<uint64, ...>` rebuilt node by node each frame) and
+  2 % from `LightsAddRaw`.
+- The rest is spread thin: the overlay flush, the skin-buffer map, the AimHud map.
+
+`NodeWorldsBlend`'s vectors are now one set per thread, reused (nothing it calls comes back into it),
+and `ModelNodeWorld` reuses its matrix vector. `ModelDrawBlend`'s own matrix vector is left as it was,
+because a draw may nest. The lights map belongs to the Remix lights module (`remix_lights.cpp`,
+`LightsReconcile`): a flat vector or a reserved open-addressing table would take the next ~18 % out. With
+Windows' low-fragmentation heap these small blocks are reused; they are not what splits the address
+space into regions. The large blocks are: the managed copies above, the derived car meshes and the
+D3D buffers.
+
+The same soak, 20 minutes, 0 FAULT (`out/qa_perf5_soak20`, `mem: minute`), private commit / VmSize /
+our heap in MB:
+
+| minute | 1 | 3 | 5 | 8 | 10 | 13 | 15 | 18 | 21 |
+|---|---|---|---|---|---|---|---|---|---|
+| private | 968 | 1 091 | 1 125 | 1 180 | 1 194 | 1 225 | 1 266 | 1 279 | 1 293 |
+| VmSize | 2 392 | 2 627 | 2 664 | 2 724 | 2 856 | 2 907 | 2 948 | 2 968 | 2 972 |
+| heap | 514 | 612 | 642 | 673 | 681 | 708 | 740 | 747 | 748 |
+| FIX-PERF-4's run (fp4_third1): VmSize | 2 657 | 3 046 | 3 117 | 3 306 | 3 333 | - | 3 357 | 3 387 | - |
+
+At minute 18 VmSize is 419 MB below FIX-PERF-4's run, and regions are 1 079 against ~1 550. From
+minute 17 on the curve is nearly flat (2 953 -> 2 972 MB in four minutes). Minutes 8 -> 18 still add
+~10 MB/min of private commit and ~7 MB/min of heap: the first-seen derived car copies
+(`cb.wear=150/143.3MB` at the end, inside `ms.models=718/347.9MB`). Evicting copies not drawn for a while
+is the growth order (14p), not done in this pass.
+
 ### `/LARGEADDRESSAWARE`: the owner's gta2.exe is a 2 GB process
 
 The original gta2.exe 9.6 has `Characteristics 0x010F`: no `IMAGE_FILE_LARGE_ADDRESS_AWARE` bit. Every
@@ -1446,3 +1479,55 @@ this as the recommended setup.
 should start near 2 GB higher and `largest_free` be hundreds of MB, not 8.8. With this build and without
 LAA, the same lines should show `private=` ~500 MB lower than before and `ms.texgpuonly=` close to
 `ms.textures=`.
+
+### The warm-up paced to a crawl (board 0c)
+
+The operator's 428 s for "street furniture and objects ready" reproduces on this host **only under
+Remix**: HEAD Remix runs took 63.6 s (`vg5_rx2`), 64.4 s (`vg5_rx1`), 101.4 s (`tri40_rx_prxr1`) and
+313.2 s (`tri40_rx_q11`) for the same 200-230 textures that the plain renderer prepares in 2-4 s. After
+that, people and cars (another 1 000 textures, 500 MB) took only 5-30 s more. So neither the
+per-frame budget nor the volume was what paced it.
+
+What paced it, from the new `models: warm-up progress:` and `... not delivered by the reader` lines
+(Remix takes `perf5_rxa2`, `perf5_rxb`, `perf5_rxc`): the warm-up's first steps are the player's own avatar
+(`ModelsWarmFirst`, FIX-PERF-VSWITCH), and its three textures (`human_male_adult_11_m001_body.tga`,
+`_body_paint.tga`, `_head.tga`) are not delivered by the reader thread. That thread reads the files in
+the warm-up's original order and stops at 96 MB of files nobody has taken yet. The warm-up waited for
+the first of them **without a limit** (`if (!PrefetchReady(file)) break;`), so nothing behind them
+moved. It went on only when something else (play drawing a model in a street view, a paint
+measurement) happened to take a file. One texture every few seconds while the classic view is up, with
+the process idle: the owner's picture. In every take of this build the same three files waited 27
+frames in all and were then read on the spot. The rest went at the budget.
+
+Changes:
+- A texture whose file the reader has not delivered after 10 frames is read on the render thread (one
+  file read, logged by name).
+- The driver-done event query is read with `D3DGETDATA_FLUSH` and holds the next batch at most 6 frames
+  (it never waited in these takes: `waited on the driver 0`).
+- In the classic view the warm-up takes up to 64 steps, 12 ms and 24 MB a frame (was 16 / 8 ms / 12 MB).
+  The street views keep 2 steps / 2 ms after their first four seconds.
+- A `models: warm-up progress:` line every 10 s while it runs says where it waited.
+
+| run | renderer | furniture ready | people ready | all ready |
+|---|---|---|---|---|
+| vg5_rx1 / vg5_rx2 (HEAD before) | Remix | 64.4 / 63.6 s | 75.6 / 75.6 s | 79.8 / 80.6 s |
+| tri40_rx_q11 (HEAD before) | Remix | 313.2 s | 319.9 s | 322.8 s |
+| perf5_rxa2 / perf5_rxb (this build) | Remix | 3.1 / 2.8 s | 6.6 / 5.3 s | 10.7 / 8.2 s |
+| perf5_rxc (this build, GPU 2 at 95 % from another session: present 70-100 ms a frame) | Remix | 15.8 s | 66.9 s | 97.7 s |
+| qa_perf5_c1q (old budget) / qa_perf5_t3a (new) | plain GL | 1.8 / 2.0 s | 3.8 / 4.2 s | 6.4 / 7.1 s |
+
+On the plain renderer nothing changes, neither the time nor the classic frames while it runs (frame-time
+line over the warm-up: sprites 4.8/143.6 ms old, 4.8/152.2 ms new; the 3.4-4.0 s worst `game` frame in
+both is the level load itself). Under Remix the classic frames during the warm-up average sprites
+25 ms (`perf5_rxa2`), inside the 33 ms the frame cap leaves. The time left is the bridge: one texture
+upload through it costs more than on the plain device.
+
+Still open:
+- The first sight of a model in play still creates per-copy buffers (the `model first draw` lines of
+  the filing: buffers, poses).
+- The warm-up runs on the render thread. A worker cannot call D3D9 through the bridge, but it could
+  decode and stage, as the reader does.
+
+**For the 5090 box:** the log's `models: warm-up: street furniture and objects ready` should come
+seconds after the level starts. Send the `models: warm-up progress:` lines and the
+`not delivered by the reader` lines if it does not.

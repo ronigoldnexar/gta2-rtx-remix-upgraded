@@ -3575,6 +3575,22 @@ void ModelsGhostDraws(IDirect3DDevice9* device, const gta2::Mat4& at) {
 // work, not the driver's time to do it; the queue grew through the classic view and whatever
 // frame next waited on the driver paid for all of it (the first V). An event query after each
 // batch holds the next batch until the driver has finished the last.
+// FIX-PERF-5: why the warm-up waits, counted, and a progress line every 10 s while it runs.
+constexpr int kWarmQueryFrames = 6, kWarmFileFrames = 10;
+int g_warmQueryFrames = 0, g_warmFileFrames = 0;
+long g_warmCalls = 0, g_warmQueryWaits = 0, g_warmQueryTimeouts = 0, g_warmFileWaits = 0, g_warmFileForced = 0, g_warmBudgetStops = 0;
+void WarmProgressLine(int remaining) {
+    static LARGE_INTEGER last = {};
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+    if (last.QuadPart && ModelMs(last, now) < 10000.0) return;
+    last = now;
+    Log("models: warm-up progress: %.1f s, step %zu of %zu (%d left), %d textures %zu MB; frames %ld: waited on the driver %ld "
+        "(gone ahead %ld), on the file reader %ld (read here %ld), budget full %ld",
+        ModelMs(g_warmStart, now) / 1000.0, g_warmStep, g_warmSteps.size(), remaining, g_warmDoneTextures, g_warmDoneBytes >> 20, g_warmCalls,
+        g_warmQueryWaits, g_warmQueryTimeouts, g_warmFileWaits, g_warmFileForced, g_warmBudgetStops);
+}
+
 int ModelsWarmTextures(IDirect3DDevice9* device, int perFrame, double kWarmBudgetMs) {
     if (!device || !g_loaded) return 0;
     BuildWarmList();
@@ -3583,10 +3599,16 @@ int ModelsWarmTextures(IDirect3DDevice9* device, int perFrame, double kWarmBudge
                           static_cast<int>(g_warmBumped.size());
     if (remaining == 0) return 0;
     if (!g_warmStart.QuadPart) QueryPerformanceCounter(&g_warmStart);
+    ++g_warmCalls;
+    WarmProgressLine(remaining);
     if (g_warmQueryPending && g_warmQuery) {
-        const HRESULT r = g_warmQuery->GetData(nullptr, 0, 0);
-        if (r == S_FALSE) return remaining;   // the driver is still on the last batch
+        // FIX-PERF-5: flushed, and never held more than kWarmQueryFrames frames (an event the device does not
+        // answer promptly - the RTX Remix bridge - otherwise paces the whole warm-up to the answer).
+        const HRESULT r = g_warmQuery->GetData(nullptr, 0, D3DGETDATA_FLUSH);
+        if (r == S_FALSE && ++g_warmQueryFrames < kWarmQueryFrames) { ++g_warmQueryWaits; return remaining; }
+        if (r == S_FALSE) ++g_warmQueryTimeouts;
         g_warmQueryPending = false;
+        g_warmQueryFrames = 0;
     }
     // A model asked for first: its steps go in front of the queue (each step is idempotent, so
     // the ones met again later in the queue cost a map lookup).
@@ -3601,7 +3623,7 @@ int ModelsWarmTextures(IDirect3DDevice9* device, int perFrame, double kWarmBudge
         g_warmBumped.clear();
         g_warmSteps.insert(g_warmSteps.begin() + static_cast<std::ptrdiff_t>((std::min)(g_warmStep, g_warmSteps.size())), front.begin(), front.end());
     }
-    const size_t byteBudget = perFrame >= 8 ? (12u << 20) : (3u << 20);
+    const size_t byteBudget = perFrame >= 32 ? (24u << 20) : perFrame >= 8 ? (12u << 20) : (3u << 20);   // FIX-PERF-5: 24 MB in classic
     LARGE_INTEGER t0, now;
     QueryPerformanceCounter(&t0);
     int done = 0;
@@ -3611,7 +3633,13 @@ int ModelsWarmTextures(IDirect3DDevice9* device, int perFrame, double kWarmBudge
         const WarmStep& st = g_warmSteps[g_warmStep];
         if (st.kind == 0) {
             if (!g_textures.count(st.file)) {
-                if (!PrefetchReady(st.file)) break;   // the reader's next; not this frame
+                // The reader's next: not this frame. FIX-PERF-5: but a file the reader is not bringing (it failed to
+                // read it, or a model asked for first sits behind 96 MB of files nobody has taken yet) is read
+                // here after kWarmFileFrames frames rather than waited for until play draws it.
+                if (!PrefetchReady(st.file) && ++g_warmFileFrames < kWarmFileFrames) { ++g_warmFileWaits; break; }
+                if (g_warmFileFrames >= kWarmFileFrames && ++g_warmFileForced <= 8)
+                    Log("models: warm-up: %s not delivered by the reader after %d frames: read here", st.file.c_str(), kWarmFileFrames);
+                g_warmFileFrames = 0;
                 IDirect3DTexture9* tex = TextureFor(device, st.file);
                 WarmTexture(device, tex);
                 D3DSURFACE_DESC desc = {};
@@ -3640,7 +3668,7 @@ int ModelsWarmTextures(IDirect3DDevice9* device, int perFrame, double kWarmBudge
         }
         ++g_warmStep;
         QueryPerformanceCounter(&now);
-        if (ModelMs(t0, now) > kWarmBudgetMs) break;
+        if (ModelMs(t0, now) > kWarmBudgetMs) { ++g_warmBudgetStops; break; }
     }
     g_warmDoneBytes += bytes;
     if (issued) {

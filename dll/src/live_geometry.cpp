@@ -14969,7 +14969,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
             // switch build what the classic view never needed; a warm-up step there only adds to them).
             static int streetFrames = 0;
             streetFrames = classic ? 0 : streetFrames + 1;
-            if (classic) left = ModelsWarmTextures(device, 16, 8.0);
+            if (classic) left = ModelsWarmTextures(device, 64, 12.0);   // FIX-PERF-5: was 16 steps / 8 ms
             else if (streetFrames > 120) left = ModelsWarmTextures(device, 2, 2.0);
             if (left == 0) Log("models: every texture created and uploaded ahead of use");
         }
