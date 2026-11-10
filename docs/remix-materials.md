@@ -1847,3 +1847,25 @@ merged with `remix_layer_merge.py` (missing hashes only). `remix_car_prim_check.
 textures (`0x00E7B4E949140568`, `0x52573041E54EEEB7`, `0x92AE80C504938232`, docs/car-glass.md 5.1) never reached the
 layer. Every generated car's panes therefore path-trace with the legacy material of the pale fixed pane texture: flat
 pale cards with no reflection or interior. FIX-REMIX-GLASS lands them (prx6).
+
+**The atom sign plates (prx2, the material half; FIX-REMIX-NIGHT-7 did the night floodlight in 63f3b23).** wil tiles 62
+and 63 (prims `7E4E69870C5A49E8`, `AF5F853C37E57832`; the photo set is off under Remix) are flat rooftop sign plates.
+They had been classed as plain wall tiles: a matte pale-silver plate (about 200,205,215, roughness 0.8) that the street
+exposure clipped to a cream decal at noon, and no light of their own at night.
+
+`tools/remix_sign_plates.py <layer> <hd tile.dds> ... --apply` now gives each plate:
+- painted sheet metal: albedo pulled down to 150 at the plate's brightest texels, metallic 0.55, roughness 0.38;
+- an emissive mask on the saturated strokes (the yellow orbits, 14 % of the texels) in their own colour at intensity 4.
+
+Fixed regress cameras at wil 167.0,21.0 and 169.0,24.0 looking at the disc, 12:00 and 20:00, with
+`[devtools] remix_sign_flood_pct` 0/100 in each session (`gamerun/fm8_sign.py`). Before = shared layer (`fm8_sign0`),
+after = candidate layer (`fm8_sign1`):
+- **Noon:** a silver plate carrying the sky's gradients, with vivid yellow orbits instead of a cream clip.
+- **20:00:** the orbits glow as yellow neon whether or not the floodlight is on. With it on, the plate shows faintly
+  behind them. The two do not overpower each other, so the floodlight's strength was left alone.
+
+Under Remix the classic view sees the same prims from above. The plain renderer draws no layer.
+
+Tile 61 (FUTURO RADIO) is not changed. The blur of the disc art is the 512 px HD tile's own resolution (a world-art item).
+Deploy the bundle together with this commit: until the plates' `.e.rtex.dds` exist, their emission has no mask and the
+whole plate would glow.

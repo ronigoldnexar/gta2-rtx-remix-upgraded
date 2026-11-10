@@ -33181,11 +33181,13 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/7E4E69870C5A49E8.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/7E4E69870C5A49E8.r.rtex.dds@ (
-                    colorSpace = "raw"
+                custom float inputs:metallic_constant = 0.55
+                custom float inputs:reflection_roughness_constant = 0.38
+                custom asset inputs:emissive_mask_texture = @./textures/7E4E69870C5A49E8.e.rtex.dds@ (
+                    colorSpace = "sRGB"
                 )
-                custom float inputs:metallic_constant = 0
-                custom float inputs:reflection_roughness_constant = 0.8
+                custom bool inputs:enable_emission = 1
+                custom float inputs:emissive_intensity = 4.0
                 custom bool inputs:use_legacy_alpha_state = 1
                 token outputs:out
             }
@@ -46895,11 +46897,13 @@ over "RootNode"
                 custom asset inputs:normalmap_texture = @./textures/AF5F853C37E57832.n.rtex.dds@ (
                     colorSpace = "raw"
                 )
-                custom asset inputs:reflectionroughness_texture = @./textures/AF5F853C37E57832.r.rtex.dds@ (
-                    colorSpace = "raw"
+                custom float inputs:metallic_constant = 0.55
+                custom float inputs:reflection_roughness_constant = 0.38
+                custom asset inputs:emissive_mask_texture = @./textures/AF5F853C37E57832.e.rtex.dds@ (
+                    colorSpace = "sRGB"
                 )
-                custom float inputs:metallic_constant = 0
-                custom float inputs:reflection_roughness_constant = 0.8
+                custom bool inputs:enable_emission = 1
+                custom float inputs:emissive_intensity = 4.0
                 custom bool inputs:use_legacy_alpha_state = 1
                 token outputs:out
             }
