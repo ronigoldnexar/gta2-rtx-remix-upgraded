@@ -856,7 +856,11 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
             // than its home grip by more than kNearer (world blocks), and a regrip lifts the hand along the column, away from
             // the eye. GTA2DX9_FP_GRIP_NEAR_OLD=1: a0dcb09's fixed arc and radial lift (A/B).
             static const bool nearOld = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_FP_GRIP_NEAR_OLD", b, sizeof b) && b[0] == '1'; }();
-            constexpr float kNearer = 0.003f;
+            // FIX-COCKPIT-CAB-3 (qar7 042 "mitten" hands): 0.003 let a shallow sports wheel's arc run to 1.05 rad (the 042's rim
+            // top only 0.0028 nearer than its home grip): a hand rode up to 1.2 rad at the rim's top, the stretch nearest the
+            // eye, and showed the back of a fat palm for half a second of every turn (cab3_pfl54). At 0.0015 the 042's arc ends
+            // near 0.64 rad, where the van's (068) already did; steeper wheels are limited by the rake as before.
+            constexpr float kNearer = 0.0015f;
             float high = kHigh;
             if (!nearOld) {
                 auto fwdOf = [&](float a) { return gta2::Dot(W(c + (across * std::cos(a) + up * std::sin(a)) * R) - g_driver.eye, g_driver.fwd); };
