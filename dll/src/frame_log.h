@@ -21,6 +21,15 @@ enum FrameCounter {
 };
 
 bool FrameLogEnabled();
+// FIX-PERF-4: draws/primitives per stage. Each call books the draws since the previous call
+// (or the frame's start) to `stage`.
+enum FrameLogStageId {
+    kFlPre = 0, kFlSky, kFlWorld,
+    kFlSprSetup, kFlSprLoop, kFlSprSkid, kFlSprIssue, kFlCars, kFlProps, kFlObjects, kFlPeds, kFlSprRest,   // live_geometry's 9 stages
+    kFlUi,
+    kFlStageCount
+};
+void FrameLogStage(FrameLogStageId stage);
 // The game's side of the frame: gbh_BeginScene stamps the start of its draw stream, and
 // the draw exports add their own time (a scope at their top) so "game" splits into the
 // game's simulation, its draw stream, and our code inside that stream.

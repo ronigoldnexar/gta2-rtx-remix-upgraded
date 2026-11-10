@@ -1,4 +1,5 @@
 #include "mem_stats.h"
+#include "frame_log.h"
 #include "live_geometry.h"
 #include "prop_collision.h"
 #include "car_glass.h"   // VEHICLE-GLASS
@@ -7657,6 +7658,7 @@ struct DrawStageTimer {
         LARGE_INTEGER now;
         QueryPerformanceCounter(&now);
         if (n < kDrawStages) g_drawStageMs[n] = static_cast<double>(now.QuadPart - last.QuadPart) * toMs;
+        if (n < kDrawStages) FrameLogStage(static_cast<FrameLogStageId>(kFlSprSetup + n));   // FIX-PERF-4: draws per stage
         last = now;
         ++n;
     }

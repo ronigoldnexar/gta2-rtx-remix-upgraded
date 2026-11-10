@@ -3654,11 +3654,13 @@ void WorldView::RenderFrame() {
     QueryPerformanceCounter(&lightTimer[1]);
     stamp[1] = lightTimer[1];
 
+    FrameLogStage(kFlPre);   // FIX-PERF-4: draws per stage (frame log only)
     if (renderer_.BeginFrame()) {
         // The street views' sky, and the fog and sun that go with it; nothing
         // in the classic view.
         DrawSkyAndShading();
         QueryPerformanceCounter(&skyStamp);
+        FrameLogStage(kFlSky);
         // Photo-material tiles only while the street presentation shows (always classic
         // when the classic view is settled): classic keeps the plain HD set unchanged.
         // During a move the ground's material cross-fades from one set to the other on
@@ -3692,6 +3694,7 @@ void WorldView::RenderFrame() {
         }
         renderer_.WarmTileTextures(CurrentViewMode() == ViewMode::Classic ? 24 : 6);   // nothing once every tile has been drawn with
         QueryPerformanceCounter(&stamp[2]);
+        FrameLogStage(kFlWorld);
         // Sprites and the captured block shapes are real world geometry, so they
         // are depth tested against the static mesh rather than painted over it.
         live_.Draw(renderer_.Device(), camera_, renderer_.Width(), renderer_.Height());
@@ -3744,6 +3747,7 @@ void WorldView::RenderFrame() {
         // scene exactly when it is drawn here. Last thing before the flip.
         QueryPerformanceCounter(&lightTimer[2]);
         stamp[4] = lightTimer[2];
+        FrameLogStage(kFlUi);   // FIX-PERF-4: the 2D layer, dissolve and menu
         LightsDraw();
         QueryPerformanceCounter(&lightTimer[3]);
         stamp[5] = lightTimer[3];

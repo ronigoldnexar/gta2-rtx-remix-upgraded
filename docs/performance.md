@@ -281,7 +281,10 @@ on a run) writes one tab-separated line per rendered frame (`dll/src/frame_log.c
   UnlockRect), `update_tex`, `model_tex`, `model_buffers`, `new_poses`, `skin_buffers`,
   `model_draws`, `skinned`, `posing`, `fills`, `car_measured`, `car_built`, `guarded_faults`;
 - state: `view` (0 classic, 1 third, 2 first), `driving`, the player `px py pz` (game frame) and
-  the camera eye `cx cy cz` (renderer frame), `sprite_quads`.
+  the camera eye `cx cy cz` (renderer frame), `sprite_quads`;
+- per stage (FIX-PERF-4, the last 26 columns): `dr_*` draws and `pr_*` primitives of `pre` (before the
+  sky), `sky`, `world`, the sprites stage's nine sub-stages (`setup`, `loop`, `skid`, `issue`, `cars`,
+  `props`, `objects`, `peds`, `rest`) and `ui` (the 2D layer, the dissolve, the F4 menu).
 
 Tools (`linux/docker/`, copied to `gamerun/`): `perf2_run.sh <name> <wil|bil|ste> [stage]`
 runs `perf2_drive.py` at the play container's settings (image `gta2-play`, `--cpuset-cpus=5-7`,
@@ -1261,3 +1264,38 @@ copies. A car model's dent steps (4 whole copies, queued ahead up to 160 MB), it
 door, per side) and its wheel split (hull + up to 4 wheels + 4 rims) are each a whole copy of the mesh,
 and a dented copy gets door and wheel splits of its own: `ms.models` 739 -> 820 (+53 MB of meshes),
 `ms.buffers` +28 MB, doors 29 -> 41, wheels 42 -> 49. The managed texture pool barely moved (+4.6 MB).
+
+### The fix (step 1): the voice clips, a ceiling watchdog, the dent budget
+
+- **Voice-over clips are read when played** (`voice_over.cpp`): the 1 235 files are listed at start
+  (`voice: 1235 recordings found (each read from disk when it is played)`), a clip is read and
+  volume-scaled when its text first shows, and the last two played are kept for `PlaySound`. 473 MB of
+  the address space back; a clip costs one file read (0.4 MB on average) at the moment it plays.
+- **Ahead-of-need dent copies** are capped at 48 MB (was 160 MB): ~100 MB of copies were made in the first
+  minutes, most never shown. A model past the budget gets its dent step built when one of its cars is
+  first dented; the previous step shows for the frames the worker takes (as for any urgent copy before).
+- **Ceiling watchdog** (`mem_stats.cpp`): every 5 s the process's VmSize is read; at
+  `GTA2DX9_MEM_CEILING_MB` (default 3900; 0 turns it off) a `FAULT: memory ceiling` line is logged and
+  the memory emergency above holds the classic view, because wined3d answers a map it cannot back with a
+  null pointer long before any allocation of ours fails (without /proc, as on Windows: when less than
+  96 MB of the address space is free). The `vehicle_fx` buffer `Lock` that faulted now checks the pointer.
+
+Same scenario as `fp4_sw_base`, build with the fix (`fp4_sw_fix1`, Industrial, V every 0.35 s, 20 min,
+27 laps as before, 0 FAULT, `gta2.exe exited 0`), VSZ/RSS MB per minute (`out/fp4_sw_fix1_mem.txt`):
+
+| minute | 1 | 2 | 4 | 6 | 8 | 10 | 13 | 16 | 18 | 21 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| before: VSZ | 3134 | 3506 | 3627 | 3824 | 3847 | 3882 | 3939 | 3956 | 3964 (dead since 17) | - |
+| after: VSZ | 2663 | 2996 | 3089 | 3124 | 3295 | 3339 | 3345 | 3382 | 3402 | 3418 |
+| after: RSS | 1731 | 2009 | 2089 | 2132 | 2231 | 2258 | 2264 | 2292 | 2317 | 2335 |
+| after: our heap | 528 | 585 | 638 | 675 | 698 | 701 | 705 | 723 | 747 | 754 |
+
+What is **still not flat**: from minute 8 to 21, VSZ +8.2 MB/min, RSS +7.3 MB/min, our heap +4.3 MB/min.
+Per-V allocations are not it (the heap's block count is the same before and after a burst of switches);
+it is content seen for the first time: a car model's undented door splits (`cb.doors` 26 -> 33 in
+minutes 8-15, ~1.2 MB each plus their buffers), new car and figure models, and the sprite store's new
+frames (`ts.frames` +37 a minute, bounded at 8192). Each of these caches is bounded by the district's
+car set (wheel splits 64 MB, dented-copy door splits 64 MB, ahead dents 48 MB), so the curve must bend
+over, but a 60-minute session has not been run. The next step is an eviction of derived car copies
+that have not been drawn for a while (the store never frees a model today: pointers to models and
+meshes key the glass, buffer and wear caches).

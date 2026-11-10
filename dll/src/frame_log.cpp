@@ -30,6 +30,10 @@ struct Counts {
     int notes[kFcCount];
 };
 Counts g_c = {};
+// FIX-PERF-4: draws and primitives per stage (FrameLogStage): which stage submits the street
+// views' ~2 900 draws / 2 M triangles.
+int g_stageDraws[kFlStageCount] = {}, g_stagePrims[kFlStageCount] = {};
+int g_stageLastDraws = 0, g_stageLastPrims = 0;
 
 using DrawPrimitiveFn = HRESULT(WINAPI*)(IDirect3DDevice9*, D3DPRIMITIVETYPE, UINT, UINT);
 using DrawIndexedFn = HRESULT(WINAPI*)(IDirect3DDevice9*, D3DPRIMITIVETYPE, INT, UINT, UINT, UINT, UINT);
@@ -156,7 +160,9 @@ bool FrameLogEnabled() {
                         "draws\tup_draws\tprims\ttex_created\tvb_created\tib_created\ttex_uploads\tupdate_tex\t"
                         "model_tex\tmodel_buffers\tnew_poses\tskin_buffers\tcar_bodies\t"
                         "model_draws\tskinned\tposing\tfills\tcar_measured\tcar_built\t"
-                        "view\tdriving\tpx\tpy\tpz\tcx\tcy\tcz\tsprite_quads\tpre_load\tpre_anim\tpre_input\tpre_camera\tpre_menu\tpre_tod\tsim\tgame_draw\thooks\thook_calls\tguarded_faults\tsolver\tcam_locate\tcam_probes\n");
+                        "view\tdriving\tpx\tpy\tpz\tcx\tcy\tcz\tsprite_quads\tpre_load\tpre_anim\tpre_input\tpre_camera\tpre_menu\tpre_tod\tsim\tgame_draw\thooks\thook_calls\tguarded_faults\tsolver\tcam_locate\tcam_probes"
+                        "\tdr_pre\tdr_sky\tdr_world\tdr_setup\tdr_loop\tdr_skid\tdr_issue\tdr_cars\tdr_props\tdr_objects\tdr_peds\tdr_rest\tdr_ui"
+                        "\tpr_pre\tpr_sky\tpr_world\tpr_setup\tpr_loop\tpr_skid\tpr_issue\tpr_cars\tpr_props\tpr_objects\tpr_peds\tpr_rest\tpr_ui\n");
                 Log("frame log: one line per frame to %s", path);
             } else {
                 Log("frame log: could not open %s", path);
@@ -191,6 +197,14 @@ void FrameLogAttachDevice(void* device) {
     Log("frame log: counting draws and resource creations on device %p", device);
 }
 
+void FrameLogStage(FrameLogStageId stage) {
+    if (g_enabled != 1 || stage < 0 || stage >= kFlStageCount) return;
+    g_stageDraws[stage] += g_c.draws - g_stageLastDraws;
+    g_stagePrims[stage] += g_c.prims - g_stageLastPrims;
+    g_stageLastDraws = g_c.draws;
+    g_stageLastPrims = g_c.prims;
+}
+
 void FrameLogNote(FrameCounter counter, int n) {
     if (g_enabled != 1 || counter < 0 || counter >= kFcCount) return;
     g_c.notes[counter] += n;
@@ -210,7 +224,7 @@ void FrameLogEndFrame(uint32_t frame, const FrameLogRecord& r) {
     }
     fprintf(g_file,
             "%u\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t"
-            "%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%.2f\t%.2f\t%d\t%d\t%d\t%d\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%d\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%d\t%d\t%.2f\t%.2f\t%.2f\n",
+            "%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%.2f\t%.2f\t%d\t%d\t%d\t%d\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%d\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%d\t%d\t%.2f\t%.2f\t%.2f",
             frame, t, r.whole, r.game, r.pre, r.lights, r.sky, r.world, r.sprites[0], r.sprites[1], r.sprites[2],
             r.sprites[3], r.sprites[4], r.sprites[5], r.sprites[6], r.sprites[7], r.sprites[8], r.ui, r.lightsDraw,
             r.present, r.wait, g_c.draws, g_c.upDraws, g_c.prims, g_c.texCreated, g_c.vbCreated, g_c.ibCreated,
@@ -218,6 +232,12 @@ void FrameLogEndFrame(uint32_t frame, const FrameLogRecord& r) {
             g_c.notes[kFcNewPose], g_c.notes[kFcSkinBuffer], g_c.notes[kFcCarBody], r.modelDraws, r.skinned, r.posing,
             r.fills, r.carMeasured, r.carBuilt, r.view, r.driving, r.px, r.py, r.pz, r.cx, r.cy, r.cz, r.spriteQuads, r.preParts[0], r.preParts[1], r.preParts[2], r.preParts[3],
             r.preParts[4], r.preParts[5], sim, gameDraw, g_hookMs, g_hookCalls, g_c.notes[kFcGuardedFault], r.solver, r.camLocate, r.camProbes);
+    // the per-stage counts close the line
+    for (int i = 0; i < kFlStageCount; ++i) fprintf(g_file, "\t%d", g_stageDraws[i]);
+    for (int i = 0; i < kFlStageCount; ++i) fprintf(g_file, "\t%d", g_stagePrims[i]);
+    fputc('\n', g_file);
+    for (int i = 0; i < kFlStageCount; ++i) g_stageDraws[i] = g_stagePrims[i] = 0;
+    g_stageLastDraws = g_stageLastPrims = 0;
     if ((frame % 120) == 0) fflush(g_file);
     g_c = Counts{};
     g_hookMs = 0.0;
