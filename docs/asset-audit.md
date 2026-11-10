@@ -283,3 +283,9 @@ time with the new props (the counts above are small next to the PERF-2 budget).
   `photoreal_tiles.py lotfield <hd>/photo/bil <hd>/photo/bil --tiles 737,745,754,767,742` and
   `lotfield <hd>/roads/bil <hd>/roads/bil --tiles 767,742` (originals in the host's backup_fw9_photo).
   Street sets only (photo/ and roads/ are never loaded on a Remix device or in classic).
+- **pmy1, stop-sign pole over the face** (`tools/gen_env2.py`). The plate's face stood at z=-0.006 block while the
+  6 cm post's radius is 0.0079 block, so the post's front pushed through the plate and drew a grey bar from top to
+  bottom over STOP (the one-way plate the same). `plate_z()` now puts the plate's back a 1 cm bracket in front of
+  the post (`POST_R`, `SIGN_BRACKET`), the clamp strap fills the gap; the back stays plain metal. Only
+  sign_stop.mesh and sign_oneway.mesh change (their textures are identical). Verified at wil 167.9,127.5 with fixed
+  regression-camera poses (before/after at 1, 1.5 and 3 blocks).

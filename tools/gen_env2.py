@@ -284,12 +284,26 @@ def wood(size=128, seed=7):
 MPB = 0.263   # blocks per metre
 
 
+# A sign post (6 cm) and where its plate stands: the plate faces -z and its back sits a bracket's
+# depth (1 cm) in front of the post's front, so from the face side the post is hidden behind the
+# plate and shows only below it. (Defect pmy1: the plate stood at z=-0.006 while the post's
+# radius is 0.0079, so the post's front pushed through the face and drew a grey bar over STOP.)
+POST_R = 0.03 * MPB
+SIGN_BRACKET = 0.01 * MPB
+
+
+def plate_z(thick):
+    """The z of a sign plate's face: back = face + thick = -(post radius + bracket)."""
+    return -(POST_R + SIGN_BRACKET) - thick
+
+
 def build_sign_stop():
     """A stop sign: a 75 cm octagon on a 6 cm galvanised post, its centre 2.1 m up (2.5 m overall)."""
     p_post, p_plate, p_back = G.Part(), G.Part(), G.Part()
     size, yc = 0.75 * MPB, 2.1 * MPB
-    z0, thick = -0.006, 0.004
-    post(p_post, 0.03 * MPB, 0.0, yc + 0.4 * size)
+    thick = 0.004
+    z0 = plate_z(thick)   # the plate's back clear of the post's front (pmy1: the post ran over STOP)
+    post(p_post, POST_R, 0.0, yc + 0.4 * size)
     plate(p_plate, size, size, yc, z0, thick=thick, back=p_back, back_grow=0.002)
     # The plate's edge: an octagonal band between the face and the back, so from an angle
     # behind it the face's red rim no longer shows past the back (defect pm17).
@@ -298,8 +312,8 @@ def build_sign_stop():
         a0, a1 = math.radians(22.5 + 45 * i), math.radians(22.5 + 45 * (i + 1))
         xa, ya, xb, yb = r * math.cos(a0), yc + r * math.sin(a0), r * math.cos(a1), yc + r * math.sin(a1)
         p_post.quad((xa, ya, z0), (xb, yb, z0), (xb, yb, z1), (xa, ya, z1))
-    # the clamp strap on the post behind the plate
-    G.box_part(p_post, -0.012, 0.012, yc - 0.012, yc + 0.012, z1, z1 + 0.012)
+    # the clamp strap between the plate's back and the post (it reaches the post's axis)
+    G.box_part(p_post, -0.012, 0.012, yc - 0.012, yc + 0.012, z1, 0.0)
     return G.scene_with([("post", p_post.mesh(mat(noisy(POST, amount=6), 0.8, 0.45, "post"))),
                          # The face mirrored (see plate()); the back is plain metal.
                          ("plate", p_plate.mesh(mat(stop_face().transpose(Image.FLIP_LEFT_RIGHT), 0.1, 0.5, "plate"))),
@@ -313,8 +327,9 @@ def build_sign_oneway():
     both sides (see plate())."""
     p_post, p_plate, p_back = G.Part(), G.Part(), G.Part()
     w, h, yc = 0.9 * MPB, 0.3 * MPB, 2.2 * MPB
-    post(p_post, 0.03 * MPB, 0.0, yc + h / 2 + 0.01)
-    plate(p_plate, w, h, yc, -0.006, thick=0.004, back=p_back)
+    post(p_post, POST_R, 0.0, yc + h / 2 + 0.01)
+    plate(p_plate, w, h, yc, plate_z(0.004), thick=0.004, back=p_back)
+    G.box_part(p_post, -0.010, 0.010, yc - 0.010, yc + 0.010, plate_z(0.004) + 0.004, 0.0)   # its clamp
     face = oneway_face()
     return G.scene_with([("post", p_post.mesh(mat(noisy(POST, amount=6), 0.8, 0.45, "post"))),
                          ("plate", p_plate.mesh(mat(face.transpose(Image.FLIP_LEFT_RIGHT), 0.1, 0.5, "plate"))),
