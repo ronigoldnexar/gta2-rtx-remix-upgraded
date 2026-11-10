@@ -430,6 +430,12 @@ std::vector<PedSpot> g_pedSpots;        // where the figures stood this frame (b
 // QB-16: and when he last fired (muzzleFrame), which way he faces, and his weapon,
 // so a figure whose health drops with nobody mid-swing beside him can be put to a shooter.
 struct FigureSpot { uintptr_t object; float x, z; bool punching, alt; uint32_t shotFrame; float fx, fz; int weapon; };
+// FIX-AIM-1 (diag-renderer-fig-hit-log-silent-while-ped-pool-registers-punch): GTA2 takes the punch's health off on the
+// press frame, before the drawn figure has reached its swing (punching = action 1, a frame or more later), and the player
+// spot in first person never punches at all: the drop found nobody mid-swing ('fig: health ... nobody mid-swing',
+// fixaim1_base1). The frame the game was last told of a fire press (ViewFirePresses), for the attribution below.
+uint32_t g_playerPressFrame = 0;
+uint32_t g_playerPressesSeen = 0;
 // QB-16: GTA2DX9_SHOT_HITS=0 turns the shot reactions off (a punch's stay).
 bool ShotHitsOn() {
     static int on = -1;
@@ -10396,6 +10402,17 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                         if (vx * vx + vz * vz < best) { best = vx * vx + vz * vz; by = &f; }
                     }
                 }
+                // FIX-AIM-1: the player's fists. Nobody drawn mid-swing, but the game was told of his fire key within the
+                // last 8 frames (or it is held) with bare hands, and the victim stands within 0.9 block of him: his blow.
+                FigureSpot playerFist{};
+                if (!by && g_playerPosValid && g_playerWeapon <= 0 && g_playerObject &&
+                    (g_carFrame - g_playerPressFrame <= 8 || ViewFireDown())) {
+                    const float vx = cx - g_playerPosX, vz = cz - g_playerPosZ;
+                    if (vx * vx + vz * vz < 0.9f * 0.9f && reinterpret_cast<const void*>(sprite.object) != g_playerObject) {
+                        playerFist = {reinterpret_cast<uintptr_t>(g_playerObject), g_playerPosX, g_playerPosZ, true, false, 0, 0.0f, 1.0f, 0};
+                        by = &playerFist;
+                    }
+                }
                 // QB-16: shot. Nobody mid-swing: the figure that fired in the last
                 // 1.5 s (a bullet flies: 0.8 s to 3 blocks, qb16_r8) within 12 blocks with his aim nearest the line to him (within
                 // 60 degrees: the drawn heading is eased) put a bullet in him. Which way the bullet came, against
@@ -13556,6 +13573,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
     SetViewFrustum(camera, width, height);
     g_viewActiveForPops = StreetPresentation();
     ++g_carFrame;
+    if (ViewFirePresses() != g_playerPressesSeen) { g_playerPressesSeen = ViewFirePresses(); g_playerPressFrame = g_carFrame; }   // FIX-AIM-1
     g_carMaterialsThisFrame = 0;
     lastEye_ = camera.Position();
     ActionProbes();

@@ -104,6 +104,12 @@ struct ViewModeSettings {
     // the view at fpTurnKeyRate and the pedestrian follows the view. In a car
     // the game's own driving keys are untouched.
     bool navMap = true;
+    // FIX-AIM-1 (owner10nov B9): on foot in a street view, an attack press with a person in front of him (fists:
+    // within 1.6 blocks and 75 degrees of his facing; a gun: within its reach and 30 degrees, 12 in first
+    // person, not behind a wall) is held back until the game's own turn keys have brought his heading onto that
+    // person (at most 0.25 s), then handed to the game; while the key stays down he keeps turning onto him. The
+    // reticle highlights the same person. GTA2DX9_AIM_ASSIST=0 or aim_assist=0 turns it off (A/B).
+    bool aimAssist = true;
     float navDeadband = 8.0f;       // degrees of heading error before a turn key is pressed
     float navLatency = 0.10f;       // seconds from our key press to the game's heading moving; the
                                     // controller releases that far ahead of the target
@@ -540,6 +546,14 @@ struct AimState {
     bool valid = false;
 };
 const AimState& ViewAim();
+// FIX-AIM-1: presses of the fire key (either Ctrl) the game has been told of since the level came up (the
+// DirectInput hook's count; 0 until the hook is installed, which the street views do on foot).
+uint32_t ViewFirePresses();
+bool ViewFireDown();   // the game believes a fire key is down
+// FIX-AIM-1: the person the aim assist would turn him onto this frame (hud3d computes it from the drawn people:
+// renderer yaw of the bearing, the heading tolerance that still lands, his distance); valid=false: nobody.
+void ViewSetAimPick(bool valid, bool fists, float bearingYaw, float tolRad, float dist, uintptr_t object);
+bool ViewAimAssistOn();
 // True when the straight line between two points (renderer frame) passes through a solid
 // block of the map, by the camera's own world queries; false when they are unknown.
 bool ViewLineBlocked(float x0, float y0, float z0, float x1, float y1, float z1);

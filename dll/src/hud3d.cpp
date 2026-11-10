@@ -1043,6 +1043,223 @@ float WeaponReach(int weapon) {
     }
 }
 
+// ---- FIX-AIM-1 (owner10nov B9): every attack, what was in front of him and what the game made of it ----------
+// One record per press of the fire key the game was told of (ViewFirePresses), on foot in a street view, fists or
+// armed. At the press: his facing (the game's), the weapon, and every standing person within reach of the weapon
+// (fists 2 blocks) with distance, bearing off his facing, height step and the corridor test's verdict. Then for
+// the window after it (fists 0.6 s while the key is up, extended while held; guns 1.2 s) whose health word drops
+// or who goes down: the game's own hit. GTA2DX9_LOG_AIM=1 logs one 'aim: swing' line at the press and one
+// 'aim: swing ... ->' line with the outcome; the 'aim: fists' tally rides with the shots tally every 10 s.
+struct SwingLog {
+    uint32_t presses = 0;
+    bool open = false;
+    int id = 0, weapon = 0;
+    double t0 = 0.0, until = 0.0;
+    float ox = 0, oz = 0, heading = 0;
+    bool hadTarget = false;      // a standing person within the weapon's reach and arc at the press
+    uintptr_t aimed = 0;         // the candidate nearest his facing line
+    std::unordered_map<uintptr_t, std::pair<int, bool>> before;   // health, down the frame before the press
+    std::unordered_map<uintptr_t, std::pair<int, bool>> lastFrame;   // every drawn person's, last fresh frame
+    bool pressPending = false;   // a press seen on a frame whose people list was not fresh yet
+    std::vector<std::pair<uintptr_t, int>> hits;   // who dropped, by how much
+    int fistSwings = 0, fistWithTarget = 0, fistHits = 0, fistMissWithTarget = 0;
+    int missNobody = 0, missArc = 0, missNoContact = 0;   // the fists' misses by reason (the melee: line)
+    float nearD = -1.0f, nearOff = 0.0f;                  // the nearest standing person at the press, any bearing
+    int gunSwings = 0, gunWithTarget = 0, gunHits = 0;
+};
+SwingLog g_swing;
+
+bool AimLogOn() {
+    static int on = -1;
+    if (on < 0) { char b[4] = {}; on = GetEnvironmentVariableA("GTA2DX9_LOG_AIM", b, sizeof b) && b[0] == '1'; }
+    return on == 1;
+}
+
+float AimDegOff(float heading, float dx, float dz) {
+    float a = std::atan2(dx, dz) - heading;
+    while (a > 3.14159265f) a -= 6.2831853f;
+    while (a < -3.14159265f) a += 6.2831853f;
+    return a * 57.29578f;
+}
+
+// FIX-AIM-1: the person an attack is meant for, the one the aim assist turns him onto and the reticle highlights.
+// Fists: within kFistPick blocks and 75 degrees of his facing, nearest by distance and angle. A gun: within its
+// reach, 30 degrees (12 in first person, where the view already aims), not behind a wall, smallest angle first.
+// tol: how far off his heading may be and still land (fists kFistTolDeg; a gun: the angle of a quarter block at
+// his distance, 2.5-8 degrees).
+constexpr float kFistPick = 1.2f, kFistArcDeg = 75.0f, kFistTolDeg = 12.0f;
+uintptr_t g_lastPick = 0;
+struct AimPick { bool valid = false; uintptr_t object = 0; float x = 0, y = 0, z = 0, d = 0, bearing = 0, tol = 0, offDeg = 0; };
+AimPick ComputeAimPick(const AimState& a, const std::vector<AimPed>& peds) {
+    AimPick best;
+    if (!a.valid || ViewPlayer().inVehicle) return best;
+    const bool fists = a.weapon == 0;
+    const bool first = CurrentViewMode() == ViewMode::FirstPerson;
+    const float reach = fists ? kFistPick : WeaponReach(a.weapon);
+    const float arc = fists ? kFistArcDeg : (first ? 12.0f : 30.0f);
+    float bestScore = 1e9f;
+    for (const AimPed& p : peds) {
+        if (p.corpse || p.health == 0) continue;
+        const float dx = p.x - a.x, dz = p.z - a.z, d = std::hypot(dx, dz);
+        if (d < 0.05f || d > reach) continue;
+        if (std::fabs(p.y - a.y) > (fists ? 0.6f : 1.2f)) continue;
+        const float off = std::fabs(AimDegOff(a.headingYaw, dx, dz));
+        if (off > arc) continue;
+        const float score = (fists ? off + 40.0f * d : off + 1.5f * d) - (p.object == g_lastPick ? 12.0f : 0.0f);   // keeps the one he turns onto
+        if (score >= bestScore) continue;
+        if (!fists && ViewLineBlocked(a.x, a.y + 0.30f, a.z, p.x, p.y + 0.25f, p.z)) continue;
+        bestScore = score;
+        best.valid = true; best.object = p.object; best.x = p.x; best.y = p.y; best.z = p.z; best.d = d; best.offDeg = off;
+        best.bearing = std::atan2(dx, dz);
+        best.tol = fists ? kFistTolDeg * 0.0174533f : (std::min)(8.0f * 0.0174533f, (std::max)(2.5f * 0.0174533f, std::atan2(0.25f, d)));
+    }
+    g_lastPick = best.valid ? best.object : 0;
+    return best;
+}
+
+void UpdateSwingLog(bool street, const AimState& a, const std::vector<AimPed>& peds, bool fresh, double clock) {
+    SwingLog& g = g_swing;
+    const uint32_t presses = ViewFirePresses();
+    const bool onFoot = street && a.valid && !ViewPlayer().inVehicle;
+    const bool fireHeld = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+    // The outcome: any drop of a health word (or a fall) among the people seen at the press.
+    auto scan = [&]() {
+        for (const AimPed& p : peds) {
+            const auto it = g.before.find(p.object);
+            if (it == g.before.end() || it->second.second) continue;
+            // A blow or a bullet of his: within the weapon's reach of where he stood (a car running a man down
+            // across the street is not his swing).
+            if (std::hypot(p.x - g.ox, p.z - g.oz) > (g.weapon == 0 ? 1.5f : WeaponReach(g.weapon) + 1.5f)) continue;
+            const int was = it->second.first;
+            if ((p.health >= 0 && p.health < was) || p.corpse) {
+                bool known = false;
+                for (auto& hgot : g.hits) if (hgot.first == p.object) { known = true; hgot.second = was - p.health; }
+                if (!known) g.hits.push_back({p.object, was - p.health});
+                it->second.first = p.health;
+                if (p.corpse) it->second.second = true;
+            }
+        }
+        if (g.weapon == 0 && fireHeld) g.until = (std::max)(g.until, clock + 0.6);   // held fists swing again
+    };
+    if (g.open && fresh) scan();
+    if (g.open && (clock >= g.until || presses != g.presses || !onFoot)) {
+        g.open = false;
+        const bool fists = g.weapon == 0;
+        if (!g.hits.empty()) { if (fists) ++g.fistHits; else ++g.gunHits; }
+        else if (fists && g.hadTarget) ++g.fistMissWithTarget;
+        // owner10nov B9a: the melee: line, always on, one per punch. A miss's reason: nobody within 1.2 blocks; the
+        // nearest outside 75 degrees of his facing; or nobody touching him (GTA2's fist takes only a ped overlapping
+        // his own body within 0.25 block, FUN_00433D00: a man standing a step off is never hit, whichever way he faces).
+        if (fists) {
+            const char* why = "";
+            if (g.hits.empty()) {
+                if (g.nearD < 0.0f || g.nearD > kFistPick) { why = "nothing in range"; ++g.missNobody; }
+                else if (std::fabs(g.nearOff) > kFistArcDeg) { why = "outside the arc"; ++g.missArc; }
+                else { why = "no contact (the game hits only a body touching his, within 0.25 block)"; ++g.missNoContact; }
+            }
+            Log("melee: swing %d %s%s%s nearest %.2f block %+.0f deg off his facing at the press (%s)", g.fistSwings, g.hits.empty() ? "MISS: " : "HIT",
+                why, g.hits.empty() ? ";" : ":", g.nearD, g.nearOff, CurrentViewMode() == ViewMode::FirstPerson ? "first" : "third");
+        }
+        if (AimLogOn()) {
+            std::string what;
+            for (const auto& hgot : g.hits) {
+                char b[96];
+                float d = -1.0f, off = 0.0f;
+                for (const AimPed& p : peds) if (p.object == hgot.first) { d = std::hypot(p.x - g.ox, p.z - g.oz); off = AimDegOff(g.heading, p.x - g.ox, p.z - g.oz); }
+                snprintf(b, sizeof b, " %04x(-%d d=%.2f off=%.0f%s)", static_cast<unsigned>((hgot.first >> 2) & 0xFFFF), hgot.second, d, off,
+                         hgot.first == g.aimed ? " aimed" : "");
+                what += b;
+            }
+            Log("aim: swing %d -> %s%s (%.2f s)", g.id, g.hits.empty() ? (g.hadTarget ? "MISS with a person in reach" : "miss, nobody in reach") : "HIT",
+                what.c_str(), clock - g.t0);
+        }
+    }
+    // GTA2 takes a punch's health off on the press frame itself, so the people are judged against the frame
+    // before the press (lastFrame), refreshed below after any press is opened.
+    if (presses != g.presses) {
+        g.pressPending = onFoot && presses > g.presses;
+        g.presses = presses;
+    }
+    if (g.pressPending && fresh) {
+        g.pressPending = false;
+        {
+            g.open = true;
+            if (a.weapon == 0) ++g.fistSwings; else ++g.gunSwings;
+            g.id = g.fistSwings + g.gunSwings;
+            g.weapon = a.weapon;
+            g.t0 = clock;
+            g.until = clock + (a.weapon == 0 ? 0.6 : 1.2);
+            g.ox = a.x; g.oz = a.z; g.heading = a.headingYaw;
+            g.hits.clear();
+            g.before = g.lastFrame;
+            g.aimed = 0;
+            g.hadTarget = false;
+            const bool fists = a.weapon == 0;
+            const float reach = fists ? kFistPick : WeaponReach(a.weapon);
+            const float arc = fists ? kFistArcDeg : 20.0f;
+            std::string cands;
+            float bestOff = 1e9f;
+            g.nearD = -1.0f; g.nearOff = 0.0f;
+            int listed = 0;
+            for (const AimPed& p : peds) {
+                if (!g.before.count(p.object)) g.before[p.object] = {p.health, p.corpse};
+                const auto& b0 = g.before[p.object];   // as he stood the frame before the press
+                if (b0.second || b0.first == 0) continue;
+                const float dx = p.x - a.x, dz = p.z - a.z, d = std::hypot(dx, dz);
+                if (d > reach + 1.0f) continue;
+                const float off = AimDegOff(a.headingYaw, dx, dz);
+                const float dy = p.y - a.y;
+                if (std::fabs(dy) <= 0.6f && (g.nearD < 0.0f || d < g.nearD)) { g.nearD = d; g.nearOff = off; }
+                const char* why = "ok";
+                if (std::fabs(dy) > 1.2f) why = "height";
+                else if (d > reach) why = "beyond reach";
+                else if (std::fabs(off) > arc) why = "outside arc";
+                else if (!fists && ViewLineBlocked(a.x, a.y + 0.30f, a.z, p.x, p.y + 0.25f, p.z)) why = "wall";
+                if (why[0] == 'o' && why[1] == 'k') {
+                    g.hadTarget = true;
+                    if (std::fabs(off) < bestOff) { bestOff = std::fabs(off); g.aimed = p.object; }
+                }
+                if (listed < 8) {
+                    char b[96];
+                    snprintf(b, sizeof b, " %04x(d=%.2f off=%+.0f dy=%+.2f %s)", static_cast<unsigned>((p.object >> 2) & 0xFFFF), d, off, dy, why);
+                    cands += b; ++listed;
+                }
+            }
+            if (fists) g.fistWithTarget += g.hadTarget ? 1 : 0; else g.gunWithTarget += g.hadTarget ? 1 : 0;
+            scan();   // the press frame's own drop (a punch lands on it)
+            static bool reachLogged = false;
+            if (AimLogOn() && !reachLogged) {
+                // FUN_00433D00's distance bound for the overlapping victim (16.14 fixed point; read only).
+                reachLogged = true;
+                int32_t raw = 0;
+                GTA2_TRY { raw = *reinterpret_cast<const int32_t*>(static_cast<uintptr_t>(0x005E5D64)); } GTA2_EXCEPT { raw = -1; }
+                Log("aim: the game's punch victim distance bound [0x5E5D64] = %d (%.3f blocks)", raw, raw / 16384.0f);
+            }
+            if (AimLogOn())
+                Log("aim: swing %d %s weapon %d %s heading %.0f at %.2f,%.2f highlighted %04x |%s", g.id, fists ? "fists" : "gun", a.weapon,
+                    CurrentViewMode() == ViewMode::FirstPerson ? "first" : "third", a.headingYaw * 57.29578f, a.x,
+                    static_cast<float>(gta2::kMapHeight) - a.z, static_cast<unsigned>((g_aimHud.targetObject >> 2) & 0xFFFF),
+                    cands.empty() ? " nobody within reach+1" : cands.c_str());
+        }
+    }
+    if (fresh) {
+        g.lastFrame.clear();
+        for (const AimPed& p : peds) g.lastFrame[p.object] = {p.health, p.corpse};
+    }
+    static double lastTally = 0.0;
+    if (g.fistSwings + g.gunSwings > 0 && clock - lastTally >= 10.0) {
+        lastTally = clock;
+        // owner10nov B9a: the fists' counter on the aim: line's pattern (with_target: a standing person within 1.2
+        // blocks and 75 degrees of his facing at the press; contacts: the game took health off or knocked one down).
+        if (g.fistSwings > 0)
+            Log("melee: swings=%d with_target=%d contacts=%d (%.0f%%) misses: nothing_in_range=%d outside_arc=%d no_contact=%d assist=%d",
+                g.fistSwings, g.fistWithTarget, g.fistHits, 100.0 * g.fistHits / g.fistSwings, g.missNobody, g.missArc, g.missNoContact,
+                ViewAimAssistOn() ? 1 : 0);
+        if (g.gunSwings > 0)
+            Log("aim: gun presses=%d with_target=%d hits=%d", g.gunSwings, g.gunWithTarget, g.gunHits);
+    }
+}
+
 void UpdateAimHud(bool street, float W, float H, float dt) {
     AimHud& h = g_aimHud;
     h.clock += dt;
@@ -1075,6 +1292,17 @@ void UpdateAimHud(bool street, float W, float H, float dt) {
             h.target = true;
             h.targetObject = p.object;
             h.tx = p.x; h.ty = p.y; h.tz = p.z;
+        }
+    }
+    // FIX-AIM-1: with the aim assist on, the highlighted person is the one a shot turns him onto (the reticle honest:
+    // what it brackets is what the press goes for); the corridor stays the rule with it off.
+    if (fresh) {
+        const AimPick pick = ComputeAimPick(a, peds);
+        ViewSetAimPick(pick.valid && street, a.weapon == 0, pick.bearing, pick.tol, pick.d, pick.object);
+        if (h.show && ViewAimAssistOn() && pick.valid) {
+            h.target = true;
+            h.targetObject = pick.object;
+            h.tx = pick.x; h.ty = pick.y; h.tz = pick.z;
         }
     }
     if (!h.target) h.targetObject = 0;
@@ -1145,6 +1373,7 @@ void UpdateAimHud(bool street, float W, float H, float dt) {
         }
         h.seen.swap(now);
     }
+    UpdateSwingLog(street, a, peds, fresh, h.clock);   // FIX-AIM-1
     h.hitT = (std::max)(0.0f, h.hitT - dt);
     for (AimHud::Pop& p : h.pops) p.t -= dt;
     h.pops.erase(std::remove_if(h.pops.begin(), h.pops.end(), [](const AimHud::Pop& p) { return p.t <= 0.0f; }), h.pops.end());

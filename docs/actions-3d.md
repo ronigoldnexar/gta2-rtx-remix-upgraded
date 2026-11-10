@@ -1277,6 +1277,65 @@ gamerun/grun.sh <run> 330 keys_fa3.sh -e GTA2DX9_STATE_EVERY=3 -e GTA2DX9_PEDS_E
 -e GTA2DX9_LOG_BOARD_HULL=1 -e FA3_DRIVE_WAIT=0.2` (about 70 s of game). `tools/boarding_hull_test.cpp` replays two
 paths through a car body against `boarding.cpp` offline (0 frames inside the hull).
 
+## FIX-AIM-1 (10 Nov 2026): why punches did not land, and the aim assist (owner10nov B9)
+
+The owner (two sessions on 10 Nov): "punches often simply fail to work - they don't land". The counter quoted with
+the filing (`aim: shots=36 with_target=13 hits=9 ...`) counts **gun** shots only (`AimState::armed` is weapon > 0):
+fists were never counted. Measured first, then fixed.
+
+**What decides a punch (read off gta2.exe).** The player's blow is `FUN_00444B50` (20 health off a civilian, the
+knock-down). Its victim comes from `FUN_00433D00`: the collision grid (`FUN_00447540`) is asked for a ped
+**overlapping the puncher's own sprite** - nothing is moved ahead, there is no facing arc - and that ped must stand
+within `[0x5E5D64]` = 4096 (0.250 block, read in the running game) of him. The test runs on the press frame. Two
+people standing apart do not overlap, whichever way he faces; walking into someone presses the bodies together.
+So the 3D views, where a figure reads as within arm's reach at 0.5-0.9 block, invite presses the game can never land.
+
+**Measurement** (`GTA2DX9_LOG_AIM=1`, one `aim: swing N` line at each press the game is told of with his heading and
+every person within reach + 1 block (distance, bearing off his facing, height, verdict), one `aim: swing N ->` line
+with the game's own outcome: whose health dropped or who went down; the tally `aim: fists swings= with_target= hits=
+miss_with_target= | gun presses= ...` every 10 s). Gate: `linux/docker/fixaim1_gate.py` (keys `keys_fixaim1.sh`):
+10 single taps of the fist at a civilian on the wil Downtown pavement, turned to within 20 degrees and walked up to
+0.45 or 0.7 block, in third then first person; a swing lands when a civilian within 1.8 blocks loses health or goes
+down within 0.9 s (`view: peds`).
+
+| run | build | third | first | note |
+|---|---|---|---|---|
+| fixaim1_base1 | HEAD + log only | 0/10 | 1/10 | misses at 0.39 block 6 degrees off; the one hit at 0.18 |
+| fixaim1_sweep1 | HEAD + log only | 3/24 | - | approach 0.28-0.75, hold 0.12/0.6 s: misses at 0.29 block 0 degrees off |
+| fixaim1_as1..as6 | assist iterations | 5-8/10 | 5-9/10 | as6 found the cause of the rest: presses held back were lost (the game reads one buffered event at a time, ~8 reads a second; a timed 90 ms tap expired undelivered) |
+| fixaim1_as7 | assist, event-based tap | 8/10 | 9/9 | every held press reached the game (19 of 19) |
+| fixaim1_rb2 | assist on fork HEAD 7d16bbe3, fire key first in the read | 9/9 | 9/10 | `melee: swings=19 with_target=14 contacts=18 (95%) ... no_contact=1`; the one miss: the 0.7 s bound, heading 47 degrees off as the man walked away |
+
+Every miss has its line (`aim: assist ... let go: <why>`, `melee: swing N MISS: <reason>`). Frames (rb2, timed from the
+`fig: hit` lines): third person, the hero on the victim and the victim staggering at contact; first person, the fists
+thrown at contact but the victim **not in the picture**: a body within 0.25 block is under the first-person view
+(short of a shipping frame: the victim should be seen taking the blow). Classic: vreg spawn_classic 0 tiles.
+
+`melee:` (owner10nov B9a, always on, every 10 s): `melee: swings= with_target= contacts= (%) misses: nothing_in_range=
+outside_arc= no_contact= assist=`, and one `melee: swing N HIT|MISS: <reason>; nearest D block A deg off his facing`
+per punch. The gun counter stays `aim: shots=` (QB-6) plus `aim: gun presses= with_target= hits=`.
+
+**The fix: the aim assist** (`[camera] aim_assist=1`, default on; `GTA2DX9_AIM_ASSIST=0` for an A/B). On foot in a
+street view (never the classic view), the attack press is judged inside the game's own keyboard read
+(`NavGetDeviceData`/`NavGetDeviceState`, `view_modes.cpp`), so the game never sees a press the assist holds back:
+- *The pick* (`hud3d.cpp ComputeAimPick`, once a frame from the drawn people): fists - a standing person within 1.2
+  blocks and 75 degrees of his facing, nearest by distance and angle; a gun - within its reach and 30 degrees (12 in
+  first person), not behind a wall, smallest angle first. The current pick keeps a bonus so it does not flip.
+- *Fists:* the press is held while the game's own Left/Right turn him onto the person and Up walks him in; it goes to
+  the game once he has been inside 0.28 block (drawn centres; two pressed bodies sit 0.25-0.30 apart) for two frames,
+  and Up stays down 0.2 s after it, so the bodies are pressed together on the punch frame. Bound 0.7 s.
+- *A gun:* the press is held until his heading is within the angle of a quarter block at the person's distance
+  (2.5-8 degrees), at most 0.25 s; while the key stays down he keeps turning onto the person.
+- *The reticle* brackets the same person (it highlights what the press goes for).
+- Nothing is written into the game: the turn and the step are the game's own keys, pressed by the same DirectInput hook
+  the camera-relative controls use. `aim: assist press on <ped> let go after T s: <why>` logs each held press.
+
+**The renderer's hit log** (diag-renderer-fig-hit-log-silent-while-ped-pool-registers-punch): the game takes the
+health off on the press frame, before the drawn figure reaches its swing (and the first-person player spot never
+swings), so the drop found "nobody mid-swing". A drop on a person within 0.9 block of the player within 8 frames of his
+fire press (or while it is held), bare-handed, is now his blow: `fig: hit <victim> by <player> (cross)`. Probes should
+trust `fig: hit` for the player's punches again (fixaim1_as1: 10 player `fig: hit` lines for 10 connected punches).
+
 ## FIX-FIGURE-9 (10 Nov 2026): the molotov throw without the burn clip, the flamethrower's jet, flames beside him
 
 **Molotov: "both arms up" after a throw was the burn clip** (feel12-molotov). The "on fire" test (a fire spot

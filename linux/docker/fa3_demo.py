@@ -305,29 +305,34 @@ def warp_car():
 
 
 # ================================================================== FIX-ACTIONS-3 probe: punch + jack + drive off
-mark("probe start")
-if not os.environ.get("SKIP_START"): D.start()
-s = D.wait_state(40)
-if not s: mark("NO PLAYER STATE"); sys.exit(1)
-mark(f"LEVEL in play: {words(s)}")
-D.calibrate_turn()
-T.warp(WEST + 6.0, PAV_Y, 2, why="fa3 probe: the pavement"); time.sleep(2.0)
-face(170, PAV_Y)
-view_to("third", "third person for the fist fight")
-time.sleep(10.0)   # memory probe-view-switch-after-warp: classic held ~7 s after a warp
-view_to("third", "third person (again)")
-mark("PUNCH sequence")
-punched = punch_sequence(budget=int(os.environ.get("FA3_PUNCH_SECS", "70")))
-time.sleep(1.0)
-if os.environ.get("FA3_JACK", "1") == "1":
-    mark("JACK beat")
-    Q.set_view("third", settle=0.3)
-    got = jack(budget=int(os.environ.get("FA3_JACK_SECS", "120")))
-    mark(f"JACK RESULT: {words(got) if got else 'NO CAR'}")
-    if got:
-        time.sleep(float(os.environ.get("FA3_DRIVE_WAIT", "2.5")))
-        mark("DRIVE OFF 2 s")
-        hold("Up", float(os.environ.get("FA3_DRIVE_SECS", "2.0"))); time.sleep(3.0)
-        mark(f"after the drive: {words(D.wait_state())}")
-mark("end")
-say("done")
+def main():
+    mark("probe start")
+    if not os.environ.get("SKIP_START"): D.start()
+    s = D.wait_state(40)
+    if not s: mark("NO PLAYER STATE"); sys.exit(1)
+    mark(f"LEVEL in play: {words(s)}")
+    D.calibrate_turn()
+    T.warp(WEST + 6.0, PAV_Y, 2, why="fa3 probe: the pavement"); time.sleep(2.0)
+    face(170, PAV_Y)
+    view_to("third", "third person for the fist fight")
+    time.sleep(10.0)   # memory probe-view-switch-after-warp: classic held ~7 s after a warp
+    view_to("third", "third person (again)")
+    mark("PUNCH sequence")
+    punched = punch_sequence(budget=int(os.environ.get("FA3_PUNCH_SECS", "70")))
+    time.sleep(1.0)
+    if os.environ.get("FA3_JACK", "1") == "1":
+        mark("JACK beat")
+        Q.set_view("third", settle=0.3)
+        got = jack(budget=int(os.environ.get("FA3_JACK_SECS", "120")))
+        mark(f"JACK RESULT: {words(got) if got else 'NO CAR'}")
+        if got:
+            time.sleep(float(os.environ.get("FA3_DRIVE_WAIT", "2.5")))
+            mark("DRIVE OFF 2 s")
+            hold("Up", float(os.environ.get("FA3_DRIVE_SECS", "2.0"))); time.sleep(3.0)
+            mark(f"after the drive: {words(D.wait_state())}")
+    mark("end")
+    say("done")
+
+
+if __name__ == "__main__":   # FIX-AIM-1: fixaim1_gate.py imports the helpers
+    main()

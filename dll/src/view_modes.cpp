@@ -947,6 +947,98 @@ bool g_holdLogged = false;
 bool InputHeld() { return g_holdUntil && GetTickCount64() < g_holdUntil; }
 void EntryNoteKey(DWORD dik, bool down, bool withheld);   // FIX-ENTRY-1, below
 void EntryNoteReadFailure(long hr);                         // FIX-ENTRY-1, below
+// FIX-AIM-1: the fire key (either Ctrl) as the game is told of it: each press that reaches the game is an attack
+// (a punch with fists, a shot or a throw armed); hud3d's swing log reads the count (ViewFirePresses).
+bool g_fireToldDown = false;
+uint32_t g_firePresses = 0;
+void NoteFireTold(bool down) {
+    if (down && !g_fireToldDown) ++g_firePresses;
+    g_fireToldDown = down;
+}
+// FIX-AIM-1 aim assist (ViewModeSettings::aimAssist). The pick is hud3d's (ViewSetAimPick, once a frame); the
+// press is judged inside the game's keyboard read, so the game never sees a press the assist holds back.
+// GTA2's fist (FUN_00444B50) takes its victim from FUN_00433D00: the collision grid's ped OVERLAPPING the puncher's
+// own sprite (FUN_00447540, nothing moved ahead, no facing arc), then a distance check. Two peds standing apart do not
+// overlap: fixaim1_base1/sweep1 missed 42 of 44 presses from 0.29-0.40 block, facing him to within 4 degrees; the
+// owner demo's punches landed while he walked INTO the victim. So a fist press with the person further than
+// kAssistFistLand is held while Up walks him in, facing him (bound kAssistFistBound), and Up stays down
+// kAssistFistPush s after the press is let go, so the bodies are pressed together on the punch frame.
+constexpr float kAssistFistLand = 0.28f;   // drawn centres; the game's bound [0x5E5D64] is 0.25 block (fixaim1_as2 log), two
+                                           // bodies pressed together sit 0.25-0.30 apart
+constexpr double kAssistFistPush = 0.30;   // the press reaches the game up to a read (~0.12 s) after it is let go
+constexpr double kAssistFistContact = 0.066;   // walked into him this long, inside kAssistFistLand, before the press goes
+constexpr double kAssistFistBound = 0.7, kAssistGunBound = 0.25;
+struct AimPickShared { bool valid = false; bool fists = false; float bearing = 0, tol = 0, dist = 0; uintptr_t object = 0; double at = 0.0; };
+AimPickShared g_pick;
+enum AssistPhase { kAssistIdle = 0, kAssistAlign, kAssistTrack };
+int g_assistPhase = kAssistIdle;
+bool g_assistAllowed = false;     // this frame: on foot in a street view, keys not held for a knock-down, hook in
+bool g_fireKeyPhys[2] = {};       // left / right Ctrl physically down
+bool g_fireWithheld = false;      // a press the game has not been told of yet (turning onto the pick)
+bool g_fireTapOwed = false;       // that press already came up: hand the game a short tap when it is let go
+// The owed tap, by events (the game reads its buffer one event at a time, ~8 reads a second, and the slot is often
+// a real key's: a 90 ms timed tap expired before it was ever delivered, fixaim1_as6): 1 = the down is owed,
+// 2 = the down was told, up at g_fireTapUpAt.
+int g_fireTap = 0;
+ULONGLONG g_fireTapUpAt = 0;
+double g_assistT0 = 0.0;
+float g_assistErr0 = 0.0f;
+uintptr_t g_assistObject = 0;
+int g_assistOwn = 0;              // arrows the assist holds (bit i = kNavDik[i]); with nav_map=1 they are the controller's anyway
+bool g_pickFists = false;         // the pick is for bare hands: the press also waits until he stands within kAssistFistLand
+float g_assistLastHeading = 0.0f, g_assistRate = 0.0f;
+bool g_assistHaveLast = false;
+int g_assistCool = 0;
+int g_assistLogs = 0;
+double g_assistPushUntil = 0.0;   // fists: Up held into him until then (after the press is let go)
+double g_assistContactSince = 0.0;   // fists: since when he has been walked into him inside kAssistFistLand (0 = not)
+bool FirePhys() { return g_fireKeyPhys[0] || g_fireKeyPhys[1]; }
+bool PickFresh() { return g_pick.valid && Now() - g_pick.at < 0.15; }
+bool AssistLogOn() {
+    static int on = -1;
+    if (on < 0) { char b[4] = {}; on = GetEnvironmentVariableA("GTA2DX9_LOG_AIM", b, sizeof b) && b[0] == '1'; }
+    return on == 1;
+}
+// A physical change of a fire key, from whichever read saw it first. A press with a pick off his facing is held back.
+void NoteFirePhys(int which, bool down) {
+    const bool was = FirePhys();
+    g_fireKeyPhys[which] = down;
+    const bool now = FirePhys();
+    if (now && !was) {
+        if (g_assistAllowed && !InputHeld() && PickFresh()) {
+            const float err = WrapAngle(g_pick.bearing - g_navHeading);
+            g_assistObject = g_pick.object;
+            g_pickFists = g_pick.fists;
+            if (std::fabs(err) > g_pick.tol || g_pick.fists) {
+                g_fireWithheld = true;
+                g_fireTapOwed = false;
+                g_assistPhase = kAssistAlign;
+                g_assistT0 = Now();
+                g_assistErr0 = err;
+                g_assistContactSince = 0.0;
+            } else {
+                g_assistPhase = kAssistTrack;
+                if (AssistLogOn() && g_assistLogs < 400) {
+                    ++g_assistLogs;
+                    Log("aim: assist press on %04x already on him (%.1f deg off, tolerance %.1f, %.2f blocks): passed at once",
+                        static_cast<unsigned>((g_pick.object >> 2) & 0xFFFF), err / kDegToRad, g_pick.tol / kDegToRad, g_pick.dist);
+                }
+            }
+        }
+    } else if (!now && was) {
+        if (g_fireWithheld) g_fireTapOwed = true;
+        if (g_assistPhase == kAssistTrack) g_assistPhase = kAssistIdle;
+    }
+}
+bool FireKeyWanted(int which) {   // what the game should believe of this fire key
+    if (g_fireWithheld) return false;
+    if (g_fireKeyPhys[which]) return true;
+    if (which != 0) return false;
+    if (g_fireTap == 1) return true;
+    if (g_fireTap == 2) return GetTickCount64() < g_fireTapUpAt;
+    return false;
+}
+bool ArrowOwned(int i) { return g_navActive || (g_assistOwn & (1 << i)) != 0; }
 int HoldIndexOfDik(DWORD ofs) {
     for (int i = 0; i < kHoldCount; ++i) if (ofs == kHoldDik[i]) return i;
     return -1;
@@ -964,10 +1056,23 @@ HRESULT WINAPI NavGetDeviceState(IDirectInputDevice8A* self, DWORD cbData, LPVOI
         ++g_diReads;
         BYTE* keys = static_cast<BYTE*>(data);
         for (int i = 0; i < 4; ++i) g_phys[i] = SUCCEEDED(hr) && (keys[kNavDik[i]] & 0x80) != 0;
-        if (g_navActive) {
-            for (int i = 0; i < 4; ++i) keys[kNavDik[i]] = g_inj[i] ? 0x80 : 0;
+        for (int i = 0; i < 4; ++i) if (ArrowOwned(i)) keys[kNavDik[i]] = g_inj[i] ? 0x80 : 0;
+        // FIX-AIM-1: the fire keys as the assist lets the game see them.
+        if (SUCCEEDED(hr)) {
+            const bool l = (keys[DIK_LCONTROL] & 0x80) != 0, r = (keys[DIK_RCONTROL] & 0x80) != 0;
+            // The physical key from the buffered events when the game reads those (the snapshot can lag them a read
+            // and flipped the key up and down: phantom presses, fixaim1_as4); from the snapshot only otherwise.
+            if (g_diDataCalls == 0) {
+                if (l != g_fireKeyPhys[0]) NoteFirePhys(0, l);
+                if (r != g_fireKeyPhys[1]) NoteFirePhys(1, r);
+            }
+            if (g_diDataCalls == 0 && g_fireTap == 1) { g_fireTap = 2; g_fireTapUpAt = GetTickCount64() + 90; }   // snapshot readers
+            if (g_diDataCalls == 0 && g_fireTap == 2 && GetTickCount64() >= g_fireTapUpAt) g_fireTap = 0;
+            keys[DIK_LCONTROL] = FireKeyWanted(0) ? 0x80 : 0;
+            keys[DIK_RCONTROL] = FireKeyWanted(1) ? 0x80 : 0;
         }
         if (InputHeld()) for (int i = 0; i < kHoldCount; ++i) keys[kHoldDik[i]] = 0;   // FIX-KNOCKDOWN
+        if (g_diDataCalls == 0) NoteFireTold((keys[DIK_LCONTROL] & 0x80) != 0 || (keys[DIK_RCONTROL] & 0x80) != 0);   // FIX-AIM-1
     }
     return hr;
 }
@@ -992,7 +1097,16 @@ HRESULT WINAPI NavGetDeviceData(IDirectInputDevice8A* self, DWORD cbObj, LPDIDEV
         if (i >= 0) {
             g_phys[i] = (e->dwData & 0x80) != 0;
             ++g_diReads;
-            if (g_navActive) continue;        // the arrow is ours: the game does not see it
+            if (ArrowOwned(i)) continue;      // the arrow is ours: the game does not see it
+        }
+        // FIX-AIM-1: a fire key's event; while the assist holds the press back the game is not told of it.
+        if ((e->dwOfs == DIK_LCONTROL || e->dwOfs == DIK_RCONTROL) && !(flags & DIGDD_PEEK)) {
+            const int which = e->dwOfs == DIK_LCONTROL ? 0 : 1;
+            const bool down = (e->dwData & 0x80) != 0;
+            if (down != g_fireKeyPhys[which]) NoteFirePhys(which, down);
+            const int hk = HoldIndexOfDik(e->dwOfs);
+            if (hk >= 0) g_holdPhys[hk] = down;
+            if (g_fireWithheld || (!down && FireKeyWanted(which))) continue;   // told later, by the reconcile below
         }
         // FIX-ENTRY-1: GTA2DX9_LOG_ENTRY=1 logs every Return the game's keyboard reports (EntryService).
         if ((e->dwOfs == DIK_RETURN || e->dwOfs == DIK_NUMPADENTER) && !(flags & DIGDD_PEEK))
@@ -1006,11 +1120,34 @@ HRESULT WINAPI NavGetDeviceData(IDirectInputDevice8A* self, DWORD cbObj, LPDIDEV
         }
         if (w != r) memmove(base + w * cbObj, e, cbObj);
         if (!(flags & DIGDD_PEEK)) reinterpret_cast<DIDEVICEOBJECTDATA_DX3*>(base + w * cbObj)->dwSequence = ++g_navSeq;
+        if (!(flags & DIGDD_PEEK) && (e->dwOfs == DIK_LCONTROL || e->dwOfs == DIK_RCONTROL)) NoteFireTold((e->dwData & 0x80) != 0);   // FIX-AIM-1
         ++w;
     }
-    if (g_navActive && !(flags & DIGDD_PEEK)) {
+    // FIX-AIM-1: an owed fire change goes first. The game reads one event at a time (~8 reads a second), and the
+    // assist's own turn and walk events took the slot ahead of it: the press reached the game reads late, after the
+    // bodies had drifted apart (fixaim1_rb1).
+    if (!(flags & DIGDD_PEEK) && !held) {
+        for (int k = 0; k < kHoldCount && w < capacity; ++k) {
+            if (kHoldDik[k] != DIK_LCONTROL && kHoldDik[k] != DIK_RCONTROL) continue;
+            const bool want = FireKeyWanted(kHoldDik[k] == DIK_LCONTROL ? 0 : 1);
+            if (want == g_holdTold[k]) continue;
+            DIDEVICEOBJECTDATA_DX3* e = reinterpret_cast<DIDEVICEOBJECTDATA_DX3*>(base + w * cbObj);
+            memset(e, 0, cbObj);
+            e->dwOfs = kHoldDik[k];
+            e->dwData = want ? 0x80 : 0;
+            e->dwTimeStamp = g_navLastStamp ? g_navLastStamp : GetTickCount();
+            e->dwSequence = ++g_navSeq;
+            g_holdTold[k] = want;
+            NoteFireTold(want);
+            if (want && g_fireTap == 1 && kHoldDik[k] == DIK_LCONTROL) { g_fireTap = 2; g_fireTapUpAt = GetTickCount64() + 90; }
+            if (!want && g_fireTap == 2) g_fireTap = 0;
+            if (AssistLogOn() && g_assistLogs < 400) { ++g_assistLogs; Log("aim: fire key %s told to the game (first in the read)", want ? "down" : "up"); }
+            ++w;
+        }
+    }
+    if (!(flags & DIGDD_PEEK)) {
         for (int i = 0; i < 4 && w < capacity; ++i) {
-            if (g_injSeen[i] == g_inj[i]) continue;
+            if (!ArrowOwned(i) || g_injSeen[i] == g_inj[i]) continue;
             DIDEVICEOBJECTDATA_DX3* e = reinterpret_cast<DIDEVICEOBJECTDATA_DX3*>(base + w * cbObj);
             memset(e, 0, cbObj);
             e->dwOfs = kNavDik[i];
@@ -1026,7 +1163,8 @@ HRESULT WINAPI NavGetDeviceData(IDirectInputDevice8A* self, DWORD cbObj, LPDIDEV
     if (!(flags & DIGDD_PEEK)) {
         for (int k = 0; k < kHoldCount && w < capacity; ++k) {
             if (g_navActive && k < 4) continue;
-            const bool want = held ? false : g_holdPhys[k];
+            const bool fireKey = kHoldDik[k] == DIK_LCONTROL || kHoldDik[k] == DIK_RCONTROL;
+            const bool want = held ? false : fireKey ? FireKeyWanted(kHoldDik[k] == DIK_LCONTROL ? 0 : 1) : g_holdPhys[k];
             if (want == g_holdTold[k]) continue;
             DIDEVICEOBJECTDATA_DX3* e = reinterpret_cast<DIDEVICEOBJECTDATA_DX3*>(base + w * cbObj);
             memset(e, 0, cbObj);
@@ -1035,7 +1173,18 @@ HRESULT WINAPI NavGetDeviceData(IDirectInputDevice8A* self, DWORD cbObj, LPDIDEV
             e->dwTimeStamp = g_navLastStamp ? g_navLastStamp : GetTickCount();
             e->dwSequence = ++g_navSeq;
             g_holdTold[k] = want;
+            if (fireKey) {   // FIX-AIM-1
+                NoteFireTold(want);
+                if (want && g_fireTap == 1 && kHoldDik[k] == DIK_LCONTROL) { g_fireTap = 2; g_fireTapUpAt = GetTickCount64() + 90; }
+                if (!want && g_fireTap == 2) g_fireTap = 0;
+                if (AssistLogOn() && g_assistLogs < 400) { ++g_assistLogs; Log("aim: fire key %s told to the game (buffered read, %lu of %lu slots)", want ? "down" : "up", static_cast<unsigned long>(w + 1), static_cast<unsigned long>(capacity)); }
+            }
             ++w;
+        }
+        // FIX-AIM-1: a fire change owed but no room left in the game's buffer this read (it goes on the next).
+        if (w >= capacity && AssistLogOn() && g_assistLogs < 200 && FireKeyWanted(0) != g_holdTold[HoldIndexOfDik(DIK_LCONTROL)]) {
+            ++g_assistLogs;
+            Log("aim: fire key change owed, the game's buffer is full (%lu slots)", static_cast<unsigned long>(capacity));
         }
     }
     *inOut = w;
@@ -1183,6 +1332,99 @@ void SteerPlayer(ViewMode mode, float dt) {
                 mode == ViewMode::ThirdPerson ? "third" : "first", up, down, left, right, g_navRefYaw / kDegToRad,
                 g_navHeading / kDegToRad, g_navRate / kDegToRad, desired / kDegToRad, e / kDegToRad, ePred / kDegToRad,
                 g_inj[0], g_inj[1], g_inj[2], g_inj[3], g_diReads, g_diStateCalls, g_diDataCalls);
+    }
+}
+
+// FIX-AIM-1: the aim assist, once a frame after the camera-relative controller. A held-back press is let go once
+// his heading (predicted 0.1 s ahead, as the controller does) is within the pick's tolerance, or after 0.25 s,
+// or when the pick is gone; while the key stays down he is kept turned onto the person. The turn is the game's
+// own Left/Right, pressed by the same hook (nothing is written into the game).
+void AssistSteer(bool allowed, float dt) {
+    g_assistAllowed = allowed;
+    const float heading = g_navHeading;
+    const float rate = g_assistHaveLast && dt > 0.0f ? WrapAngle(heading - g_assistLastHeading) / dt : 0.0f;
+    g_assistLastHeading = heading;
+    g_assistHaveLast = allowed;
+    g_assistRate += (rate - g_assistRate) * 0.5f;
+    const bool fresh = PickFresh() && g_pick.object == g_assistObject;
+    auto letGo = [&](const char* why) {
+        if (g_pickFists) g_assistPushUntil = Now() + kAssistFistPush;
+        if (g_fireWithheld) {
+            g_fireWithheld = false;
+            if (g_fireTapOwed) g_fireTap = 1;   // a tap: down when the game next has room, up ~3 frames after
+            g_fireTapOwed = false;
+            if (AssistLogOn() && g_assistLogs < 400) {
+                ++g_assistLogs;
+                Log("aim: assist press on %04x let go after %.2f s: %s (heading %.1f deg off at the press, %.1f now, tolerance %.1f; key %s; reads state %ld data %ld)",
+                    static_cast<unsigned>((g_assistObject >> 2) & 0xFFFF), Now() - g_assistT0, why, g_assistErr0 / kDegToRad,
+                    g_pick.valid ? WrapAngle(g_pick.bearing - heading) / kDegToRad : 0.0f, g_pick.tol / kDegToRad,
+                    FirePhys() ? "still down" : "already up: a tap", g_diStateCalls, g_diDataCalls);
+            }
+        }
+        g_assistPhase = FirePhys() && fresh ? kAssistTrack : kAssistIdle;
+    };
+    bool walkIn = false;
+    if (!allowed) {
+        letGo("assist off this frame");
+        g_assistPhase = kAssistIdle;
+    } else if (g_assistPhase == kAssistAlign) {
+        const float ePred = WrapAngle(g_pick.bearing - (heading + g_assistRate * 0.06f));
+        const float e = WrapAngle(g_pick.bearing - heading);
+        const bool facing = std::fabs(e) <= g_pick.tol && std::fabs(ePred) <= g_pick.tol;
+        // Fists: inside kAssistFistLand with Up held into him for kAssistFistContact (the bodies pressed together).
+        if (g_pickFists && g_pick.dist <= kAssistFistLand) { if (g_assistContactSince <= 0.0) g_assistContactSince = Now(); }
+        else g_assistContactSince = 0.0;
+        const bool close = !g_pickFists || (g_assistContactSince > 0.0 && Now() - g_assistContactSince >= kAssistFistContact);
+        if (!fresh) letGo("the person left the pick");
+        else if (facing && close) letGo(g_pickFists ? "on him, within reach" : "on him");
+        else if (Now() - g_assistT0 > (g_pickFists ? kAssistFistBound : kAssistGunBound)) letGo(g_pickFists ? "0.7 s bound" : "0.25 s bound");
+        else walkIn = std::fabs(e) < 35.0f * kDegToRad;   // fists: Up into him until the press goes
+    } else if (g_assistPhase == kAssistTrack) {
+        if (!FirePhys() || !fresh) g_assistPhase = kAssistIdle;
+    }
+    // The turn: the controller's rule (held while far off, one-frame pulses near), on a tighter band.
+    const bool pushIn = g_pickFists && Now() < g_assistPushUntil;
+    const bool turning = allowed && (g_assistPhase != kAssistIdle || pushIn) && fresh;
+    // Up is the assist's while it walks him in, and for kAssistFistPush after the press goes to the game.
+    const bool lunge = turning && g_pickFists && (g_assistPhase == kAssistAlign || pushIn);
+    if (pushIn && g_assistPhase != kAssistAlign) walkIn = std::fabs(WrapAngle(g_pick.bearing - heading)) < 35.0f * kDegToRad;
+    if (turning) {
+        const int want = 4 | 8 | (lunge ? 1 : 0);
+        if (!g_navActive)
+            for (int i = 0; i < 4; ++i)
+                if ((want & (1 << i)) && !(g_assistOwn & (1 << i))) g_injSeen[i] = g_phys[i];   // what the game was told
+        if (!lunge && (g_assistOwn & 1) && !g_navActive) {
+            InjectKey(0, g_phys[0]);   // hand Up back
+            if (g_injSeen[0] == g_phys[0]) g_assistOwn &= ~1;
+        }
+        g_assistOwn |= want & ~(lunge ? 0 : 1);
+        if (lunge) InjectKey(0, walkIn);
+        const float sign = static_cast<float>(g_settings.navTurnSign < 0 ? -1 : 1);
+        const float latency = (std::max)(g_settings.navLatency, 0.0f);
+        const float ePred = WrapAngle(g_pick.bearing - (heading + g_assistRate * latency)) * sign;
+        const float band = (std::max)(0.6f * g_pick.tol, 2.5f * kDegToRad);
+        bool pressR = false, pressL = false;
+        // (Steering kept up inside 0.3 block: frozen there, he walked past a body that slid aside, fixaim1_as3.)
+        if (g_assistCool > 0) --g_assistCool;
+        else if (std::fabs(ePred) > band) {
+            pressR = ePred > 0.0f;
+            pressL = !pressR;
+            // Pulses near the mark for a gun; walking in with fists the turn is held (pulses lost him at 0.7 s, as2).
+            if (std::fabs(ePred) <= 20.0f * kDegToRad && !lunge) g_assistCool = 2;
+        }
+        InjectKey(3, pressR);
+        InjectKey(2, pressL);
+    } else if (g_assistOwn) {
+        // Hand the arrows back: the game is told the physical state first (nav_map=0), then they pass through again.
+        g_assistCool = 0;
+        if (g_navActive) g_assistOwn = 0;
+        else {
+            for (int i = 0; i < 4; ++i) {
+                if (!(g_assistOwn & (1 << i))) continue;
+                InjectKey(i, g_phys[i]);
+                if (g_injSeen[i] == g_phys[i]) g_assistOwn &= ~(1 << i);
+            }
+        }
     }
 }
 
@@ -1380,6 +1622,21 @@ void EntryService() {
             p.inVehicle ? "in a car" : "on foot");
 }
 }  // namespace
+
+uint32_t ViewFirePresses() { return g_firePresses; }   // FIX-AIM-1
+bool ViewFireDown() { return g_fireToldDown; }          // FIX-AIM-1
+void ViewSetAimPick(bool valid, bool fists, float bearingYaw, float tolRad, float dist, uintptr_t object) {   // FIX-AIM-1
+    g_pick.valid = valid;
+    if (!valid) return;
+    g_pick.fists = fists; g_pick.bearing = bearingYaw; g_pick.tol = tolRad; g_pick.dist = dist; g_pick.object = object; g_pick.at = Now();
+    // Held, or a fist press walking him in: follow the pick when it moves to another person.
+    if (object != g_assistObject && (g_assistPhase == kAssistTrack || (g_assistPhase == kAssistAlign && fists))) g_assistObject = object;
+}
+bool ViewAimAssistOn() {   // FIX-AIM-1: aim_assist=1 and not GTA2DX9_AIM_ASSIST=0
+    static int env = -1;
+    if (env < 0) { char b[4] = {}; env = GetEnvironmentVariableA("GTA2DX9_AIM_ASSIST", b, sizeof b) && b[0] == '0' ? 0 : 1; }
+    return env == 1 && g_settings.aimAssist;
+}
 
 // FIX-COCKPIT-CAB-4: the steering keys the game is told are held (view_modes.h).
 int GameSteerKeys() {   // FIX-COCKPIT-CAB-4
@@ -1832,11 +2089,17 @@ void ViewModePollInput(HWND presentWindow, bool menuVisible, bool worldLoaded) {
         const bool active = g_settings.navMap && worldLoaded && ours && !menuVisible &&
                             mode != ViewMode::Classic && g_navHeadingKnown && !g_navInVehicle;
         if (active) InstallNavHook(false);
+        // FIX-AIM-1: the attack key is read through the same hook (the swing log, the aim assist), so it goes in on
+        // foot in a street view whatever nav_map says; it passes every key through unchanged until something needs it.
+        if (worldLoaded && ours && mode != ViewMode::Classic && !g_navInVehicle) InstallNavHook(false);
         const bool nowActive = active && g_diHooked;
         if (g_navActive && !nowActive) ReleaseInjected();
         if (!nowActive) g_navLastKeys = -1, g_navLookYaw = 0.0f;   // re-latched on the next frame on foot
         g_navActive = nowActive;
         if (g_navActive) SteerPlayer(mode, dt);
+        // FIX-AIM-1: the aim assist (after the controller: its turn keys win while it holds a press or tracks).
+        AssistSteer(g_settings.aimAssist && ViewAimAssistOn() && worldLoaded && ours && !menuVisible && mode != ViewMode::Classic &&
+                        g_navHeadingKnown && !g_navInVehicle && g_diHooked && !InputHeld(), dt);
         if (g_navActive && InputHeld()) ReleaseInjected();   // FIX-KNOCKDOWN: down, he goes nowhere
         if (InputHeld() != g_holdLogged) {
             g_holdLogged = !g_holdLogged;

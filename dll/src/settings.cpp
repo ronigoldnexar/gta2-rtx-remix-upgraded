@@ -142,6 +142,7 @@ void Fields(FloatField** floats, int* floatCount, BoolField** bools, int* boolCo
     f[nf++] = {"camera", "FirstSmooth", &vm.fpSmooth};
     f[nf++] = {"camera", "FirstFollowRate", &vm.fpFollowRate};
     b[nb++] = {"camera", "NavMap", &vm.navMap};
+    b[nb++] = {"camera", "AimAssist", &vm.aimAssist};   // FIX-AIM-1
     f[nf++] = {"camera", "NavDeadband", &vm.navDeadband};
     f[nf++] = {"camera", "NavLatency", &vm.navLatency};
     i[ni++] = {"camera", "NavTurnSign", &vm.navTurnSign};
