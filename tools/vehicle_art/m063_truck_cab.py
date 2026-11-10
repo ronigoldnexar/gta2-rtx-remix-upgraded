@@ -391,6 +391,18 @@ def build_truck():
         prof = [(0.0001, 0.0), (0.16, 0.005), (0.22, 0.03), (0.24, 0.08), (0.24, 0.78), (0.22, 0.83), (0.16, 0.855), (0.0001, 0.86)]
         P.append(revolve(f"tank{sx}", M["tank"], prof, c, (0, 0, 1), R=24, tag=dict(straps=[-0.32 + 0.18, -0.32 + 0.68])))
         P.append(box(f"step{sx}", M["steel"], (min(0.70 * sx, 1.08 * sx), 0.95, -0.15), (max(0.70 * sx, 1.08 * sx), 0.97, 0.40)))
+        # VEHICLE-ART-12 (ART-11's "fuel tank undetailed"): black steel straps standing proud round the tank, rolled
+        # seams at the dished ends, a filler neck with a chrome cap on top, hanger brackets inboard to the frame
+        ring = lambda zr, rr: np.stack([c[0] + rr * np.cos(np.linspace(0, 2 * np.pi, 25)), c[1] + rr * np.sin(np.linspace(0, 2 * np.pi, 25)),
+                                        np.full(25, zr)], 1)
+        for k, zs in enumerate((-0.32 + 0.18, -0.32 + 0.68)):
+            P.append(tube(f"strap{sx}{k}", M["black"], ring(zs, 0.247), 0.014, R=8))
+            P.append(box(f"hanger{sx}{k}", M["black"], (min(0.47 * sx, 0.64 * sx), 0.80, zs - 0.03), (max(0.47 * sx, 0.64 * sx), 0.95, zs + 0.03)))
+        for k, zs in enumerate((-0.32 + 0.035, -0.32 + 0.825)):
+            P.append(tube(f"seam{sx}{k}", M["chrome"], ring(zs, 0.241), 0.008, R=6))
+        P.append(revolve(f"neck{sx}", M["black"], [(0.035, 0.0), (0.035, 0.05)], (c[0], c[1] + 0.225, -0.22), (0, 1, 0), R=12, cap1=True))
+        P.append(revolve(f"cap{sx}", M["chrome"], [(0.058, 0.0), (0.058, 0.022), (0.045, 0.034), (0.0001, 0.036)],
+                         (c[0], c[1] + 0.27, -0.22), (0, 1, 0), R=16, cap0=True))
     # ---- exhaust stacks behind the cab with perforated heat shields
     for sx in (1, -1):
         cx, cz = 0.80 * sx, -0.54

@@ -584,3 +584,23 @@ change what is drawn). Private stages: `stage_va11` (HEAD 1f812d5 DLLs, the ee51
   (mean 196.4 vs 195.7: not darker). `wheel_split_check.py`: only the wheels' own 160 triangles. Evidence (parked, PAINT
   139,98,74, poses front34/eye/nose/side/rear34/far/chase/cab3q): before `out/va12_018b0`, after `out/va12_018a1`.
   Textures changed: `018_shark_grille.tga`, `018_shark_paint_body_paint.tga` (AO re-bake), `018_shark.mesh`.
+- **010 Bulwark authored (`car_010.py`, audit "flat bonnet planes, mustard blotches"):** the image-to-3D shell (a 1950s
+  convertible with a translucent box for a cabin, lumpy wings, a torn hole in the rear window, blotched paint) replaced
+  by a late-1950s American four-door read from the x4 sprite (front up in the export): the sprite's light roof runs from
+  row 7 to row 46 of 64 with the side glass as its dark outline, so a short bonnet and a long glasshouse (the windscreen
+  over the front axle, as CARI's +21 px axle and the roof start say), a wrap-around back light, a short deck between two
+  swept fins ending in tall tail lamps, the sprite's centre emblem, hooded round lamps at the wing tips (its bright
+  corners), a wide egg-crate grille, a heavy bumper with the sprite's two guards, a side spear, whitewalls. Paint
+  neutral 235 (the identity record tints it, like the other authored cars; was a paint split of the shell at
+  175,140,113), `driver_seat` from `seat_anchor.py`. `wheel_split_check.py` clean. Evidence (parked, PAINT 209,164,116 =
+  the catalog's default remap): before `out/va12_010b1`, after `out/va12_010a2`. Short of AAA: the deck is a flat
+  panel, the bonnet plain (no scoop or crease), the paint flat.
+- **063 Truck Cab fuel tanks (ART-11's residual):** black steel straps standing proud round each tank, rolled seams at
+  the dished ends, a filler neck with a chrome cap, hanger brackets inboard to the frame (`m063_truck_cab.py`). A
+  rebuild of the unmodified generator reproduces the shipped files byte for byte, so only these parts changed; the
+  atlas re-packs (`063_truck_cab_0`, `_2`, `_2_paint`; paint mean 129.8 vs 130.1). Evidence `out/va12_1063a1`
+  own_side_063_t / own_rear34_063_t. The cabin behind the glass is unchanged (no Fresnel in the plain renderer:
+  the renderer's, not the asset's).
+- **Not re-authored:** 036, 008 and 056 are already authored bodies (ART-2/7: clean canopy, smooth bonnet, straight
+  chequer band; the audit's lines describe the old shells, verified by triage) and 013 Minx is the carkit body; their
+  previews at this pass show no torn or crumpled geometry. 013/068 liner re-light (Remix only) not done.

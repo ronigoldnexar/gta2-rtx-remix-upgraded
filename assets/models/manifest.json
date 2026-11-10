@@ -1041,15 +1041,40 @@
   },
   {
    "name": "010_bulwark",
-   "glb": "cars/models3d/010_bulwark.glb",
+   "glb": "cars/vehicle_art2/010_bulwark.glb",
    "scale": 1.0,
    "paint_rgb": [
-    175.5,
-    140.5,
-    113.4
+    235.0,
+    235.0,
+    235.0
    ],
    "texture_max": 512,
-   "paint_split": true
+   "material_textures": {
+    "seal": "cars/vehicle_art2/010_bulwark/seal.png",
+    "chrome": "cars/vehicle_art2/010_bulwark/chrome.png",
+    "underbody": "cars/vehicle_art2/010_bulwark/underbody.png",
+    "paint_body": "cars/vehicle_art2/010_bulwark/paint_body.png",
+    "interior_dark": "cars/vehicle_art2/010_bulwark/interior_dark.png",
+    "paint_fin": "cars/vehicle_art2/010_bulwark/paint_fin.png",
+    "lamp_tail": "cars/vehicle_art2/010_bulwark/lamp_tail.png",
+    "chrome_disc": "cars/vehicle_art2/010_bulwark/chrome_disc.png",
+    "grille": "cars/vehicle_art2/010_bulwark/grille.png",
+    "lamp_head": "cars/vehicle_art2/010_bulwark/lamp_head.png",
+    "lamp_amber": "cars/vehicle_art2/010_bulwark/lamp_amber.png",
+    "seat": "cars/vehicle_art2/010_bulwark/seat.png",
+    "tyre_side": "cars/vehicle_art2/010_bulwark/tyre_side.png",
+    "tyre_tread": "cars/vehicle_art2/010_bulwark/tyre_tread.png",
+    "whitewall": "cars/vehicle_art2/010_bulwark/whitewall.png",
+    "paint_wheel": "cars/vehicle_art2/010_bulwark/paint_wheel.png",
+    "glass": "cars/vehicle_art2/010_bulwark/glass.png"
+   },
+   "generator": "tools/vehicle_art2/car_010.py",
+   "driver_seat": [
+    0.09,
+    0.144,
+    0.04,
+    0.324
+   ]
   },
   {
    "name": "011_bus",
@@ -7840,13 +7865,28 @@
   },
   {
    "name": "010_bulwark",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 6328,
+   "nodes": 21,
+   "meshes": 17,
+   "vertices": 20106,
    "animations": [],
    "textures": [
-    "010_bulwark_0.tga",
-    "010_bulwark_0_paint.tga"
+    "010_bulwark_chrome.tga",
+    "010_bulwark_chrome_disc.tga",
+    "010_bulwark_glass.tga",
+    "010_bulwark_grille.tga",
+    "010_bulwark_interior_dark.tga",
+    "010_bulwark_lamp_amber.tga",
+    "010_bulwark_lamp_head.tga",
+    "010_bulwark_lamp_tail.tga",
+    "010_bulwark_paint_body_paint.tga",
+    "010_bulwark_paint_fin_paint.tga",
+    "010_bulwark_paint_wheel_paint.tga",
+    "010_bulwark_seal.tga",
+    "010_bulwark_seat.tga",
+    "010_bulwark_tyre_side.tga",
+    "010_bulwark_tyre_tread.tga",
+    "010_bulwark_underbody.tga",
+    "010_bulwark_whitewall.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -7972,15 +8012,27 @@
   },
   {
    "name": "018_shark",
-   "nodes": 4,
-   "meshes": 4,
-   "vertices": 11610,
+   "nodes": 20,
+   "meshes": 16,
+   "vertices": 20358,
    "animations": [],
    "textures": [
-    "018_shark_0.tga",
-    "018_shark_0_paint.tga",
-    "018_shark_1.tga",
-    "018_shark_3.tga"
+    "018_shark_chrome.tga",
+    "018_shark_chrome_disc.tga",
+    "018_shark_glass.tga",
+    "018_shark_grille.tga",
+    "018_shark_grille_back.tga",
+    "018_shark_interior_dark.tga",
+    "018_shark_lamp_head.tga",
+    "018_shark_lamp_tail.tga",
+    "018_shark_paint_body_paint.tga",
+    "018_shark_paint_wheel_paint.tga",
+    "018_shark_seal.tga",
+    "018_shark_seat.tga",
+    "018_shark_tyre_side.tga",
+    "018_shark_tyre_tread.tga",
+    "018_shark_underbody.tga",
+    "018_shark_whitewall.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -8825,9 +8877,9 @@
   },
   {
    "name": "063_truck_cab",
-   "nodes": 6,
-   "meshes": 6,
-   "vertices": 15855,
+   "nodes": 8,
+   "meshes": 8,
+   "vertices": 18676,
    "animations": [],
    "textures": [
     "063_truck_cab_0.tga",

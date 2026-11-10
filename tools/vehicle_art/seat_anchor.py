@@ -61,6 +61,7 @@ SEATS = {
     "042_a_type": ((0.38, 0.66, 0.09), 5.0),  # VEHICLE-ART-10: front bench x +-0.76, top 0.66, back -0.17..-0.03
     "057_t_rex": ((0.42, 0.52, -0.43), 5.0),  # VEHICLE-ART-10: buckets x +-0.42, top 0.52, back -0.67..-0.55
     "053_michelli_roadster": ((0.40, 0.42, -0.58), 5.0),  # VEHICLE-ART-10: buckets x +-0.40, top 0.42, back -0.82..-0.70
+    "010_bulwark": ((0.45, 0.72, 0.20), 5.0),  # VEHICLE-ART-12: front bench x +-1.02, top 0.72, back -0.08..0.06
 }
 
 
