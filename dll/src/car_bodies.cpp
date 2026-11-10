@@ -74,6 +74,8 @@ const bool g_cleanPaint = [] { char v[8] = {}; return !(GetEnvironmentVariableA(
 bool g_paintSkyCast = true;   // [devtools] paint_sky_cast: the tint takes out the post's hemisphere cast (FIX-CAR-IDENTITY-6)
 float g_paintGainDev = 1.25f; // [devtools] paint_gain_percent: the paint's gain at the lid light it was measured under
 int g_forceDamage = -1;     // [devtools] force_car_damage=N: every car body drawn at damage word N, 0..32000 (re-read once a second)
+int g_beamProbe = 0;      // FIX-LIGHTS-1 [devtools] beam_probe bits: 1 no head-lamp pool quad, 2 no head-lamp spot light (diagnostic)
+int g_lampPoolDrape = 1;  // FIX-LIGHTS-1 [devtools] lamp_pool_drape=0: the head-lamp pool as one flat quad (qav45 A/B)
 int g_carLampLens = 1;    // FIX-LIGHTS-1 [devtools] car_lamp_lens=0: the lamp glows at the old fixed spot (qav46 A/B)
 int g_doorArchClear = 1;  // [devtools] door_arch_clear=0: VEHICLE-ART-20's door span clear of the wheel arches off (A/B)
 int g_doorExactCut = 1;    // [devtools] door_exact_cut=0: FIX-SEAT-ENTRY-3's exact door outline off (A/B)
@@ -3553,6 +3555,8 @@ const LensSpots& LensSpotsFor(const Model* model) {
 // `width`, `roof` in blocks. Leaves the states it changes as it found them.
 // `feel` (VEHICLE-FEEL, null when off): its brake and reverse levels replace the
 // measure here, reverse lamps join the tail lamps, and lit head lamps lay a pool on the road.
+int CarBeamProbe() { return g_beamProbe; }
+int LampPoolDrape() { return g_lampPoolDrape; }
 // `model`/`fit` (FIX-LIGHTS-1, null for a dome): the 3D body drawn and its fit into the body's frame.
 void DrawLamps(IDirect3DDevice9* device, const CarBodyUse& use, const gta2::Mat4& carToWorld, float length,
                float width, float roof, uint32_t frame, bool wreck, const VehicleFeel* feel = nullptr,
@@ -4253,6 +4257,8 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         g_doorExactCut = GetPrivateProfileIntA("devtools", "door_exact_cut", 1, g_devIni);
         g_doorArchClear = GetPrivateProfileIntA("devtools", "door_arch_clear", 1, g_devIni);
         g_carLampLens = GetPrivateProfileIntA("devtools", "car_lamp_lens", 1, g_devIni);
+        g_lampPoolDrape = GetPrivateProfileIntA("devtools", "lamp_pool_drape", 1, g_devIni);
+        g_beamProbe = GetPrivateProfileIntA("devtools", "beam_probe", 0, g_devIni);
         g_doorInterior = GetPrivateProfileIntA("devtools", "door_interior", 1, g_devIni);
         g_doorTopCut = GetPrivateProfileIntA("devtools", "door_top_cut", 1, g_devIni);
         g_fpSeatFreeze = GetPrivateProfileIntA("devtools", "fp_seat_freeze", 1, g_devIni);
@@ -5778,6 +5784,7 @@ void CarBodiesSetDevIni(const char* ini) {
     g_doorExactCut = GetPrivateProfileIntA("devtools", "door_exact_cut", 1, g_devIni);
     g_doorArchClear = GetPrivateProfileIntA("devtools", "door_arch_clear", 1, g_devIni);
     g_carLampLens = GetPrivateProfileIntA("devtools", "car_lamp_lens", 1, g_devIni);
+    g_lampPoolDrape = GetPrivateProfileIntA("devtools", "lamp_pool_drape", 1, g_devIni);
     g_doorInterior = GetPrivateProfileIntA("devtools", "door_interior", 1, g_devIni);
     g_doorTopCut = GetPrivateProfileIntA("devtools", "door_top_cut", 1, g_devIni);
     g_fpSeatFreeze = GetPrivateProfileIntA("devtools", "fp_seat_freeze", 1, g_devIni);

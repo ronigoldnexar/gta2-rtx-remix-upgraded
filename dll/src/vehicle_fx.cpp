@@ -19,6 +19,8 @@
 #include "../deps/xxhash/xxhash.h"
 
 namespace gta2dx9 {
+int CarBeamProbe();   // car_bodies.cpp: [devtools] beam_probe (FIX-LIGHTS-1 diagnostic)
+int LampPoolDrape();  // car_bodies.cpp: [devtools] lamp_pool_drape (FIX-LIGHTS-1)
 namespace {
 
 constexpr float kPi = 3.14159265358979f;
@@ -325,6 +327,7 @@ IDirect3DTexture9* g_puffTex = nullptr;
 IDirect3DTexture9* g_glowTex = nullptr;
 IDirect3DTexture9* g_stripTex = nullptr;
 IDirect3DTexture9* g_coneTex = nullptr;
+IDirect3DTexture9* g_coneSoftTex = nullptr;   // FIX-LIGHTS-1: the draped pool's (softer sides)
 IDirect3DTexture9* g_shardTex = nullptr;
 // FIX-REMIX-NIGHT (pt-remix-night-smoke-puff-opaque-clay-lump): under Remix the puffs' opacity
 // (0.2-0.34, in the vertex colour's alpha) was lost, and a blended texel's colour came out scaled by its
@@ -418,7 +421,7 @@ float Hash2(int x, int y) {
 // five at once made a 150 ms frame). Until all are made the effects wait.
 bool EnsureTextures(IDirect3DDevice9* device) {
     if (g_device != device) { VehicleFxReleaseDevice(); g_device = device; }
-    if (g_puffTex && g_glowTex && g_stripTex && g_coneTex && g_shardTex) return true;
+    if (g_puffTex && g_glowTex && g_stripTex && g_coneTex && g_shardTex && g_coneSoftTex) return true;
     if (!g_puffTex) {
         // A soft puff with a little lumpiness, so overlapping puffs do not read as discs.
         g_puffTex = MakeTexture(device, 64, 64, [](float u, float v) { return Argb(PuffTexel(u, v), 1.0f, 1.0f, 1.0f); });
@@ -452,6 +455,20 @@ bool EnsureTextures(IDirect3DDevice9* device) {
             const float side = 1.0f - Smooth((across - 0.55f) / 0.45f);
             const float nearRamp = Smooth(v / nearSpan);
             const float fall = std::pow(Clamp(1.0f - v, 0.0f, 1.0f), 1.6f);
+            const float hot = 1.0f + 0.35f * std::exp(-across * across * 6.0f);
+            const float k = Clamp(side * nearRamp * fall * hot, 0.0f, 1.0f);
+            return Argb(k, k, k, k);
+        });
+    }
+    else if (!g_coneSoftTex) {
+        // FIX-LIGHTS-1 (qav45): the draped pool's texture: the same pool, the same brightness down its middle and
+        // the same reach, but the sides fall off over the outer 60 % of each half (was 45 %), so a beam seen edge-on
+        // ends in a penumbra, and the far end reaches zero a little before the quad's end.
+        g_coneSoftTex = MakeTexture(device, 64, 64, [](float u, float v) {
+            const float across = std::fabs(u - 0.5f) * 2.0f;
+            const float side = 1.0f - Smooth((across - 0.40f) / 0.58f);
+            const float nearRamp = Smooth(v / 0.02f);
+            const float fall = std::pow(Clamp(1.0f - v, 0.0f, 1.0f), 1.6f) * (1.0f - Smooth((v - 0.70f) / 0.26f));
             const float hot = 1.0f + 0.35f * std::exp(-across * across * 6.0f);
             const float k = Clamp(side * nearRamp * fall * hot, 0.0f, 1.0f);
             return Argb(k, k, k, k);
@@ -1609,13 +1626,15 @@ void VehicleFxDraw(IDirect3DDevice9* device, const gta2::Vec3& eye, uint32_t fra
     device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_ONE);
     device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_ONE);
     device->SetRenderState(D3DRS_FOGCOLOR, 0x00000000u);   // additive: fog must fade it to nothing, not to haze
-    if (g_on && !remix && g_dark && !g_cones.empty()) {
+    if (g_on && !remix && g_dark && !g_cones.empty() && !(CarBeamProbe() & 1)) {
         // The nearest few.
         auto dist = [&](const Cone& c) { const float dx = c.carToWorld.m[3][0] - eye.x, dz = c.carToWorld.m[3][2] - eye.z; return dx * dx + dz * dz; };
         if (static_cast<int>(g_cones.size()) > kMaxCones) {
             std::partial_sort(g_cones.begin(), g_cones.begin() + kMaxCones, g_cones.end(), [&](const Cone& a, const Cone& b) { return dist(a) < dist(b); });
             g_cones.resize(kMaxCones);
         }
+        // FIX-LIGHTS-1: [devtools] lamp_pool_drape=0: the old flat quad and its texture (qav45 A/B).
+        const bool drape = LampPoolDrape() != 0;
         for (const Cone& c : g_cones) {
             if (dist(c) > 40.0f * 40.0f) continue;
             const gta2::Mat4& w = c.carToWorld;
@@ -1624,6 +1643,48 @@ void VehicleFxDraw(IDirect3DDevice9* device, const gta2::Vec3& eye, uint32_t fra
             const gta2::Vec3 p[4] = {Point(w, -nearHalf, 0.012f, nose), Point(w, nearHalf, 0.012f, nose),
                                      Point(w, farHalf, 0.012f, nose + reach), Point(w, -farHalf, 0.012f, nose + reach)};
             const DWORD col = Colour(0.62f, 0.57f, 0.47f, 1.0f);
+            if (drape) {
+                // FIX-LIGHTS-1 (qav45: a car's ground beam ended in a ruler-straight, stair-stepped, full-brightness
+                // cut). The pool was one flat quad at the car's own level, tilted with its body: wherever the ground
+                // ahead rose (a slope, a yard, the nose dipping under braking) the road's depth cut the quad along a
+                // straight line, mid-pool, at full brightness. Now it is a grid laid on the map's lids (its own lid
+                // under each corner, 0.015 above it), each vertex fading out where the lid is more than 0.4 block from
+                // the car's (a ledge or a wall it would otherwise hang across), so nothing cuts it but its own falloff.
+                constexpr int kCols = 6, kRows = 8;
+                const float level = Point(w, 0.0f, 0.0f, nose).y;
+                gta2::Vec3 gp[kRows + 1][kCols + 1];
+                float fade[kRows + 1][kCols + 1];
+                for (int j = 0; j <= kRows; ++j) {
+                    const float v = static_cast<float>(j) / kRows;
+                    const float half = nearHalf + (farHalf - nearHalf) * v;
+                    for (int i = 0; i <= kCols; ++i) {
+                        const float u = static_cast<float>(i) / kCols;
+                        gta2::Vec3 q = Point(w, (2.0f * u - 1.0f) * half, 0.012f, nose + reach * v);
+                        float gy = 0.0f, f = 1.0f;
+                        if (g_ground && g_ground->Ready() && g_ground->SurfaceAt(q.x, q.z, level + GroundSampler::kCeilingHeadroom, &gy)) {
+                            f = 1.0f - Smooth((std::fabs(gy - level) - 0.25f) / 0.15f);
+                            if (f > 0.0f) q.y = gy + 0.015f;
+                        }
+                        gp[j][i] = q; fade[j][i] = f;
+                    }
+                }
+                if (g_verts.size() + kRows * kCols * 4 > 65532) break;
+                for (int j = 0; j < kRows; ++j) {
+                    for (int i = 0; i < kCols; ++i) {
+                        const int cj[4] = {j, j, j + 1, j + 1}, ci[4] = {i, i + 1, i + 1, i};
+                        const uint16_t base = static_cast<uint16_t>(g_verts.size());
+                        for (int k = 0; k < 4; ++k) {
+                            const gta2::Vec3& q = gp[cj[k]][ci[k]];
+                            const float f = fade[cj[k]][ci[k]];
+                            g_verts.push_back(FxVertex{q.x, q.y, q.z, Colour(0.62f * f, 0.57f * f, 0.47f * f, 1.0f),
+                                                       static_cast<float>(ci[k]) / kCols, static_cast<float>(cj[k]) / kRows});
+                        }
+                        const uint16_t t[6] = {base, static_cast<uint16_t>(base + 1), static_cast<uint16_t>(base + 2), base, static_cast<uint16_t>(base + 2), static_cast<uint16_t>(base + 3)};
+                        g_index.insert(g_index.end(), t, t + 6);
+                    }
+                }
+                continue;
+            }
             if (g_verts.size() + 4 > 65532) break;
             const uint16_t base = static_cast<uint16_t>(g_verts.size());
             const float uv[4][2] = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
@@ -1631,7 +1692,7 @@ void VehicleFxDraw(IDirect3DDevice9* device, const gta2::Vec3& eye, uint32_t fra
             const uint16_t t[6] = {base, static_cast<uint16_t>(base + 1), static_cast<uint16_t>(base + 2), base, static_cast<uint16_t>(base + 2), static_cast<uint16_t>(base + 3)};
             g_index.insert(g_index.end(), t, t + 6);
         }
-        Flush(device, g_coneTex);
+        Flush(device, drape ? g_coneSoftTex : g_coneTex);
     }
     g_cones.clear();
     mark[nm++] = NowMs();
@@ -1825,7 +1886,7 @@ void VehicleFxDraw(IDirect3DDevice9* device, const gta2::Vec3& eye, uint32_t fra
 }
 
 void VehicleFxReleaseDevice() {
-    for (IDirect3DTexture9** t : {&g_puffTex, &g_glowTex, &g_stripTex, &g_coneTex, &g_shardTex}) {
+    for (IDirect3DTexture9** t : {&g_puffTex, &g_glowTex, &g_stripTex, &g_coneTex, &g_shardTex, &g_coneSoftTex}) {
         if (*t) { (*t)->Release(); *t = nullptr; }
     }
     for (IDirect3DTexture9*& t : g_puffLevelTex) {

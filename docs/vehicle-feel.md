@@ -476,3 +476,24 @@ Street views, plain renderer; the classic view is untouched (it draws the game's
 - Limits: a body without lamp meshes keeps the generic spot (the 068 van's glows sit on its doors, inboard
   of its tall red lenses); seen from behind, a glow's part outside the body's silhouette does not show (a
   soft vertical end at the body's side on the 018).
+
+### qav45: the head-lamp pool fades out on every side (`[devtools] lamp_pool_drape`)
+
+- What it was: every lit car's ground beam ended in a ruler-straight, stair-stepped, full-brightness far
+  edge with hard sides. The pool (`vehicle_fx.cpp`) was one flat quad at the car's own level (0.012 above
+  its frame, tilted with the body): where the ground ahead rose, or the nose dipped, the road's depth cut it
+  along a straight line mid-pool; its texture's sides only fell off over the outer 45 % of each half, which a
+  beam seen edge-on reads as a hard line.
+- Now: a 6 x 8 grid laid on the map's lids (`GroundSampler::SurfaceAt` under each vertex, 0.015 above),
+  each vertex fading out where its lid is more than 0.25-0.4 block from the car's (a ledge or a wall it
+  would otherwise hang across); a texture of its own whose sides fall off over the outer 60 % and whose
+  far end reaches zero at 96 % of the reach. Same reach (2.6 blocks), the same brightness at the bumper.
+- `[devtools] beam_probe` (diagnostic bits): 1 no pool, 2 no head-lamp spot light (the night light summed in
+  post_fx, which carries the long faint gradient past the pool).
+- Checked: ste 60.5,40.5 parked pickup (the filer's spot) with the regression camera at three poses (side,
+  behind, far end), night 22:30 and dusk 19:30, old/new in one session: the old cut along the shed foot and
+  the far patch's edge are gone, the new pool is soft on all sides. A stalled truck queue at wil (same pose
+  old/new): the beams' straight side edges softened.
+- Limits: the spot light's own cone edge (post_fx `ps_light`) is soft but still visible as a long faint
+  side line at a grazing angle; rain/wet roads, dawn under a running clock, moving cars and Remix (the pools
+  are plain-renderer only; Remix's beams are lights) not taken.

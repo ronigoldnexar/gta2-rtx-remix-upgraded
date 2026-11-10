@@ -26,6 +26,7 @@
 #include "../../src/sky.h"
 
 namespace gta2dx9 {
+int CarBeamProbe();   // car_bodies.cpp: [devtools] beam_probe (FIX-LIGHTS-1 diagnostic)
 bool SilencedMuzzleNear(const float* pos);   // live_geometry.cpp (FIX-FIGURE-12)
 bool RocketLaunchNear(const float* pos);     // live_geometry.cpp (FIX-FIGURE-13)
 namespace {
@@ -177,6 +178,7 @@ void ProvideLights(std::vector<gta2::VisualLight>* out) {
                 d.pos[2], d.radius, d.intensity, d.rgb[0], d.rgb[1], d.rgb[2], d.spot ? 1 : 0);
         }
         if (d.intensity < 0.02f || d.radius <= 0.0f) continue;
+        if ((CarBeamProbe() & 2) && d.source == kLightSourceHeadlight) continue;   // FIX-LIGHTS-1 diagnostic
         // Short-lived sparks and bullets would flicker; flames and muzzle flashes stay.
         if (d.source == kLightSourceBullet || d.source == kLightSourceSpark || d.source == kLightSourceCigarette) continue;
         gta2::VisualLight l = {};
