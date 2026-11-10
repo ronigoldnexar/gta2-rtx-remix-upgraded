@@ -2806,7 +2806,11 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
                 const float d = depth(c, b.x, b.z);
                 if (d > best) { best = d; own = &c; }
             }
-            if (own && depth(*own, p.x, p.z) > -0.3f && p.y < own->y1 + 0.3f) arriveNow = true;
+            // FIX-CAMERA-9 (pfl21-third-to-first-v-while-driving-camera-climbs-over-own-roof-11-frames): over the
+            // footprint within 0.6 of the roof (was 0.3). The move's arc carries the eye 0.5 over a van's roof as it
+            // reaches the rear edge, so it crossed the whole roof before coming down to 0.3: 7 frames of the roof as a
+            // slab across the bottom with the wall the only subject, then the cut (run cam9_v21a f1060-1066).
+            if (own && depth(*own, p.x, p.z) > -0.3f && p.y < own->y1 + 0.6f) arriveNow = true;
             if (own && !arriveNow) { g_seatMove = true; g_seatMoveEye = b; }
             static int logged = 0;
             if (transitionT_ <= dt / (std::max)(transitionSeconds_, 0.05f) + 1e-4f && logged < 40) {
