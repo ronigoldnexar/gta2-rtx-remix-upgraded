@@ -22,6 +22,9 @@ from carkit import *
 import m063_truck_cab as B
 
 M = B.M
+# the paint gate (out/va19_gate1_paint.md): with the 063's coat the 064's broad sunlit hood and roof lip read the red record
+# +25 % L* against the sprite (the 063: +20 %); a 7 % darker neutral coat puts it with the 063
+M["paint"].rgb = M["paint"].rgb * 0.93
 L, W = B.L, B.W
 DROP = ("hood", "hood_strip", "grille_frame", "grille_mesh", "emblem", "ornament", "roof_lamp", "roof_bezel", "roof_lens",
         "roof_lamp_base", "stack", "shield", "stack_bracket", "hl_bucket", "hl_lens", "hl_bezel", "hl_stalk", "turn", "apron")
