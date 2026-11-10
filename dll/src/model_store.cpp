@@ -2326,7 +2326,12 @@ const Model* ModelForPedestrian(uint32_t seed, int remap) {
     if (remap >= 0 && remap < 64 && g_pedTypeByRemap[remap] >= 0) {
         const PedType& type = g_pedTypes[g_pedTypeByRemap[remap]];
         if (!type.models.empty()) {
-            const Model* model = &g_models[g_byName[type.models[ScrambleSeed(seed) % type.models.size()]]];
+            // FIX-FIGURE-6 (pm24: a gang of five, three with one head): dealt round the type's pool by
+            // the seed (the game's ped id) instead of a hash of it. A gang or a queue is spawned
+            // together, with consecutive ids, so its members now take the pool's avatars in turn (a
+            // pool of three: at most two of five share a head); the type's own offset keeps two
+            // types from starting on the same index. Scattered ids stay as mixed as before.
+            const Model* model = &g_models[g_byName[type.models[(seed + ScrambleSeed(static_cast<uint32_t>(remap) + 1u)) % type.models.size()]]];
             if (!seen[slot]) { seen[slot] = true; Log("models: pedestrian remap %d -> type '%s' (first: %s%s)", remap, type.name.c_str(), model->name.c_str(), type.tint ? ", tinted" : ""); }
             return model;
         }

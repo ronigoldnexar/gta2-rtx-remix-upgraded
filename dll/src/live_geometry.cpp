@@ -8395,11 +8395,23 @@ IDirect3DTexture9* ContactTexture(IDirect3DDevice9* device) {
     g_contactDevice = device;
     constexpr int kSize = 64;
     IDirect3DTexture9* made = nullptr;
-    if (FAILED(device->CreateTexture(kSize, kSize, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &made, nullptr)) || !made) return nullptr;
+    // FIX-FIGURE-6 (pm20): two patches side by side, one draw: the left half the cars' and props'
+    // rounded square, the right half a figure's (see below).
+    if (FAILED(device->CreateTexture(kSize * 2, kSize, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &made, nullptr)) || !made) return nullptr;
     D3DLOCKED_RECT lr;
     if (FAILED(made->LockRect(0, &lr, nullptr, 0))) { made->Release(); return nullptr; }
     for (int y = 0; y < kSize; ++y) {
         uint32_t* row = reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(lr.pBits) + y * lr.Pitch);
+        for (int x = 0; x < kSize; ++x) {
+            // pm20: a figure's patch was the car's (solid to 0.55 of the radius) 0.42 block across at the
+            // full opacity: a near-black disc 2.5 bodies wide. Round, its darkest 0.6 of the pass's
+            // opacity (42 % at the default 70) and falling off from the centre, (1 - d^2)^2, so the
+            // pavement reads through it and it fades out with no rim.
+            const float u = (x + 0.5f) / kSize * 2.0f - 1.0f, v = (y + 0.5f) / kSize * 2.0f - 1.0f;
+            const float d2 = u * u + v * v;
+            const float a = d2 >= 1.0f ? 0.0f : 0.6f * (1.0f - d2) * (1.0f - d2);
+            row[kSize + x] = (static_cast<uint32_t>(a * 255.0f + 0.5f) << 24);
+        }
         for (int x = 0; x < kSize; ++x) {
             // A rounded square (a superellipse, power 3): a car's patch keeps its corners
             // under the wheels; a ped's or a prop's is near enough round. Dark in the middle,
@@ -8433,10 +8445,12 @@ void LiveGeometry::DrawContactShadows(IDirect3DDevice9* device) {
     const float day = 0.55f + 0.45f * (std::max)(0.0f, (std::min)(1.0f, (gta2::SkyConfig().sunElevationDeg + 4.0f) / 24.0f));
     const float eyeX = lastEye_.x, eyeZ = lastEye_.z;
     auto nearEye = [&](float x, float z) { return (x - eyeX) * (x - eyeX) + (z - eyeZ) * (z - eyeZ) < 45.0f * 45.0f; };
-    // A quad on the ground: centre, half axes a (along) and b (across), at height y.
-    auto quad = [&](float cx, float y, float cz, float ax, float az, float bx, float bz) {
-        const V q[4] = {{cx - ax - bx, y, cz - az - bz, 0, 0}, {cx + ax - bx, y, cz + az - bz, 1, 0},
-                        {cx + ax + bx, y, cz + az + bz, 1, 1}, {cx - ax + bx, y, cz - az + bz, 0, 1}};
+    // A quad on the ground: centre, half axes a (along) and b (across), at height y; a figure's
+    // takes the right half of the texture (pm20), the rest the left.
+    auto quad = [&](float cx, float y, float cz, float ax, float az, float bx, float bz, bool figure = false) {
+        const float u0 = figure ? 0.5f : 0.0f, u1 = figure ? 1.0f : 0.5f;
+        const V q[4] = {{cx - ax - bx, y, cz - az - bz, u0, 0}, {cx + ax - bx, y, cz + az - bz, u1, 0},
+                        {cx + ax + bx, y, cz + az + bz, u1, 1}, {cx - ax + bx, y, cz - az + bz, u0, 1}};
         verts.push_back(q[0]); verts.push_back(q[1]); verts.push_back(q[2]);
         verts.push_back(q[0]); verts.push_back(q[2]); verts.push_back(q[3]);
     };
@@ -8491,7 +8505,8 @@ void LiveGeometry::DrawContactShadows(IDirect3DDevice9* device) {
             continue;
         const gta2::Mat4& m = sprite.objectToWorld;
         if (!nearEye(m.m[3][0], m.m[3][2])) continue;
-        constexpr float r = 0.21f;   // a figure is ~0.46 block across the shoulders
+        // pm20: about a body's width (an adult is ~0.12 block across the shoulders, 0.46 tall); was 0.21.
+        constexpr float r = 0.11f;
         // FIX-FIGURE-5 feel18: under the figure as drawn (it trails the game's position by up to
         // 0.1 block while he runs, so the patch at the game's point read as a gap under his feet).
         float sx = m.m[3][0], sz = m.m[3][2];
@@ -8500,7 +8515,7 @@ void LiveGeometry::DrawContactShadows(IDirect3DDevice9* device) {
             const float ddx = drawn->second.shadowX - sx, ddz = drawn->second.shadowZ - sz;
             if (ddx * ddx + ddz * ddz < 0.5f * 0.5f) { sx = drawn->second.shadowX; sz = drawn->second.shadowZ; }
         }
-        quad(sx, m.m[3][1] + 0.016f, sz, r, 0.0f, 0.0f, r);
+        quad(sx, m.m[3][1] + 0.016f, sz, r, 0.0f, 0.0f, r, true);
         ++peds;
     }
     for (const PropFootprint& p : contactProps_) {

@@ -1121,3 +1121,7 @@ feel15 (first-person jack), feel11 (first-person exit), pfeel32 (arms under a ca
 - A/B switch: `GTA2DX9_FP_BOARD_EYE=0` (no plan in first person, the old glide, no seat correction).
 - Log lines: `view: fp ride on|off (mode m t s)`, `view: fp seat glide in|out D blocks over T s`,
   `car bodies: fp seat eye follows the tilted body D (level L)`.
+
+### Figure contact shadow (FIX-FIGURE-7, pm20)
+
+A figure's contact patch (`LiveGeometry::DrawContactShadows`) has its own texture half: round, its darkest 0.6 of the pass's opacity, falling off as (1 - d^2)^2 with no rim, radius 0.11 block (was the cars' rounded square, solid to 0.55 of the radius, 0.21 block: a near-black disc twice a body wide). Measured at the plaza (fig7_k before, fig7_j after, same spot, pavement luminance across the feet): before 114 -> 19 over +-40 px, after 117 -> 69 over +-20 px. Cars' and props' patches unchanged (left texture half, same texels).
