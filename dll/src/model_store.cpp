@@ -2640,7 +2640,14 @@ bool PedZoneTints(int remap, const Model& model, float tints[3][3], bool* hairTi
         const float* want = o[z * 3] + o[z * 3 + 1] + o[z * 3 + 2] >= 1.0f ? o + z * 3 : model.zoneRgb[z];
         for (int k = 0; k < 3; ++k) tints[z][k] = (std::max)(0.0f, (std::min)(2.0f, want[k] / (std::max)(8.0f, model.zoneRef)));
     }
-    const bool hair = o[6] + o[7] + o[8] >= 1.0f && model.zoneRgb[2][0] + model.zoneRgb[2][1] + model.zoneRgb[2][2] >= 1.0f;
+    // ASSET-PEDS-3 (qav14): the hair cards (_opacity) are never tinted on their own. Every Rocketbox
+    // avatar paints its hair into the head map, which no tint reaches (the head is one texture with the
+    // face); tinting the cards alone put the sprite's hair colour on the strands and eyelashes around a
+    // head of the avatar's own hair: remaps 47-51's lilac grey (159,139,159) ringed f004's blonde bun
+    // with a purple fringe. One head, one hair colour: the cards keep the avatar's own colour, as the
+    // head map does. A sprite hair colour reaches an avatar through a baked variant whose head map
+    // carries it (ASSET-PEDS-2: _hr, _hb, _k; tools/ped_identity/recolor_hair.py), not through this tint.
+    const bool hair = false;
     for (int k = 0; k < 3; ++k) tints[2][k] = hair ? (std::max)(0.0f, (std::min)(2.0f, o[6 + k] / (std::max)(8.0f, model.zoneRgb[2][k]))) : 1.0f;
     if (hairTint) *hairTint = hair;
     return true;

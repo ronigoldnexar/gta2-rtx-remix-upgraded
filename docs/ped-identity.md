@@ -150,7 +150,8 @@ What still looks wrong or is not done:
 - **Elvis.** No pompadour: the library has no such hair.
 - **Hulks (23/24).** No bigger build and no green skin.
 - **Hair tint** only reaches the hair cards, not hair painted into the head texture. The red
-  and blonde rednecks therefore differ little on the short-haired avatars.
+  and blonde rednecks therefore differ little on the short-haired avatars. (Since ASSET-PEDS-3 the
+  cards are not tinted at all: see below.)
 - **Remix:** untested. The tint uses the same `TFACTOR` stage as the cars' repaint.
 - **SDXL/TRELLIS:** not used. Generated meshes come without a skeleton. The rigged MIT Rocketbox
   avatars, recoloured from the sprite palettes, are both more photoreal and closer to the
@@ -194,3 +195,66 @@ Regenerate: `python3 assets-src/humans/make_ped_manifest.py` (with `tools/ap2_va
 `recolor_hair.py` copied into `assets-src/humans/tools/`), then `tools/import_assets.py` with `--only` the
 twelve new names (`human_police_male_03_z` ... `human_sports_male_04_g`); sheet: `compare_sheet.py`.
 Needs the new DLL (`PedTypeBuild`) with the new `manifest.json`; an older DLL ignores the scale.
+
+## Round 3 (ASSET-PEDS-3, 10 Nov 2026): garment-true paint halves, one hair colour per head (qav14)
+
+The filing: a female ped in a sage jacket at arm's length (bil, first person) had hard-edged brown blotches,
+a brown diagonal and 1-px speckle on the jacket, and a purple fringe round her blonde bun.
+
+**Paint halves cut by colour.** `import_assets.py` (`ped_zones`) put a garment texel in the `_body_paint`
+half only if it failed the skin test (classic RGB rule and within 0.06 of the face's chromaticity). The
+bright folds of a brown leather jacket and the flat patches of a pink shirt pass that test, so they stayed
+in the rest half in the avatar's own colour and showed through any tint. Three avatars have it badly:
+
+| avatar | garment | what showed | texels moved to the paint half |
+|---|---|---|---|
+| `human_female_adult_04` (f004) | brown leather jacket | brown folds, a brown diagonal and speckle through the sage of remaps 47/51 | 16 849 (top 14 670, bottom 2 179) |
+| `human_female_01` (f001) | pink shirt | pink patches through any shirt colour | 16 918 |
+| `human_male_adult_05` (m009) | brown sleeves, green trousers | brown speckle on the sleeves and trousers | 7 132 |
+
+`tools/ped_identity/paint_resplit.py <models> --out <dir> <model>_<tag> ...` re-splits by the garment's UV
+triangles (the `#pt` / `#pb` paint meshes of the `.mesh`, rasterised in UV space). A garment texel left in
+the rest half stays there only if it belongs to a solid region (one that contains an 11x11 square) that is lit
+like skin (luminance >= 100, green chromaticity >= 0.295): the hands, f001's bare forearms, the necklines, and
+m009's pale tan vest. Every other garment texel (the folds, the diagonal, the speckle) moves to the paint half
+with its own luminance, by the importer's rule (contrast eased by 0.75 around the zone's mean, mean -> 128).
+The zone's mean is worked out from the texels already in the paint half, so those texels do not change. A
+second run on its output changes nothing. It writes new files (never through the hard links into the stage).
+The tool's `--preview` sheet shows, per avatar, the original, the old and the new halves under a tint, and the
+masks.
+
+f004 is dealt to remaps 18, 19, 37-40, 44, 45, 47, 51 and 52. f001 and m009 are in no ped type and not in the
+`pedestrians` list of today's manifest: the game never deals them. They were fixed so that a later manifest can
+use them.
+Not this class, and not touched: female_05's plaid, construction m111's plaid, m002's stripes, the bikini and
+the fire kits. Their two-tone designs are kept in the rest half on purpose.
+
+**The bun.** Remaps 47-51 give hair 159,139,159 (a lilac grey from the sprite's palette). `PedZoneTints` tinted
+the hair cards (`_opacity`: the strands round the bun, and the eyelashes) toward it. The head map, which
+carries the painted hair, keeps the avatar's blonde, so one head had two hair colours: the purple fringe.
+Every Rocketbox avatar paints its hair into the head map, and no tint reaches it, because face and hair are one
+texture. So the cards are no longer tinted (`model_store.cpp` `PedZoneTints`: `hair = false`). They keep the
+avatar's own colour, as the head map does. A sprite hair colour reaches an avatar only through a baked variant
+whose head map carries it (ASSET-PEDS-2 `_hr`, `_hb`, `_k`). The variants' cards are dark (mean about 20); the old
+tint clamped at 2x and moved them very little.
+
+**Verified** (plain renderer, Downtown plaza, a private stage of HEAD 17a29382 plus this change). The probe is
+`linux/docker/ap3_peds.py` with `keys_ap3_peds.sh` (copy both into `gamerun/`). It uses fixed regress cameras about 2 m from the figure: front, 3/4,
+side and back at eye height, and the bun from behind. `GTA2DX9_PED_REMAP_FILE` draws the remap. The private
+manifest deals remap 47 -> f004, 40 -> f001 and 19 -> m009. Before (the live stage dd489cab with the old halves)
+against after:
+- f004 in remap 47's sage: the brown blotches and the diagonal are gone, and the jacket is one sage with its own
+  leather shading. The bun is one blonde, with no lilac.
+- f001 in remap 40's burgundy: the pink patches are gone.
+- m009 in remap 19's teal and blue: the brown speckle on the trousers is gone.
+
+**Still short:**
+- m009's tan vest is kept untinted (a design panel the split keeps), so remap 19's teal shows only on the
+  sleeves and the T-shirt.
+- f004's sage is a satin-bright mint at noon. That comes from the existing tint calibration, not from this split.
+- The sprite's hair colour for remaps 47-51 (lilac grey) is not shown on avatars with painted hair: that needs
+  baked grey-hair variants.
+- **Remix:** the three pairs' texel hashes changed. Their prims come as a layer bundle. Until it is deployed,
+  they draw with the legacy material: colour right, no normal or roughness maps.
+- **Not in git:** the textures ship in the `people` release archive, which needs repacking
+  (`python3 tools/pack_release.py <out> people`).
