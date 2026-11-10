@@ -1159,6 +1159,26 @@ reads through it. `GTA2DX9_FIG_SHADOW_PM20=1` restores 794c936's patch for A/B. 
   camera poses front / front2 / side / back from his facing, F13_SIDE picks the open side, three fire taps per pose, then
   first person). Runs fig13_el1/el2 (HEAD), fig13_el3/el4 (this); fig13_mg1 the machine gun at the same offsets (wil plaza).
 
+### pfl51: the last rocket keeps the launcher; the launch smoke off his legs (FIX-FIGURE-13)
+
+- Last round: the game sets his weapon to none on the frame the last round leaves (the launcher counts in tens:
+  `player shot: ammo 10 -> 0`, then none), before the shot's flash, so the launcher vanished as the rocket left and the
+  aim clip played on empty hands. Now the gun the last round came from stays drawn in its aim 0.9 s (27 frames: the
+  shot and its recoil; log `last round: ... drawn on to f=N` with GTA2DX9_LOG_PED_FRAMES=1), only when the count was at
+  its last round (0/1, or <= 10 with a shot in the last 3 frames); a kill frenzy's -1 taken at its end, a switch and a
+  death let go at once. Bare hands by the game's word (weapon none) never take an aim stance from the game's firing
+  frame 139 (held ~1 s after the last round: one arm out, an empty hand); they stand at idle.
+- The cyan blob on his hips: the game launches the rocket from his ground position, so its launch smoke and first sprites
+  (code objects 8/410-415, 8/469-473, 8/503-505 under GTA2DX9_LOG_FX=1, all at his feet) were drawn by DrawGamePuffs as
+  soft sky-tinted puffs on the paving and rising past his legs. For 2.5 s after a figure's rocket shot (NoteRocketLaunch),
+  a game puff within 0.8 block of it and under the tube's height is drawn at the tube's height (0.36 over his ground) at
+  0.7 of its alpha; the launch's muzzle light within 0.8 block in the 6 frames after is a third, half its reach
+  (visuals.cpp RocketLaunchNear, as 797c987 did for the suppressed MG). The rocket's trail and the blast are unchanged.
+- A/B: GTA2DX9_LAST_ROUND_OLD=1 (both last-round changes), GTA2DX9_ROCKET_PUFF_OLD=1 (puffs and light).
+- Probe: gamerun/keys_fig13_el.sh with F13_PICK=154.5,129.5,2 F13_AT=159.5,139.5,2 (wil launcher, plaza), runs
+  fig13_rk1/rk2 (before), fig13_rk4/rk5 (after; the side pose catches the last rocket). Not done: a recoil kick and a
+  backblast puff of our own at the breech; the head behind the tube from the chase camera.
+
 ### Draw-only figure separation (FIX-FIGURE-7, pm24 / pm3)
 
 GTA2 walks its people through each other and over parked cars' footprints; the flat sprites never showed it, the bodies do.

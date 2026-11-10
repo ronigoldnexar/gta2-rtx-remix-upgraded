@@ -1193,6 +1193,23 @@ bool GameBlendOn() {
 }
 struct GamePuff { float x, y, z, size, angle; uint8_t r, g, b; float a; bool additive; };
 std::vector<GamePuff> g_gamePuffs;
+// FIX-FIGURE-13 (pfl51): where a figure fired a rocket (renderer space: his feet; y his ground) and when.
+// The game launches the rocket from the shooter's own ground position, so its launch smoke and the
+// rocket's first sprites sat on the paving at his feet and rose past his legs: drawn as soft sky-tinted
+// puffs they read as a cyan-white blob on his hips and thighs for two seconds. Within 0.8 block of a
+// launch, for 2.5 s, a game puff under the tube's height is lifted to it (the trail leaves the muzzle)
+// and the launch's muzzle light is dimmed (visuals.cpp RocketLaunchNear). GTA2DX9_ROCKET_PUFF_OLD=1.
+extern uint32_t g_carFrame;
+struct RocketLaunch { float x, y, z; uint32_t frame; };
+std::vector<RocketLaunch> g_rocketLaunches;
+bool RocketPuffOld() {
+    static const bool on = [] { char b[8] = {}; return GetEnvironmentVariableA("GTA2DX9_ROCKET_PUFF_OLD", b, sizeof b) && b[0] == '1'; }();
+    return on;
+}
+void NoteRocketLaunch(float x, float y, float z) {
+    g_rocketLaunches.push_back({x, y, z, g_carFrame});
+    if (g_rocketLaunches.size() > 16) g_rocketLaunches.erase(g_rocketLaunches.begin());
+}
 // Mean colour of a texture's covered texels (alpha > 0), cached per texture.
 uint32_t TextureMeanColour(IDirect3DTexture9* tex) {
     static std::map<IDirect3DTexture9*, uint32_t> cache;
@@ -2094,8 +2111,16 @@ void DrawGamePuffs(IDirect3DDevice9* device) {
         device->SetRenderState(D3DRS_DESTBLEND, add ? D3DBLEND_ONE : D3DBLEND_INVSRCALPHA);
         device->SetTextureStageState(0, D3DTSS_ALPHAOP, add ? D3DTOP_SELECTARG1 : D3DTOP_MODULATE);
         device->SetTexture(0, add ? glow : soft);
-        for (const GamePuff& p : g_gamePuffs) {
-            if (p.additive != add) continue;
+        for (const GamePuff& p0 : g_gamePuffs) {
+            if (p0.additive != add) continue;
+            GamePuff p = p0;
+            if (!RocketPuffOld()) {
+                for (const RocketLaunch& L : g_rocketLaunches) {
+                    if (g_carFrame - L.frame > 75) continue;
+                    const float dx = p.x - L.x, dz = p.z - L.z;
+                    if (dx * dx + dz * dz < 0.64f && p.y < L.y + 0.33f) { p.y = L.y + 0.36f; p.a *= 0.7f; break; }
+                }
+            }
             D3DMATRIX world;
             const float facing = PuffFacing(p.x, p.y, p.z, p.size, p.angle, &world);
             const float a = p.a * facing;
@@ -9602,6 +9627,29 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 const auto it = g_pedWeaponByObject.find(sprite.object);
                 if (it != g_pedWeaponByObject.end() && it->second >= 0 && it->second < kWpnCount) gameWeapon = it->second;
             }
+            // FIX-FIGURE-13 (pfl51): the shot that spends the last round. The game sets his weapon to none
+            // on that frame, before the shot's flash and the launch: the launcher left his shoulder as the
+            // rocket left it, the arms spread on empty hands. The gun the round came from stays drawn, in
+            // its aim, 0.9 s (the shot and its recoil), then the bare hands as before. Only a weapon whose
+            // count was at its last round (1, or 0 on the frame it hit 0); a kill frenzy's (-1) taken away
+            // at the end of the frenzy, a weapon switch and a death let go at once. GTA2DX9_LAST_ROUND_OLD=1.
+            {
+                static const bool lastOld = [] { char b[8] = {}; return GetEnvironmentVariableA("GTA2DX9_LAST_ROUND_OLD", b, sizeof b) && b[0] == '1'; }();
+                if (!lastOld && !sprite.corpse) {
+                    // (the game counts some weapons in tens: the launcher's last rocket is 10 -> none)
+                    const bool lastRound = track.lastAmmo >= 0 && (track.lastAmmo <= 1 || (track.lastAmmo <= 10 && track.muzzleFrame &&
+                                                                                          g_carFrame - track.muzzleFrame <= 3));
+                    if (gameWeapon == 0 && track.weapon > 0 && track.spentWeapon == 0 && lastRound &&
+                        track.lastWeaponObject && kWeapons[track.weapon].flashSize > 0.0f) {
+                        track.spentWeapon = track.weapon; track.spentUntil = g_carFrame + 27;
+                        if (track.weapon == kWpnRocket) NoteRocketLaunch(cx, cy, cz);
+                        track.aimUntil = (std::max)(track.aimUntil, g_carFrame + 27);
+                        if (g_logPedFrames) Log("last round: %p %s drawn on to f=%u", reinterpret_cast<const void*>(sprite.object), kWeapons[track.weapon].name, track.spentUntil);
+                    }
+                    if (gameWeapon == 0 && track.spentWeapon > 0 && g_carFrame < track.spentUntil) gameWeapon = track.spentWeapon;
+                    else if (gameWeapon != 0 || g_carFrame >= track.spentUntil) track.spentWeapon = 0;
+                }
+            }
             if (gameWeapon >= 0) track.weapon = gameWeapon;
             else if (wantAction == 2 && (track.weapon == kWpnNone || kWeapons[track.weapon].twoHanded)) track.weapon = kWpnPistol;
             else if (wantAction == 8 && (track.weapon == kWpnNone || !kWeapons[track.weapon].twoHanded)) track.weapon = kWpnMg;
@@ -9672,6 +9720,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     }
                 }
                 if (attacking) track.aimUntil = g_carFrame + 30;
+                if ((gameShot || shotNow) && track.weapon == kWpnRocket) NoteRocketLaunch(cx, cy, cz);   // FIX-FIGURE-13 (pfl51)
                 const bool carrying = ownPed || (track.aimUntil && g_carFrame < track.aimUntil + 90);
                 // QB-29: the magazine. Shots counted on this gun; a new gun starts full;
                 // ammunition going up (a pickup) with shots fired reloads too.
@@ -9733,6 +9782,12 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 // a thrown weapon's throw, one shot, on the throw itself.
                 const int stance = kWeapons[track.weapon].action;
                 wantAction = stance == 13 ? (shotNow ? 13 : 0) : stance;
+            }
+            // FIX-FIGURE-13 (pfl51): bare hands by the game's word (weapon none) never take an aim stance from the
+            // game's firing frame (139, held a second after the last round): one arm out, an empty hand.
+            {
+                static const bool lastOld2 = [] { char b[8] = {}; return GetEnvironmentVariableA("GTA2DX9_LAST_ROUND_OLD", b, sizeof b) && b[0] == '1'; }();
+                if (!lastOld2 && gameWeapon == 0 && (wantAction == 2 || wantAction == 8)) wantAction = 0;
             }
             if (ownPed && track.weapon > 0) g_playerWeaponSeen = track.weapon;
             track.lastAmmo = sprite.pedAmmo; track.lastReload = sprite.pedReload; track.lastWeaponObject = sprite.pedWeaponObject;
@@ -14528,6 +14583,17 @@ uint32_t LiveDrawFrame() { return g_carFrame; }
 // FIX-FIGURE-12 (pfl46 third): a muzzle light (renderer space) within 0.8 block of a suppressed shot
 // fired in the last 4 drawn frames: the plain light pass dims it (the game's own flash particle carries
 // a muzzle light whatever the gun).
+// FIX-FIGURE-13 (pfl51): a light within 0.8 block of a rocket fired in the last 6 drawn frames (the
+// game's flash particle at the launch carries a muzzle light at the shooter's hips).
+bool RocketLaunchNear(const float* pos) {
+    if (RocketPuffOld()) return false;
+    for (const RocketLaunch& L : g_rocketLaunches) {
+        if (g_carFrame - L.frame > 6) continue;
+        const float dx = pos[0] - L.x, dz = pos[2] - L.z;
+        if (dx * dx + dz * dz < 0.64f && pos[1] < L.y + 0.8f) return true;
+    }
+    return false;
+}
 bool SilencedMuzzleNear(const float* pos) {
     for (const SilencedMuzzle& m : g_silencedMuzzles) {
         if (g_carFrame - m.frame > 4) continue;
