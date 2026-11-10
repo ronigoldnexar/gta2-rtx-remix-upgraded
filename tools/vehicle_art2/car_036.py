@@ -143,14 +143,6 @@ def build():
         car.revolve([(0.040, 0.0), (0.036, 0.016), (0.0, 0.020)], (side * 0.63, top0(np.array([-1.96]))[0] + 0.05, -1.97),
                     (0, 0, -1), 14, default="lamp_tail", uv_mode="disc")
 
-    # headlamps: on the front deck's corners, set in chrome bezels, looking forward
-    for side in (1, -1):
-        c = np.array([side * 0.50, 0.645, 1.86])
-        car.revolve([(0.088, -0.02), (0.090, 0.010), (0.080, 0.022)], c, (0, 0.12, 1), 20, default="chrome", uv_mode="disc")
-        car.revolve([(0.078, 0.014), (0.05, 0.022), (0.0, 0.026)], c, (0, 0.12, 1), 20, default="lamp_head", uv_mode="disc")
-        # amber indicator below
-        car.revolve([(0.028, 0.0), (0.0, 0.012)], c + [side * -0.02, -0.12, 0.12], (0, 0, 1), 12, default="lamp_amber", uv_mode="disc")
-
     # bumpers: chrome tubes following the nose and tail outlines
     def bumper(zc, width, bend, y):
         def path(u):
@@ -203,6 +195,25 @@ def build():
     car.materials["tyre_tread"] = tex_tread()
     car.materials["tyre_side"] = tex_tyre_side()
     bake_ao(car, tub, zt, zn, 0.0, 1.0, "paint_body")
+
+    # headlamps, added after the AO bake so the paint atlas (and its Remix prim) stays byte-identical (VEHICLE-ART-18: were bare discs sitting on the deck, "frog eyes"): each lamp at the front of a
+    # faired nacelle on the wing crown, the KR200's lamp pod, which grows out of the deck from behind and carries
+    # a chrome bezel and the sealed beam a centimetre inside its mouth
+    for side in (1, -1):
+        xs, z0, z1 = side * 0.555, 1.22, 1.93
+        def pod_path(u, xs=xs):
+            z = z0 + (z1 - z0) * u
+            y = 0.700 - 0.040 * smoothstep(0.0, 1.0, u)
+            return np.stack([np.full_like(u, xs), y, z], 1)
+        def pod_r(u):
+            return 0.004 + 0.093 * np.sqrt(smoothstep(0.0, 0.62, u))
+        car.sweep(pod_path, pod_r, 26, 18, "paint_frame", caps=False)
+        c = np.array([xs, 0.660, z1])
+        ax = (0, 0.06, 1)
+        car.revolve([(0.091, -0.012), (0.099, 0.004), (0.093, 0.014), (0.080, 0.012)], c, ax, 24, default="chrome", uv_mode="disc")
+        car.revolve([(0.081, 0.004), (0.06, 0.010), (0.0, 0.014)], c, ax, 24, default="lamp_head", uv_mode="disc")
+        # amber indicator below, on the nose
+        car.revolve([(0.028, 0.0), (0.0, 0.012)], (side * 0.48, 0.525, 1.98), (0, 0, 1), 12, default="lamp_amber", uv_mode="disc")
     return car
 
 
