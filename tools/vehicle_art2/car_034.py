@@ -24,7 +24,7 @@ NAME = "034_medicar"
 SPRITE = (168, 152, 126)         # catalog default remap paint (previews only)
 PAINT = (235.0, 235.0, 235.0)    # manifest paint_rgb (a livery: not used for a tint)
 CREAM = (222, 210, 174)
-MAROON = (124, 30, 24)
+MAROON = (92, 23, 17)            # the sprite flank 78,22,12 under the livery gain (124,30,24 drew +106 % L*, out/va18_p1_paint)
 GOLD = (196, 150, 64)
 RED = (178, 30, 26)
 LEN = 1.484 * 5.0                # 7.42 m
@@ -273,6 +273,8 @@ def tex_livery(body, belt0, top0, hw0, zt, length, size=512):
     # the front wing tops: |x| beyond a line that widens from the screen base to the nose
     k = np.clip((z - ZSB) / (LEN / 2 - ZSB), 0, 1)
     maroon |= (z > ZSB - 0.2) & (ax > hw0(z) * (0.80 - 0.16 * k)) & (y < top0(z) + 0.02) & (T > 0.5)
+    # the roof's outer edges, screen to tail: the sprite's maroon flanks seen from above run the whole length
+    maroon |= (T > 0.80) & (T < 0.855) & (z < ZST - 0.08) & (z > -LEN / 2 + 0.10)
     col[maroon] = MAROON
     gold = (np.abs(y - split) < 0.014) & (T < 0.52) & (z < LEN / 2 - 0.25) & (z > -LEN / 2 + 0.12)
     col[gold] = GOLD
