@@ -4226,6 +4226,31 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         // Nor the car he drives: a chase camera at the sedan distance sits inside a
         // fire truck or a bus (run a33_fire1: the truck vanished from the chase view).
         if (inside && !use.own && !use.driven) continue;
+        // FIX-CAMERA-18: a car between the chase lens and him fades (live_geometry ChaseCarFades): constant-alpha
+        // blending over every pass of the body, so the street behind shows through; gone at alpha 0.
+        if (use.fade <= 0.02f) continue;
+        struct CarFadeDraw {
+            IDirect3DDevice9* d; bool on; DWORD blend = FALSE, src = D3DBLEND_ONE, dst = D3DBLEND_ZERO, zw = TRUE, factor = 0xFFFFFFFF;
+            CarFadeDraw(IDirect3DDevice9* dev, float a) : d(dev), on(a < 0.98f) {
+                if (!on) return;
+                d->GetRenderState(D3DRS_ALPHABLENDENABLE, &blend); d->GetRenderState(D3DRS_SRCBLEND, &src);
+                d->GetRenderState(D3DRS_DESTBLEND, &dst); d->GetRenderState(D3DRS_ZWRITEENABLE, &zw);
+                d->GetRenderState(D3DRS_BLENDFACTOR, &factor);
+                const DWORD k = static_cast<DWORD>((std::min)(1.0f, (std::max)(0.0f, a)) * 255.0f + 0.5f);
+                d->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+                d->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_BLENDFACTOR);
+                d->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVBLENDFACTOR);
+                // depth writes stay on: the body's nearest faces win, its insides and the cab behind them are not blended in
+                // (with them off the van read as a dark see-through box for five frames: run cam18_k4 b_lane 15.2 s)
+                d->SetRenderState(D3DRS_BLENDFACTOR, D3DCOLOR_ARGB(k, k, k, k));
+            }
+            ~CarFadeDraw() {
+                if (!on) return;
+                d->SetRenderState(D3DRS_ALPHABLENDENABLE, blend); d->SetRenderState(D3DRS_SRCBLEND, src);
+                d->SetRenderState(D3DRS_DESTBLEND, dst); d->SetRenderState(D3DRS_ZWRITEENABLE, zw);
+                d->SetRenderState(D3DRS_BLENDFACTOR, factor);
+            }
+        } carFade(device, use.fade);
         bool clipped = false;
         // The hood-only copy is drawn on both paths (Remix ignores user clip planes;
         // on plain D3D9 the plane below still trims the copy's edge exactly).

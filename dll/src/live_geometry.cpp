@@ -46,6 +46,37 @@
 #include "map_objects.h"
 #include "explosion_fx.h"
 
+// FIX-CAMERA-18: draw state for a pedestrian faded at the chase lens: blended at `alpha` over what is behind it, no
+// depth writes; the states are put back as they were when it goes.
+struct SeeThroughDraw {
+    // constant-alpha blending (D3DBLEND_BLENDFACTOR): the figure's own draw sets the texture factor (its clothes' tint,
+    // alpha 0xFF) and the stages, so a texture-factor alpha never reached the picture (run cam18_ft2: peds solid at 50 %)
+    IDirect3DDevice9* d;
+    DWORD blend = FALSE, test = TRUE, zwrite = TRUE, src = D3DBLEND_ONE, dst = D3DBLEND_ZERO, factor = 0xFFFFFFFF;
+    SeeThroughDraw(IDirect3DDevice9* device, float alpha) : d(device) {
+        d->GetRenderState(D3DRS_ALPHABLENDENABLE, &blend);
+        d->GetRenderState(D3DRS_ALPHATESTENABLE, &test);
+        d->GetRenderState(D3DRS_ZWRITEENABLE, &zwrite);
+        d->GetRenderState(D3DRS_SRCBLEND, &src);
+        d->GetRenderState(D3DRS_DESTBLEND, &dst);
+        d->GetRenderState(D3DRS_BLENDFACTOR, &factor);
+        const DWORD a = static_cast<DWORD>((std::min)(1.0f, (std::max)(0.0f, alpha)) * 255.0f + 0.5f);
+        d->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+        d->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_BLENDFACTOR);
+        d->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVBLENDFACTOR);
+        d->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+        d->SetRenderState(D3DRS_BLENDFACTOR, D3DCOLOR_ARGB(a, a, a, a));
+    }
+    ~SeeThroughDraw() {
+        d->SetRenderState(D3DRS_ALPHABLENDENABLE, blend);
+        d->SetRenderState(D3DRS_ALPHATESTENABLE, test);
+        d->SetRenderState(D3DRS_ZWRITEENABLE, zwrite);
+        d->SetRenderState(D3DRS_SRCBLEND, src);
+        d->SetRenderState(D3DRS_DESTBLEND, dst);
+        d->SetRenderState(D3DRS_BLENDFACTOR, factor);
+    }
+};
+
 namespace gta2dx9 {
 namespace {
 // FIX-COCKPIT-BODY: GTA2DX9_FP_BODY=0 leaves his body out of the first-person cockpit (A/B; the ini key is
@@ -4840,6 +4871,82 @@ void SetCarNormalStrength(float strength) {
 void SetCarHd(bool hd, bool normalMaps) {
     g_carHd = hd;
     g_carNormalMaps = normalMaps;
+}
+
+// FIX-CAMERA-18 (CAMERA-17's residual: vehicles between the chase lens and him were not faded): in third person a car
+// or wreck (not his own, not the one he drives) whose body crosses the lines from the shown eye to his chest and his
+// head, within 3 blocks of the eye, fades out over six frames (0.17 a frame, as the street objects and the pedestrians
+// at the lens) and back once it has passed (held 8 frames after the last reason). [camera] chase_ped_fade=0 or
+// GTA2DX9_CAM_CAR_FADE=0: drawn whole as before (A/B). Log (GTA2DX9_LOG_CAMERA=1): 'view: car between the lens and him'.
+static void ChaseCarFades(std::vector<CarBodyUse>& cars) {
+    static int carFadeOn = -1;
+    if (carFadeOn < 0) { char b[8] = {}; carFadeOn = GetEnvironmentVariableA("GTA2DX9_CAM_CAR_FADE", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
+    static std::map<uintptr_t, std::pair<float, uint32_t>> s_state;   // alpha, the last frame with a reason
+    const bool on = carFadeOn && CameraPedFadeOn() && CurrentViewMode() == ViewMode::ThirdPerson && StreetPresentation() && g_playerPosValid;
+    if (!on) { s_state.clear(); return; }
+    auto inside = [](const CameraCar& c, float x, float z, float m) {
+        // the footprint is a convex quad: inside when on the inner side of all four edges (by m blocks)
+        float sgn = 0.0f;
+        for (int i = 0; i < 4; ++i) {
+            const int j = (i + 1) & 3;
+            const float ex = c.x[j] - c.x[i], ez = c.z[j] - c.z[i], l = std::sqrt(ex * ex + ez * ez);
+            if (l < 1e-4f) continue;
+            const float cr = (ex * (z - c.z[i]) - ez * (x - c.x[i])) / l;
+            if (sgn == 0.0f) sgn = cr >= 0.0f ? 1.0f : -1.0f;
+            if (cr * sgn < m) return false;
+        }
+        return true;
+    };
+    const gta2::Vec3 e = g_viewEye;
+    const gta2::Vec3 chest{g_playerPosX, g_playerPosY + 0.30f, g_playerPosZ}, head{g_playerPosX, g_playerPosY + 0.48f, g_playerPosZ};
+    static int fadeTest = -2;   // FIX-CAMERA-18 probe: GTA2DX9_CAM_FADE_TEST=<percent> draws every other car at that alpha
+    if (fadeTest < -1) { char b[8] = {}; fadeTest = GetEnvironmentVariableA("GTA2DX9_CAM_FADE_TEST", b, sizeof b) ? atoi(b) : -1; }
+    if (fadeTest > 0 && fadeTest < 100) { for (CarBodyUse& u : cars) if (!u.own && !u.driven) u.fade = fadeTest / 100.0f; return; }
+    for (CarBodyUse& u : cars) {
+        if (u.own || u.driven) continue;
+        const CameraCar* cc = nullptr;
+        for (const CameraCar& c : LiveCameraCars()) if (c.object == u.object) { cc = &c; break; }
+        bool hides = false;
+        if (cc && !inside(*cc, g_playerPosX, g_playerPosZ, -0.1f)) {
+            int lines = 0;
+            for (const gta2::Vec3& to : {chest, head}) {
+                const gta2::Vec3 d = to - e;
+                const float len = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+                if (len < 0.3f) continue;
+                for (int i = 1; i < 24; ++i) {
+                    const float t = static_cast<float>(i) / 24.0f;
+                    if (t * len > 3.0f) break;
+                    const gta2::Vec3 p = e + d * t;
+                    if (p.y < cc->y1 && p.y > cc->y0 && inside(*cc, p.x, p.z, 0.0f)) { ++lines; break; }
+                }
+            }
+            hides = lines == 2;
+        }
+        auto it = s_state.find(u.object);
+        if (it == s_state.end()) {
+            if (!hides) continue;
+            it = s_state.emplace(u.object, std::make_pair(1.0f, g_carFrame)).first;
+        }
+        float& a = it->second.first;
+        if (hides) it->second.second = g_carFrame;
+        const bool held = g_carFrame - it->second.second <= 8;
+        a = held ? (std::max)(0.0f, a - 0.17f) : (std::min)(1.0f, a + 0.17f);
+        u.fade = a;
+        static int camLog = -1;
+        if (camLog < 0) { char b[8] = {}; camLog = GetEnvironmentVariableA("GTA2DX9_LOG_CAMERA", b, sizeof b) && atoi(b) ? 1 : 0; }
+        if (camLog) {
+            static uint32_t lastLog = 0;
+            static int logs = 0;
+            if (lastLog != g_carFrame && logs < 400) {
+                ++logs; lastLog = g_carFrame;
+                Log("view: car between the lens and him %s (alpha %.2f, model %d, eye %.2f,%.2f,%.2f)", hides ? "fading" : held ? "held" : "back", a, u.model,
+                    e.x, e.y, static_cast<float>(gta2::kMapHeight) - e.z);
+            }
+        }
+        if (!held && a >= 1.0f) s_state.erase(it);
+    }
+    if (s_state.size() > 64)
+        for (auto it = s_state.begin(); it != s_state.end();) it = g_carFrame - it->second.second > 90 ? s_state.erase(it) : std::next(it);
 }
 
 void LiveGeometry::DrawCarModels(IDirect3DDevice9* device) {
@@ -11710,6 +11817,12 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             // camera, off the picture. Only its draw is skipped.
             const bool kdKeep = heroFigure && track.kd && model;
             bool kdSkipDraw = kdKeep && CurrentViewMode() == ViewMode::FirstPerson;   // the eye is at its head
+            float pedLensAlpha = 1.0f;   // FIX-CAMERA-18: a pedestrian fading out at the chase lens (1 = drawn whole)
+            {   // FIX-CAMERA-18 probe: GTA2DX9_CAM_FADE_TEST=<percent> draws every pedestrian (not him) see-through at that alpha
+                static int fadeTest = -2;
+                if (fadeTest < -1) { char b[8] = {}; fadeTest = GetEnvironmentVariableA("GTA2DX9_CAM_FADE_TEST", b, sizeof b) ? atoi(b) : -1; }
+                if (fadeTest > 0 && fadeTest < 100 && !heroFigure && !fpBody && CurrentViewMode() != ViewMode::Classic) pedLensAlpha = fadeTest / 100.0f;
+            }
             if (model && !sprite.shadowOnly && BehindView(gx, cy, gz, 0.6f)) { if (heroFigure) g_ownLensFrame = g_carFrame; if (kdKeep) kdSkipDraw = true; else continue; }
             if (model && !sprite.shadowOnly && !kdSkipDraw && OutsideViewFrustum(gx, cy, gz, 0.75f)) { if (heroFigure) g_ownLensFrame = g_carFrame; if (kdKeep) kdSkipDraw = true; else continue; }   // beside the picture: not drawn, track kept
             if (heroFigure && model && CurrentViewMode() == ViewMode::FirstPerson) {
@@ -11772,15 +11885,38 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                         const auto it = s_pedLensHeld.find(sprite.object);
                         if (it != s_pedLensHeld.end() && g_carFrame - it->second <= 12) why = "held";
                     }
-                    if (why) {
+                    // FIX-CAMERA-18 (CAMERA-17's residual: a hidden pedestrian popped out and back in one frame): the pedestrian
+                    // fades, its alpha 0.17 a frame (gone or whole over six frames, like the street objects' overlap fade),
+                    // out while a reason (or its 12-frame hold) lasts, back in after. [camera] chase_ped_fade=0 or
+                    // GTA2DX9_CAM_PED_FADE=0: CAMERA-17's pop (A/B).
+                    static std::map<uintptr_t, std::pair<float, uint32_t>> s_pedLensFade;
+                    const bool fadeOn = CameraPedFadeOn();
+                    float alpha = why ? 0.0f : 1.0f;
+                    if (fadeOn) {
+                        auto it = s_pedLensFade.find(sprite.object);
+                        if (it != s_pedLensFade.end() && g_carFrame - it->second.second > 30) { s_pedLensFade.erase(it); it = s_pedLensFade.end(); }
+                        if (why && it == s_pedLensFade.end()) it = s_pedLensFade.emplace(sprite.object, std::make_pair(1.0f, g_carFrame)).first;
+                        if (it != s_pedLensFade.end()) {
+                            float& a = it->second.first;
+                            if (it->second.second != g_carFrame || why) a = why ? (std::max)(0.0f, a - 0.17f) : (std::min)(1.0f, a + 0.17f);
+                            it->second.second = g_carFrame;
+                            alpha = a;
+                            if (!why && a >= 1.0f) s_pedLensFade.erase(it);
+                        }
+                        if (s_pedLensFade.size() > 128)
+                            for (auto e = s_pedLensFade.begin(); e != s_pedLensFade.end();) e = g_carFrame - e->second.second > 30 ? s_pedLensFade.erase(e) : std::next(e);
+                    }
+                    if (why || alpha < 0.98f) {
                         static uint32_t pedLensFrame = 0;
                         static int pedLensLogs = 0;
                         if (pedLensFrame != g_carFrame && pedLensLogs < 200) {
                             ++pedLensLogs;
-                            Log("view: pedestrian by the chase lens not drawn (%s, %.2f from the eye, hero %.2f)", why, dL, dH);
+                            Log("view: pedestrian by the chase lens %s (%s, %.2f from the eye, hero %.2f, alpha %.2f)", alpha <= 0.02f ? "not drawn" : "fading",
+                                why ? why : "back", dL, dH, alpha);
                         }
                         pedLensFrame = g_carFrame;
-                        continue;
+                        if (alpha <= 0.02f) continue;
+                        pedLensAlpha = alpha;
                     }
                 }
                 // FIX-FIGURE-9 (pm7-fp-own-head-and-shoulder-fill-left-third-of-view): in first person a stranger at
@@ -12932,7 +13068,14 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     ModelSetPoseHook(&DriverHandsHook, &g_driverHands, key | (1ull << 61));
                     ModelSetHideHead(true);
                 }
-                if (!kdSkipDraw) ModelDrawBlend(device, *model, world, locoA, locoTA, locoB, locoTB, locoW);
+                if (!kdSkipDraw) {
+                    if (pedLensAlpha < 0.98f) {   // FIX-CAMERA-18: see-through as the faded street objects (texture alpha x the fade)
+                        SeeThroughDraw see(device, pedLensAlpha);
+                        ModelDrawBlend(device, *model, world, locoA, locoTA, locoB, locoTB, locoW);
+                    } else {
+                        ModelDrawBlend(device, *model, world, locoA, locoTA, locoB, locoTB, locoW);
+                    }
+                }
                 if (fpBody) {
                     ModelSetHideHead(false); ModelSetPoseHook(nullptr, nullptr, 0); CabNoteDriverBody();
                     static const bool armLog = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_FP_BODY_LOG", b, sizeof b) && b[0] == '1'; }();
@@ -15256,6 +15399,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
         // into the driver's seat arrived drew the player's van whole round an eye already in the seat
         // (the headliner over a black hull, held while the cab was built: 0.3 s in run seat2_van2).
         for (CarBodyUse& u : carBodies_) u.own = reinterpret_cast<const void*>(u.object) == g_hiddenObjects[1];
+        ChaseCarFades(carBodies_);   // FIX-CAMERA-18
         CarBodiesDraw(device, carBodies_, g_carFrame, camera.Position());
     }
     stageTimer.Mark();   // 4: cars

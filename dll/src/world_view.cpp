@@ -1610,6 +1610,8 @@ bool WorldView::EnsureWorldLoaded() {
     TimeOfDayRepush("level loaded");
     ghostAt_ = -1;   // FIX-PERF-VSWITCH: this level's street frame, drawn unseen (GhostStreetFrame)
     ghostWait_ = 0;
+    levelStartCut_ = true;   // FIX-CAMERA-18 (qaexp32): see ApplyTransition
+    levelStartFrame_ = frameCount_;
     MemStatsLog("level load: end (the mesh and style locals are freed after this line)", 0);
     return true;
 }
@@ -2766,6 +2768,12 @@ bool RespawnCutOn() {
 }
 }  // namespace
 
+static bool LevelStartCutOn() {
+    static int env = -2;
+    if (env < -1) { char b[8] = {}; env = GetEnvironmentVariableA("GTA2DX9_LEVEL_START_CUT", b, sizeof b) ? atoi(b) : -1; }
+    return env >= 0 ? env != 0 : ViewModes().levelStartCut;
+}
+
 void WorldView::ApplyTransition(float dt, ViewMode mode) {
     const ViewModeSettings& vm = ViewModes();
     CameraPose target;
@@ -2788,6 +2796,23 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
         dissolveActive_ = false;
         lastViewMode_ = mode;
     }
+    // FIX-CAMERA-18 (qaexp32-first-person-new-game-from-menu-1p7s-aerial-swoop-over-whole-city-before-street-view): a
+    // street view kept through PLAYER QUIT -> main menu -> a new game opened the level with the classic -> street move
+    // from the last classic pose (the game's camera high over the city): 1.4 s of aerial frames over the whole map and
+    // the sea under the TRAINING MISSION banner, then the street (run qa_qaexp32b_main: 'moving the camera to First
+    // person over 1.4 s' on the level's first placed frame). After a level load the street view is cut to, as after a
+    // respawn (FIX-CAMERA-8): its first frame is the solved pose at the hero. A classic frame shown as the wanted view
+    // (the player chose classic) or 10 s without a street frame ends it, so a later V is a V. [camera]
+    // level_start_cut=0 or GTA2DX9_LEVEL_START_CUT=0: the move as before (A/B).
+    if (levelStartCut_ && (mode == ViewMode::Classic || frameCount_ - levelStartFrame_ > 300 || !LevelStartCutOn())) levelStartCut_ = false;
+    if (mode != lastViewMode_ && mode != ViewMode::Classic && levelStartCut_) {
+        Log("view: the level's first street frame: cut to %s at its solved pose (no move from the classic camera)", ViewModeName(mode));
+        transitionT_ = 1.0f;
+        moveCatch_ = 0.0f;
+        dissolveActive_ = false;
+        lastViewMode_ = mode;
+    }
+    if (mode != ViewMode::Classic) levelStartCut_ = false;
     if (mode != ViewMode::Classic) lostFallback_ = false;
     if (mode != lastViewMode_) {
         MemStatsViewChange(static_cast<int>(lastViewMode_), static_cast<int>(mode));   // FIX-PERF-4

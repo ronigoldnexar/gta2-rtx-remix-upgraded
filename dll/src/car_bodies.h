@@ -54,6 +54,7 @@ struct CarBodyUse {
     // here: the door on his side swings open while he does.
     bool doorPed = false;
     float doorPedX = 0.0f, doorPedZ = 0.0f;
+    float fade = 1.0f;               // FIX-CAMERA-18: 1 whole; under 1 the car stands between the chase lens and him, fading
     CarBodyVertex local[4];          // the body quad in its own space
     gta2::Mat4 objectToWorld;
 };

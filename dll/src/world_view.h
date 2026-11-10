@@ -332,6 +332,8 @@ private:
     // (a death or an arrest, the game between two bodies), not because of the V key; found again, the
     // view cuts to its solved pose instead of the classic -> street descent.
     bool lostFallback_ = false;
+    bool levelStartCut_ = false;   // FIX-CAMERA-18 (qaexp32): a level was loaded; the first street view cuts in
+    int levelStartFrame_ = 0;
     void MoveTurnCap(CameraPose* pose, float dt, ViewMode mode);
     // FIX-CAMERA-5 (feel23): the move rides its destination. The destination's pose when the move
     // began; the start pose is carried along with it (moved, and between street views turned, by

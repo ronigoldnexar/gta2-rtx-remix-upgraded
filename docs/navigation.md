@@ -1458,3 +1458,48 @@ vehicle passes by" (work order owner10nov-B10, plan section B10), and qav26 (sta
   filling the lens. The order's 8-heading check at a standing crowd was not run separately.
 - Short of a shipping frame: a pocket with no way open still cuts (at most every 2 s); a hidden pedestrian pops rather
   than dithers out; vehicles between the lens and him are not faded.
+
+## The pocket memory instead of a cut; peds and cars at the lens fade; the level opens at the hero (FIX-CAMERA-18, 10 Nov 2026)
+
+- **The kerb pocket (CAMERA-17's residual).** The wil kerb at 164.5,147.6 is an L-shaped strip round a building's corner,
+  railings on its outside; walking loops there the on-foot boom cut round him every 2.7-9 s (cam17_f7: 7 cuts in the booth
+  and kerb segments). A probe logged at each cut (`cam: pocket probe at the cut (swing:mesh/walls/lift30/lift60 ...)`,
+  run cam18_k2) showed what closes each heading: on the road side only the railing's sheet, 0.05-0.75 from his centre (the
+  walls-only reach is the full boom); on the walled side only the strip's two ends are open, so a swing between them has to
+  pass the building or the railing, and the 45-degree lift does not clear the railing that close to him (60 does, looking
+  steeply down). Now (`[camera] pocket_lift`, `GTA2DX9_CAM_POCKET_LIFT`, default on, under the turn budget):
+  - **pocket memory**: the first time a cut is wanted, a sheet or bar crossed within 0.9 of him (FIX-CAMERA-7's lean-sheet
+    skip, `eyecol::SetNearSoftSkip`) stops counting for the boom for 20 s while he stays within 2.5 blocks of that spot
+    (`cam: pocket: a cut wanted at ...`): the swing then finds the heading over the road and looks at him through the bars;
+  - **lift before a cut**: neither way round open, the arc over what closes the line where the boom is (up to the on-foot 45
+    degrees) is tried first; if it opens the line the swing holds and the boom rises (`cam: pocket: no way round is open,
+    the boom rises N deg ...`);
+  - only then CAMERA-17's cut (at most one in 2 s).
+- **Peds at the lens fade** (`[camera] chase_ped_fade`, `GTA2DX9_CAM_PED_FADE`): CAMERA-17's hidden pedestrian goes out and
+  comes back at 0.17 alpha a frame (six frames), drawn see-through as the street objects' overlap fade (texture alpha x the
+  fade, blended, no depth writes); log `view: pedestrian by the chase lens fading|not drawn (..., alpha A)`.
+- **Cars between the lens and him fade** (same key; `GTA2DX9_CAM_CAR_FADE=0` turns only the cars off): a car or wreck (not
+  his own or the one he drives) whose body crosses both lines from the shown eye to his chest and head within 3 blocks of
+  the eye fades out over six frames, held 8 frames after the last reason, and back in; drawn with constant-alpha blending
+  (`D3DBLEND_BLENDFACTOR`) over every pass of the body. Log `view: car between the lens and him fading|held|back`.
+  Depth writes stay on for a fading car (off, the van read as a dark see-through box with its cab and insides for five
+  frames: cam18_k4 b_lane 15.2 s). Pedestrians are blended with the same constant factor, no depth writes (a
+  texture-factor alpha never reached the picture: the figure's draw sets the texture factor for its clothes' tint).
+  Probe aid: `GTA2DX9_CAM_FADE_TEST=<percent>` draws every pedestrian and every other car at that alpha (cam18_ft3 at 25:
+  the fence bars through the passers-by, a clean see-through truck, him whole).
+- **qaexp32: the level opens at the hero** (`[camera] level_start_cut`, `GTA2DX9_LEVEL_START_CUT`). A street view kept
+  through PLAYER QUIT -> main menu -> a new game opened the level with the 1.4 s classic -> street move from the game's
+  camera high over the city (run qa_qaexp32b_main: `moving the camera to First person over 1.4 s` on the level's first
+  placed frame). After a level load the first street frame is cut to, as after a respawn (FIX-CAMERA-8): `view: the level's
+  first street frame: cut to ...`. A classic frame wanted by the player, or 10 s without a street frame, ends it.
+- **Measured** (cam17_probe.py, same spots; walking loops differ run to run). Booth + kerb: cam17_f7 (567c11c3) 7 swing
+  cuts, hero off the frame 10 frames; cam18_k3 4 cuts (2 booth, 2 kerb), hero off 0; kerb with the 0.9 skip, cam18_k4: 2
+  cuts in 50 s (cam18_k1/k2 at 0.45 or none: 4 each), hero off 0. Every run: largest yaw outside cuts 8.0 a frame, `turn
+  over budget` 0, lens inside a prop/car/person 0, lens never below his feet. Car fade (cam18_k4, kerb lane, real traffic):
+  model 67 between the lens and him 0.83 -> 0 over six frames, held, 0.17 -> 1.00 over six. qaexp32 (qa_cam18_q32, the
+  filer's recipe): GET READY, then the first-person spawn view from the first drawn frame (game.mp4 63.5-67.5 s at 6 fps),
+  no classic HUD frame, no aerial. vreg spawn_classic 0 tiles (vreg_stage_cam18_1110_194724); the other shots differ from
+  the stored goldens by the same 14-35 tiles as other agents' HEAD runs (vreg_fig17_a).
+- Short of a shipping frame: the pockets still cut about twice a minute of walking loops where the walls (not a railing)
+  close every way round (the iron-stair booth) or he stands mid-strip (filed: defects/open
+  cam18-third-pocket-residual-cut-...); the looks through the bars over the road are a choice, not tested with an owner.

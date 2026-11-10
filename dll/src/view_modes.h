@@ -83,6 +83,15 @@ struct ViewModeSettings {
     // FIX-CAMERA-17 (qav26): in third person a pedestrian standing close to the lens (or across the line to him
     // within a block of it), nearer the lens than he is, is not drawn. [camera] chase_hide_near_peds.
     bool chaseHideNearPeds = true;
+    // FIX-CAMERA-18: in a pocket with no way round open (the kerb strip between a wall and a railing), the on-foot chase
+    // boom rises on its arc over what closes the line where it is instead of cutting round him. [camera] pocket_lift.
+    bool pocketLift = true;
+    // FIX-CAMERA-18: a pedestrian (or a car) hidden at the chase lens fades over six frames instead of popping.
+    // [camera] chase_ped_fade.
+    bool chasePedFade = true;
+    // FIX-CAMERA-18 (qaexp32): the first street frame after a level load is cut to, not moved to from the classic camera.
+    // [camera] level_start_cut.
+    bool levelStartCut = true;
     float fpCarRate = 240.0f;       // first person at the wheel: fixed to the car, this is only a safety cap
     float fpFollowRate = 150.0f;    // first person on foot when the view follows the heading
     // First person: the view heading eases onto the game's over this long
@@ -250,6 +259,8 @@ ViewModeSettings& ViewModes();
 // FIX-CAMERA-17: the turn budget in force, degrees a frame at 30 fps (ViewModeSettings::turnBudget, or
 // GTA2DX9_CAM_TURN_BUDGET when set; 0 = off: the swing cut, the fast swing and the 300 deg/s cap as before).
 float CameraTurnBudgetDeg();
+bool CameraPocketLiftOn();
+bool CameraPedFadeOn();      // FIX-CAMERA-18: [camera] chase_ped_fade, GTA2DX9_CAM_PED_FADE   // FIX-CAMERA-18: [camera] pocket_lift, GTA2DX9_CAM_POCKET_LIFT
 ViewMode CurrentViewMode();
 void SetViewMode(ViewMode mode);
 void CycleViewMode();

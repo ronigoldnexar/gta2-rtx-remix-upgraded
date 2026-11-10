@@ -1672,6 +1672,18 @@ float CameraTurnBudgetDeg() {
     return v > 0.0f ? (std::max)(1.0f, v) : 0.0f;
 }
 
+bool CameraPocketLiftOn() {
+    static int env = -2;
+    if (env < -1) { char b[8] = {}; env = GetEnvironmentVariableA("GTA2DX9_CAM_POCKET_LIFT", b, sizeof b) ? atoi(b) : -1; }
+    return env >= 0 ? env != 0 : ViewModes().pocketLift;
+}
+
+bool CameraPedFadeOn() {
+    static int env = -2;
+    if (env < -1) { char b[8] = {}; env = GetEnvironmentVariableA("GTA2DX9_CAM_PED_FADE", b, sizeof b) ? atoi(b) : -1; }
+    return env >= 0 ? env != 0 : ViewModes().chasePedFade;
+}
+
 ViewMode CurrentViewMode() {
     const int m = g_settings.mode;
     return static_cast<ViewMode>(m < 0 || m >= kViewModeCount ? 0 : m);
@@ -4281,7 +4293,19 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         leanSheetOn = v != 0 ? 1 : 0;
         leanSheetR = v == 1 ? 0.25f : 0.45f;
     }
-    const LeanSkip leanSkip(meshSolve && leanSheetOn && mode == ViewMode::ThirdPerson, leanSheetR);
+    // FIX-CAMERA-18 (CAMERA-17's residual: the wil kerb strip at 164.5,147.6, a wall on one side and a railing he walks
+    // against on the other, cut round him every 2.7-9 s on walking loops, run cam17_f7): the probe at the cut (run cam18_k2,
+    // 'cam: pocket probe') showed every heading over the road blocked only by the railing's sheet 0.05 from his centre
+    // (walls only: the full boom) and the walled side open only at the strip's two ends. A pocket memory: the first time
+    // a cut is wanted, a sheet or bar crossed within 0.9 of him (FIX-CAMERA-7's lean sheet, at 0.45 the kerb still cut with him 0.74 off
+    // the railing: run cam18_k3) stops
+    // counting for the boom for 20 s while he stays within 2.5 blocks of that spot, so the swing goes round over the road
+    // and looks at him through the bars instead of cutting to the strip's far end. [camera] pocket_lift=0 or
+    // GTA2DX9_CAM_POCKET_LIFT=0: off (A/B).
+    static float pocketLeanT = 0.0f, pocketLeanX = 0.0f, pocketLeanZ = 0.0f;
+    pocketLeanT = (std::max)(0.0f, pocketLeanT - dt);
+    const bool pocketLean = pocketLeanT > 0.0f && !inVehicle && std::hypot(px - pocketLeanX, pz - pocketLeanZ) < 2.5f && CameraPocketLiftOn();
+    const LeanSkip leanSkip(meshSolve && (leanSheetOn || pocketLean) && mode == ViewMode::ThirdPerson, pocketLean ? 0.9f : leanSheetR);
     auto reachTo = [&](const gta2::Vec3& from, const gta2::Vec3& to) {
         constexpr int kSteps = 32;
         float reach = 1.0f;
@@ -4471,6 +4495,45 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                 // the railing it cut 116 -> -30, then -13 -> 105 0.3 s later: run cam17_b0); in between the swing goes
                 // round at its budgeted rate. (Without the cut a pocket's swing dragged the boom across the rail and the
                 // lens fell onto his axis: runs cam17_f2..f4.)
+                const bool cutWantedEarly = reachTo(pivot, turned(swingAtStart)) * len0 < 0.35f * good && shortMin * len0 < 0.5f * good &&
+                                            longMin * len0 < 0.5f * good && std::fabs(rest) > 30.0f * kDegToRad;
+                // FIX-CAMERA-18 (CAMERA-17's residual: the kerb at wil 164.5,147.6 is an L-shaped strip round a building's corner
+                // with railings on its outside; walking loops there, the boom cut round him every 2.7-9 s, run cam17_f7): neither
+                // way round open, the arc over what closes the line where the boom already is (the on-foot lift below, up to 45
+                // degrees) is tried before a cut or a swing through it; if it opens the line the swing holds and the boom rises
+                // over the railing (the lift below does it, eased). The heading changes only once a way round opens.
+                // [camera] pocket_lift=0 or GTA2DX9_CAM_POCKET_LIFT=0: CAMERA-17's cut (A/B).
+                bool pocketHold = false;
+                if (budgetDeg > 0.0f && CameraPocketLiftOn() && !pocketLean && cutWantedEarly) {
+                    // the pocket memory (above): from the next frame the sheet he leans on is see-through for the boom
+                    pocketLeanT = 20.0f; pocketLeanX = px; pocketLeanZ = pz;
+                    pocketHold = true;
+                    if (cameraLogOn())
+                        Log("cam: pocket: a cut wanted at %.2f,%.2f; the railing he leans on stops counting for the boom for 20 s within 2.5 blocks (swing %.1f want %.1f)",
+                            px, static_cast<float>(gta2::kMapHeight) - pz, swingAtStart / kDegToRad, wantSwing / kDegToRad);
+                }
+                if (!pocketHold && budgetDeg > 0.0f && CameraPocketLiftOn() && shortMin * len0 < 0.5f * good && longMin * len0 < 0.5f * good) {
+                    const gta2::Vec3 here = turned(swingAtStart);
+                    const gta2::Vec3 sp = here - pivot;
+                    const float flat = std::hypot(sp.x, sp.z), L = std::sqrt(sp.x * sp.x + sp.y * sp.y + sp.z * sp.z);
+                    if (flat > 1e-3f && L > 1e-3f) {
+                        const float a0 = std::atan2(sp.y, flat), aMax = (std::max)(a0, 45.0f * kDegToRad);
+                        for (int k = 1; k <= 6 && !pocketHold; ++k) {
+                            const float a = a0 + (aMax - a0) * static_cast<float>(k) / 6.0f;
+                            const gta2::Vec3 e{pivot.x + sp.x / flat * std::cos(a) * L, pivot.y + std::sin(a) * L, pivot.z + sp.z / flat * std::cos(a) * L};
+                            if (reachTo(pivot, e) * L >= 0.5f * good) {
+                                pocketHold = true;
+                                if (cameraLogOn()) {
+                                    static int every = 0;
+                                    if ((++every % 10) == 1)
+                                        Log("cam: pocket: no way round is open, the boom rises %.0f deg over what closes the line at %.1f (want %.1f) instead of a cut",
+                                            (a - a0) / kDegToRad, swingAtStart / kDegToRad, wantSwing / kDegToRad);
+                                }
+                            }
+                        }
+                    }
+                }
+                if (!pocketHold) {
                 constexpr float kCutGap = 2.0f;
                 const bool cutWanted = reachTo(pivot, turned(swingAtStart)) * len0 < 0.35f * good && shortMin * len0 < 0.5f * good &&
                                        longMin * len0 < 0.5f * good && std::fabs(rest) > 30.0f * kDegToRad;
@@ -4482,6 +4545,26 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                 swingAngle_ += dir > 0.0f ? step : -step;
                 swingDwell_ = 1.0f;
                 swingDwellDir_ = dir > 0.0f ? 1.0f : -1.0f;
+                if (cut && cameraLogOn()) {   // FIX-CAMERA-18: what closes each heading round him at a cut (mesh, walls only, lifted)
+                    char buf[1400]; int nb = 0;
+                    for (int k = -11; k <= 12 && nb < 1300; ++k) {
+                        const float a = swingAngle_ + static_cast<float>(k) * (15.0f * kDegToRad);
+                        const gta2::Vec3 e = turned(a);
+                        const gta2::Vec3 sp = e - pivot;
+                        const float flat = std::hypot(sp.x, sp.z), L = std::sqrt(sp.x * sp.x + sp.y * sp.y + sp.z * sp.z);
+                        float ts = 1.0f;
+                        const bool hs = L > 1e-3f && eyecol::SegmentHitSolid(pivot, e, &ts);
+                        auto lifted = [&](float deg) {
+                            const float a0 = std::atan2(sp.y, flat), al = a0 + deg * kDegToRad;
+                            const gta2::Vec3 q{pivot.x + sp.x / flat * std::cos(al) * L, pivot.y + std::sin(al) * L, pivot.z + sp.z / flat * std::cos(al) * L};
+                            return reachTo(pivot, q) * L;
+                        };
+                        nb += snprintf(buf + nb, sizeof buf - nb, " %d:%.2f/%.2f/%.2f/%.2f", static_cast<int>(std::lround(WrapAngle(a) / kDegToRad)),
+                                       reachTo(pivot, e) * len0, hs ? ts * L : L, flat > 1e-3f ? lifted(30.0f) : 0.0f, flat > 1e-3f ? lifted(60.0f) : 0.0f);
+                    }
+                    Log("cam: pocket probe at the cut (swing:mesh/walls/lift30/lift60, len %.2f good %.2f, pivot %.2f,%.2f,%.2f):%s", len0, good, pivot.x, pivot.y,
+                        static_cast<float>(gta2::kMapHeight) - pivot.z, buf);
+                }
                 if (cut) {
                     swingCut = true;
                     if (cameraLogOn()) Log("cam: swing first: neither way round is open, cut %.1f -> %.1f deg", before / kDegToRad,
@@ -4501,6 +4584,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                 swingClearHold_ = 0.6f;
                 if (cameraLogOn()) Log("cam: swing first %.1f -> %.1f want %.1f deg", swingAtStart / kDegToRad, swingAngle_ / kDegToRad,
                                        wantSwing / kDegToRad);
+                }   // FIX-CAMERA-18 !pocketHold
             }
         }
         if (rearmSwing) {
