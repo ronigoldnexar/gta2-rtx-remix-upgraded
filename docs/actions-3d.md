@@ -1685,3 +1685,31 @@ pass, not the knock-down code). The get-up is still the reversed `fall_front`.
 - Short of a shipping frame: the skin is one flat colour (no knuckle or nail detail in the texture); the
   forearm still shows facets in its shading; the left fist and forearm pass under the minimap.
 - A/B: `GTA2DX9_FP_FIST_OLD=1` (the old fist, guard and bob).
+
+### pfl72: the kill-frenzy shotgun fires in first person (flash, kick, pump), a pump-action model, no speck column
+
+- Cause (fig14_sg1 log, HEAD behaviour): the first-person shot detector read the ammunition word and a flash
+  ahead of the eye; a kill frenzy's weapon never spends a round (HUD "INF") and the shotgun leaves no small
+  flash ahead, so the view model never kicked or flashed. The figures already read the weapon object's refire
+  word (+2), which jumps on every shot: DrawViewModel now reads it too (`view model: shot seen (refire a -> b)`).
+- Model: tools/gen_weapons.py `shotgun` rebuilt as a pump-action at the old span (-0.075..0.175, bore 0.012,
+  fore-end middle 0.080, so the rig's points and the table length still fit): receiver, one barrel over the
+  magazine tube, a ribbed fore-end as its own node `pump`, pistol-grip wrist, stock, rubber butt pad (548 tris;
+  was two tubes over three boxes). Code object in git.
+- First person: the shotgun is held lower right and further out (side 0.085, down 0.068: the barrel at ~40
+  degrees in the frame instead of 54, the filer's "pointing at the sky"); after each shot, from 0.22 s for
+  0.38 s, a pump stroke: the `pump` node (pose hook PumpPoseHook) and the support hand slide 0.045 back and
+  forward, the gun canted 0.35 rad, pulled in and tipped up with the pull.
+- The "pellets beside the forearm" were the game's impact debris (8/432-435, found with `GTA2DX9_LOG_FX=2`,
+  which logs every effect/code-object sprite for 15 frames after a first-person shot): the game fires at his
+  body's height, 0.30 under the eye, so at the filer's wall 0.7 block away the hits burst low beside the forearm.
+  In first person for 15 frames after his shot that debris is lifted 0.30 (onto the aim line).
+- Third person: on HEAD he already shoulders the shotgun and the flash is at the muzzle (fixed poses behind and
+  beside him; the filer's front poses are inside the wall). The "dotted vertical column" was the game's gun
+  smoke, tiny puffs (0.02 block) rising from his feet; near him for 2 s after his shot they are left out (drawn
+  wider they made a pale blob at his feet).
+- Verified: fig14_sg7 (FP: flash at the muzzle, kick, the pump cant and hand travel over frames 17-25, debris
+  around the crosshair line), fig14_sg8 (third: aim with the flash at the muzzle, no speck column, no blob).
+- Short of a shipping frame: no shell ejected on the pump; the stroke is the hand and fore-end, the gun does
+  not cycle a shell; the debris still sprays up over the wall (the game's own chips); no smoke wisp at the muzzle.
+- A/B: `GTA2DX9_SHOTGUN_FX_OLD=1` (no refire detection, pump, hold, debris lift or puff rule; the model stays).

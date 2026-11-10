@@ -254,15 +254,39 @@ def silenced_mg():
 
 
 def shotgun():
-    steel = Part(); wood = Part()
-    tube(steel, (-0.004, 0.012, 0.100), 0.004, 0.150)           # twin barrels
-    tube(steel, (0.004, 0.012, 0.100), 0.004, 0.150)
-    box(steel, (0, 0.010, 0.012), (0.014, 0.016, 0.040))        # breech
-    box(wood, (0, 0.004, 0.080), (0.016, 0.012, 0.050))         # fore-end
-    box(wood, (0, -0.004, -0.040), (0.014, 0.024, 0.070))       # stock
-    box(wood, (0, -0.010, 0.000), (0.012, 0.016, 0.016))        # wrist
+    """FIX-FIGURE-14 (pfl72): a pump-action (the game's HUD shotgun), at the old gun's span (-0.075 .. 0.175, so the
+    rig's points and the table length still fit): the receiver over the trigger, one barrel with the magazine tube
+    under it, the ribbed fore-end on the tube as its own node ("pump": the view model slides it back and forth
+    after a shot), a pistol-grip wrist, the stock and a rubber butt pad. The bore stays 0.012 over the grip, the
+    fore-end's middle at 0.080 (where the support hand goes). (Was two tubes over three wooden boxes.)"""
+    steel = Part(); wood = Part(); dark = Part(); pump = Part()
+    bevel_box(steel, (0, 0.008, 0.012), (0.014, 0.020, 0.046), 0.003)          # receiver -0.011 .. 0.035
+    box(dark, (0.0071, 0.011, 0.016), (0.0006, 0.006, 0.016))                 # ejection port
+    tube(steel, (0, 0.012, 0.105), 0.0042, 0.140, segments=16)                 # barrel 0.035 .. 0.175
+    tube(dark, (0, 0.012, 0.1752), 0.0030, 0.0012, segments=16)                # the bore at the muzzle
+    box(steel, (0, 0.0168, 0.171), (0.0016, 0.0022, 0.003))                    # front bead
+    tube(steel, (0, 0.0015, 0.090), 0.0036, 0.110, segments=16)                # magazine tube 0.035 .. 0.145
+    tube(steel, (0, 0.0015, 0.146), 0.0040, 0.003, segments=16)                # its cap
+    box(steel, (0, 0.006, 0.148), (0.004, 0.008, 0.004))                       # barrel band
+    bevel_box(pump, (0, 0.0015, 0.080), (0.016, 0.014, 0.050), 0.004)          # fore-end 0.055 .. 0.105
+    pump_ribs = Part()                                                          # its grip ribs
+    for k in range(6):
+        for sx in (-1, 1):
+            box(pump_ribs, (sx * 0.0081, 0.0015, 0.062 + k * 0.0072), (0.0006, 0.0100, 0.0022))
+    box(steel, (0, -0.002, 0.009), (0.003, 0.004, 0.018))                      # trigger guard bottom
+    box(steel, (0, -0.0035, 0.009), (0.0012, 0.005, 0.0016))                   # trigger
+    bevel_box(wood, (0, -0.009, -0.002), (0.012, 0.020, 0.014), 0.003, axis=1)  # pistol-grip wrist
+    bevel_box(wood, (0, -0.004, -0.040), (0.013, 0.024, 0.056), 0.003)         # stock -0.068 .. -0.012
+    bevel_box(wood, (0, -0.008, -0.066), (0.0135, 0.030, 0.008), 0.003)        # the heel
+    box(dark, (0, -0.008, -0.0720), (0.0140, 0.031, 0.006))                    # butt pad -0.075
+    # (the ribs ride with the fore-end: they are part of the pump node's mesh)
+    pump.v += pump_ribs.v; pump.n += pump_ribs.n; pump.uv += pump_ribs.uv
+    base = len(pump.v) - len(pump_ribs.v)
+    pump.f += [[i + base for i in f] for f in pump_ribs.f]
     return scene_with([("steel", steel.mesh(mat(BLUED, 0.9, 0.3, name="steel"))),
-                       ("wood", wood.mesh(mat(WALNUT, 0.1, 0.55, name="wood")))]), 0.21
+                       ("wood", wood.mesh(mat(WALNUT, 0.1, 0.55, name="wood"))),
+                       ("dark", dark.mesh(mat(RUBBER, 0.2, 0.8, name="dark", kind="plain"))),
+                       ("pump", pump.mesh(mat(WALNUT, 0.1, 0.55, name="pump")))]), 0.21
 
 
 def rocket_launcher():

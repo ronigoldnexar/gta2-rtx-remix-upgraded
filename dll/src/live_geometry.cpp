@@ -437,6 +437,21 @@ int g_playerWeaponSeen = 0;             // the last weapon the player's own figu
 // and used when his figure picks its stance and model. Overwritten each frame.
 std::unordered_map<uintptr_t, int> g_pedWeaponByObject;
 uint32_t g_fpShotFrame = 0;             // the player's last shot seen from the first-person eye
+uint32_t g_ownShotFrame = 0;   // FIX-FIGURE-14: the player's last shot seen (either view: the figure's or the view model's)
+// FIX-FIGURE-14 (pfl72): the shotgun's pump: its fore-end node ("pump", tools/gen_weapons.py shotgun) slid
+// back by `dz` (model units) in the view model's draw. Set as the pose hook for that one draw.
+struct PumpPose { const Model* model = nullptr; float dz = 0.0f; };
+PumpPose g_pumpPose;
+void PumpPoseHook(const Model& model, std::vector<gta2::Mat4>* W, void* context) {
+    const PumpPose& p = *static_cast<const PumpPose*>(context);
+    if (&model != p.model || W->size() != model.nodes.size()) return;
+    for (size_t i = 0; i < model.nodes.size(); ++i)
+        if (std::strncmp(model.nodes[i].name, "pump", 4) == 0) (*W)[i].m[3][2] -= p.dz;
+}
+bool ShotgunFxOld() {
+    static const bool on = [] { char v[8] = {}; return GetEnvironmentVariableA("GTA2DX9_SHOTGUN_FX_OLD", v, sizeof v) && v[0] == '1'; }();
+    return on;
+}
 int g_carLamps = 1;         // [renderer] car_lamps: 0 none, 1 when dark + brake lamps, 2 always
 gta2::Vec3 g_viewEye = {0.0f, 0.0f, 0.0f};
 gta2::Vec3 g_viewForward = {0.0f, -1.0f, 0.0f};
@@ -2187,6 +2202,14 @@ void DrawGamePuffs(IDirect3DDevice9* device) {
         for (const GamePuff& p0 : g_gamePuffs) {
             if (p0.additive != add) continue;
             GamePuff p = p0;
+            // FIX-FIGURE-14 (pfl72): the game's gun smoke after his shot is a column of tiny puffs (0.02 block) rising
+            // from his feet: drawn 1.35x they were a dotted line of pale specks over his head for a second (drawn
+            // wider they were a pale blob at his feet). Near him (1.5 block) within 2 s of his shot they are left out:
+            // the muzzle flash and its smoke (ShotFxMuzzle) carry the shot.
+            if (p.size < 0.06f && g_ownShotFrame && g_carFrame - g_ownShotFrame < 60 && g_playerPosValid && !ShotgunFxOld()) {
+                const float dx = p.x - g_playerPosX, dz = p.z - g_playerPosZ;
+                if (dx * dx + dz * dz < 2.25f) continue;
+            }
             if (!RocketPuffOld()) {
                 for (const RocketLaunch& L : g_rocketLaunches) {
                     if (g_carFrame - L.frame > 75) continue;
@@ -8162,7 +8185,29 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
             static int n = 0;
             if (n < 40) { ++n; Log("view model: shot seen (ammo %d -> %d) f=%u", lastAmmo, g_playerAmmo, g_carFrame); }
         }
-        if (g_fpShotFrame == g_carFrame) shotFrame = g_carFrame;
+        // FIX-FIGURE-14 (pfl72): a kill frenzy's weapon never spends a round (the HUD shows INF) and the
+        // shotgun's pellets are not a flash ahead of the eye, so the shotgun fired with the view model frozen:
+        // no kick, no flash. The weapon's own refire word (+2 of its object, the word the figures' gameShot reads)
+        // jumps up on every shot: that is a shot too. GTA2DX9_SHOTGUN_FX_OLD=1: as before (ammunition and flash only).
+        {
+            static uintptr_t lastWobj = 0;
+            static int lastRefire = -1;
+            uintptr_t wobj = 0;
+            int refire = -1;
+            if (g_playerPed && g_playerWeapon > 0 && !ShotgunFxOld()) {
+                GTA2_TRY {
+                    const uint8_t* w = *reinterpret_cast<const uint8_t* const*>(static_cast<const uint8_t*>(g_playerPed) + game::kPedCurrentWeapon);
+                    if (game::PlausiblePointer(w)) { wobj = reinterpret_cast<uintptr_t>(w); refire = *reinterpret_cast<const int16_t*>(w + 2); }
+                } GTA2_EXCEPT { wobj = 0; refire = -1; }
+            }
+            if (wobj && wobj == lastWobj && lastRefire >= 0 && refire > lastRefire && g_carFrame - g_fpShotFrame >= 3) {
+                g_fpShotFrame = g_carFrame;
+                static int n = 0;
+                if (n < 40) { ++n; Log("view model: shot seen (refire %d -> %d) f=%u", lastRefire, refire, g_carFrame); }
+            }
+            lastWobj = wobj; lastRefire = refire;
+        }
+        if (g_fpShotFrame == g_carFrame) { shotFrame = g_carFrame; g_ownShotFrame = g_carFrame; }
         lastAmmo = g_playerWeapon > 0 ? g_playerAmmo : -1;
         const float fl = std::sqrt(f.x * f.x + f.z * f.z);
         if (g_playerPosValid && fl > 1e-3f)
@@ -8283,6 +8328,16 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     else if (shotT < 0.03f) kick = 0.75f + 0.25f * shotT / 0.03f;
     else if (shotT < 0.45f) { const float u = (shotT - 0.03f) / 0.045f; kick = (1.0f + u) * std::exp(-u); }
     const float vmFlash = shotT < 0.06f ? 1.0f - shotT / 0.06f * 0.6f : 0.0f;
+    // FIX-FIGURE-14 (pfl72): the shotgun pumped after each shot: from 0.22 s the fore-end and the support hand slide
+    // 0.045 back along the barrel and forward again over 0.38 s, the gun canted 0.35 rad, pulled in 0.012 and tipped
+    // up with the pull (along the barrel alone the stroke was all depth from the eye and hardly showed).
+    // GTA2DX9_SHOTGUN_FX_OLD=1: no pump (with the old shot detection).
+    float pumpS = 0.0f;
+    if (vmShown == kWpnShotgun && !ShotgunFxOld() && shotT >= 0.22f && shotT < 0.60f) {
+        const float u = (shotT - 0.22f) / 0.38f;
+        pumpS = std::sin(3.14159265f * u);
+        pumpS *= pumpS < 0.0f ? 0.0f : 1.0f;
+    }
     {
         static int kickLog = 0;
         if (kickLog < 90 && shotT < 0.45f) { ++kickLog; Log("view model kick: t=%.3f kick=%.2f climb=%.2f flash=%.2f f=%u", shotT, kick, vmClimb, vmFlash, g_carFrame); }
@@ -8427,9 +8482,13 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     const bool fist2 = fists && fist2Model && !fistOld;
     const float swingR = fist2 ? 0.012f * strideSwing : 0.0f;   // the right fist forward by this, the left back
     if (fist2) { bobSide *= 0.5f; }
-    const float ahead = (fist2 ? 0.14f + 0.05f * jabR + swingR : fists ? 0.13f + 0.05f * jabR : (wi.twoHanded ? 0.20f : 0.155f) - wi.kick * kick) - rsAhead * rs - 0.02f * rack - 0.03f * drop;
-    const float side = (fist2 ? 0.066f - 0.02f * jabR : fists ? 0.060f - 0.02f * jabR : (wi.twoHanded ? 0.055f : 0.075f)) - rsSide * rs,
-                down = (fist2 ? 0.042f + breath - 0.012f * jabR - 0.25f * (std::max)(0.0f, swingR) : fists ? 0.070f + breath - 0.012f * jabR : (wi.twoHanded ? 0.075f : 0.066f) + (thrown ? (BottleOldAttach() ? 0.02f : -0.010f) : 0.0f) - 0.010f * kick) + rsDown * rs + 0.12f * drop;
+    const float ahead = (fist2 ? 0.14f + 0.05f * jabR + swingR : fists ? 0.13f + 0.05f * jabR : (wi.twoHanded ? 0.20f : 0.155f) - wi.kick * kick) - rsAhead * rs - 0.02f * rack - 0.03f * drop - 0.012f * pumpS;
+    // FIX-FIGURE-14 (pfl72): the shotgun lower right and further out (0.085 side, 0.068 down): at the long guns' 0.055/0.075
+    // its barrel stood at 54 degrees in the frame (aimed at the crosshair from under the eye: "pointing at the sky");
+    // now about 40 degrees, the stock along the bottom right.
+    const bool sgHold = weapon == kWpnShotgun && !fists && !ShotgunFxOld();
+    const float side = (fist2 ? 0.066f - 0.02f * jabR : fists ? 0.060f - 0.02f * jabR : sgHold ? 0.085f : (wi.twoHanded ? 0.055f : 0.075f)) - rsSide * rs,
+                down = (fist2 ? 0.042f + breath - 0.012f * jabR - 0.25f * (std::max)(0.0f, swingR) : fists ? 0.070f + breath - 0.012f * jabR : (sgHold ? 0.068f : wi.twoHanded ? 0.075f : 0.066f) + (thrown ? (BottleOldAttach() ? 0.02f : -0.010f) : 0.0f) - 0.010f * kick) + rsDown * rs + 0.12f * drop;
     float pos[3];
     for (int c = 0; c < 3; ++c) pos[c] = (&eye.x)[c] + (&f.x)[c] * ahead + right[c] * (side + bobSide + swaySide) - up[c] * (down + bobDown);
     // The barrel on the crosshair: aimed at the point 5 blocks along the view
@@ -8445,7 +8504,7 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
         const float tip = fists ? (fistMesh ? -0.30f : -0.55f) : 0.0f, turnIn = fists ? 0.25f : 0.0f;
         const float kickUp = autoGun ? 0.16f * kick + 0.10f * vmClimb : 0.16f * kick * (wi.twoHanded ? 0.6f : 1.0f);
         const float rsUp = reloadOld ? 0.22f : 0.16f, rsIn = reloadOld ? 0.05f : 0.14f;
-        for (int c = 0; c < 3; ++c) dir[c] = aim[c] / al + up[c] * (kickUp + rsUp * rs - 0.9f * drop + tip) - right[c] * (rsIn * rs + turnIn);
+        for (int c = 0; c < 3; ++c) dir[c] = aim[c] / al + up[c] * (kickUp + rsUp * rs - 0.9f * drop + tip + 0.06f * pumpS) - right[c] * (rsIn * rs + turnIn);
     }
     const float dl = (std::max)(1e-4f, std::sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]));
     for (float& v : dir) v /= dl;
@@ -8454,11 +8513,11 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     wr[0] /= wrl; wr[2] /= wrl;
     float wu[3] = {dir[1] * wr[2] - dir[2] * wr[1], dir[2] * wr[0] - dir[0] * wr[2], dir[0] * wr[1] - dir[1] * wr[0]};
     static const bool fistRolled = ModelByName("fp_fist_right") != nullptr;
-    if (rs > 0.0f || kick > 0.0f || (fists && fistRolled)) {
+    if (rs > 0.0f || kick > 0.0f || pumpS > 0.0f || (fists && fistRolled)) {
         // Rolled about the barrel: the magazine well toward the eye on a reload,
         // a few degrees to the right on a shot; FIX-FIGURE-7: the vertical fist rolled a
         // quarter of the way to palm-down, the back of the hand toward the eye's right.
-        const float roll = -(reloadOld ? 0.75f : 0.55f) * rs - 0.10f * kick + (fists && fistRolled ? 0.45f : 0.0f);
+        const float roll = -(reloadOld ? 0.75f : 0.55f) * rs - 0.10f * kick - 0.35f * pumpS + (fists && fistRolled ? 0.45f : 0.0f);
         const float ca = std::cos(roll), sa = std::sin(roll);
         for (int c = 0; c < 3; ++c) { const float r0 = wr[c], u0 = wu[c]; wr[c] = r0 * ca + u0 * sa; wu[c] = u0 * ca - r0 * sa; }
     }
@@ -8615,7 +8674,15 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
     device->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
     device->SetFVF(kWorldFvf);
-    if (!fists) ModelDraw(device, *model, place, nullptr, 0.0f);
+    if (!fists) {
+        const bool pumping = pumpS > 0.0f;
+        if (pumping) {
+            g_pumpPose.model = model; g_pumpPose.dz = 0.045f * pumpS;
+            ModelSetPoseHook(&PumpPoseHook, &g_pumpPose, (0x50554dull << 40) | static_cast<uint64_t>(pumpS * 1000.0f));
+        }
+        ModelDraw(device, *model, place, nullptr, 0.0f);
+        if (pumping) ModelSetPoseHook(nullptr, nullptr, 0);
+    }
     // IDENTITY-SYSTEM: the sleeves are the player record's shirt (the colour his third-person
     // avatar's shirt renders with), whatever the generator baked into their texture.
     {
@@ -8639,7 +8706,7 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
         // fore grip -> under the magazine well (dropT..grabT), up with the fresh magazine (grabT..insertT),
         // back to the fore grip (0.15 s). Its offset from the fore grip eases (tau 0.05 s), so a reload
         // cut short by the trigger brings the hand back over a few frames, not in one.
-        gta2::Mat4 lm = handAt(fore[0], fore[1], fore[2], false);
+        gta2::Mat4 lm = handAt(fore[0], fore[1], fore[2] - 0.045f * pumpS, false);   // FIX-FIGURE-14: on the pump
         static float lhOff[3] = {0.0f, 0.0f, 0.0f};
         float want[3] = {0.0f, 0.0f, 0.0f};
         if (!reloadOld && reloadT >= 0.0f && ri.insertT > 0.0f) {
@@ -9812,6 +9879,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                                                   (sprite.pedReload > track.lastReload && track.lastReload >= 0));
                 const bool attacking = gameShot || shotNow || f == 139;
                 if (gameShot && !shotNow && g_carFrame - track.muzzleFrame >= 2) track.muzzleFrame = g_carFrame;
+                if (ownPed && (gameShot || shotNow)) g_ownShotFrame = g_carFrame;   // FIX-FIGURE-14 (pfl72): his gun smoke
                 if (g_logPedFrames && gameShot && ownPed) Log("player shot: ammo %d -> %d reload %d -> %d", track.lastAmmo, sprite.pedAmmo, track.lastReload, sprite.pedReload);
                 if (g_logPedFrames && (gameShot || shotNow) && !ownPed) {
                     static int npcShots = 0;
@@ -13432,6 +13500,24 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
             // fx4_mg_hide4: gone with it left out; 8/432-435 are the brass flecks, 8/503-505 the bullets).
             // In the street views the shot's debris is ShotFxMuzzle's brass case from the ejection port.
             if (base == 4 && num == 15) continue;
+            // FIX-FIGURE-14 (pfl72): first person on foot, for 15 frames after his shot, the game's impact debris
+            // (8/432-435, the chips a bullet throws off what it hits) is lifted 0.30 block: the game fires at his
+            // body's height, 0.30 under the eye, so at a wall a block away the shotgun's hits burst low beside the
+            // forearm, nowhere near the crosshair; lifted, they land on the aim line at any range.
+            if (base == 8 && num >= 432 && num <= 435 && CurrentViewMode() == ViewMode::FirstPerson && g_playerObject &&
+                g_hiddenObjects[0] == g_playerObject && g_fpShotFrame && g_carFrame - g_fpShotFrame <= 15 && !ShotgunFxOld())
+                const_cast<Sprite&>(sprite).objectToWorld.m[3][1] += 0.30f;
+            {
+                // GTA2DX9_LOG_FX=2 (FIX-FIGURE-14): the other code-object sprites drawn in first person just after his shot.
+                static int probe2 = -1;
+                if (probe2 < 0) { char buf[8] = {}; probe2 = GetEnvironmentVariableA("GTA2DX9_LOG_FX", buf, sizeof buf) && buf[0] == '2'; }
+                if (probe2 && CurrentViewMode() == ViewMode::FirstPerson && g_fpShotFrame && g_carFrame - g_fpShotFrame <= 15) {
+                    static int pl2 = 0;
+                    const float (*m)[4] = sprite.objectToWorld.m;
+                    if (pl2 < 400) { ++pl2; Log("fpobj: f=%u obj %p base %d num %u at %.2f,%.2f,%.2f flags %x", g_carFrame, reinterpret_cast<const void*>(sprite.object), base, num,
+                                                m[3][0], m[3][1], m[3][2], sprite.gameFlags); }
+                }
+            }
             if (base == 8 && (num == 325 || num == 326)) {
                 const float (*m)[4] = sprite.objectToWorld.m;
                 float c[3] = {0, 0, 0}, w0[3], w1[3], w3[3];
@@ -13740,8 +13826,19 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
                     // number, size), once per number: the muzzle flashes, bullets,
                     // sparks and shells of each weapon. A probe, off by default.
                     static int probe = -1;
-                    if (probe < 0) { char buf[8] = {}; probe = GetEnvironmentVariableA("GTA2DX9_LOG_FX", buf, sizeof buf) && buf[0] == '1'; }
-                    if (probe && sp.object) {
+                    if (probe < 0) { char buf[8] = {}; probe = GetEnvironmentVariableA("GTA2DX9_LOG_FX", buf, sizeof buf) ? (buf[0] == '2' ? 2 : buf[0] == '1' ? 1 : 0) : 0; }
+                    // GTA2DX9_LOG_FX=2 (FIX-FIGURE-14): every effect sprite in first person on foot for 15 frames after his shot.
+                    if (probe == 2 && fxFpFoot && g_fpShotFrame && g_carFrame - g_fpShotFrame <= 15) {
+                        int b2 = -1; unsigned n2 = 0;
+                        if (sp.object) GTA2_TRY {
+                            b2 = *reinterpret_cast<const int32_t*>(reinterpret_cast<const uint8_t*>(sp.object) + game::kSpriteObjectBase);
+                            n2 = *reinterpret_cast<const uint16_t*>(reinterpret_cast<const uint8_t*>(sp.object) + game::kSpriteObjectNumber);
+                        } GTA2_EXCEPT { b2 = -2; }
+                        static int fl = 0;
+                        if (fl < 400) { ++fl; Log("fpfx: f=%u obj %p base %d num %u size %.3f at %.2f,%.2f,%.2f eye %.2f,%.2f,%.2f", g_carFrame, reinterpret_cast<const void*>(sp.object), b2, n2, size,
+                                                  c[0], c[1], c[2], fxEye.x, fxEye.y, fxEye.z); }
+                    }
+                    if (probe == 1 && sp.object) {
                         static std::set<int> seen;
                         const uint8_t* obj = reinterpret_cast<const uint8_t*>(sp.object);
                         int base = -1; unsigned num = 0;

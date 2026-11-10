@@ -7826,13 +7826,15 @@
   },
   {
    "name": "weapon_shotgun",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 264,
+   "nodes": 4,
+   "meshes": 4,
+   "vertices": 1160,
    "animations": [],
    "textures": [
     "weapon_shotgun_0.tga",
-    "weapon_shotgun_1.tga"
+    "weapon_shotgun_1.tga",
+    "weapon_shotgun_2.tga",
+    "weapon_shotgun_3.tga"
    ],
    "skins": 0,
    "forward": "+z",
