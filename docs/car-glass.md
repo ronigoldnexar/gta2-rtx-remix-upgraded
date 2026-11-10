@@ -144,3 +144,73 @@ Not done / short of a shipping bar:
   - `[renderer] tyre_shadows=1` turns it on.
   - `[devtools] tyre_shadows=0` turns off the tyre patches and the surface placement, for A/B.
   - The log line is `contact shadows: N cars (M tyres), ...`.
+
+## 5. VEHICLE-GLASS-2 (10 Nov 2026): glass under Remix, the mask's class misses, Fresnel
+
+### 5.1 Remix: panes as their own geometry with one shared glass texture
+
+Remix ignores the extra texture stage that cuts the hull in the plain renderer and keys its materials
+on the stage-0 texture's hash, so until now every generated car kept its opaque baked glass under Remix.
+Under Remix (`RemixApiAvailable()`, `GTA2DX9_GLASS_REMIX=0` restores the old "nothing under Remix"):
+
+- **Cut by geometry.** `CarGlassCutIndexBuffer` (one hook in `model_store.cpp`, the glass call only)
+  gives the hull draw an index buffer over the mesh's own vertices less its pane triangles. A triangle is
+  a pane when 8 of 15 points spread over its UV footprint lie on the *pane mask* (the glass mask eroded
+  by one texel, so a pillar edge stays metal and the painted rim reads as the seal).
+- **Panes.** The same triangles are drawn in `CarGlassFlush` from managed buffers with ONE fleet-wide
+  texture of fixed content (256x256 A8R8G8B8, `FixedTexture`), so ONE fixed Remix hash:
+  **`0x00E7B4E949140568`** (the log prints it: `car glass: pane texture 0x... (Remix hash ...)`).
+  Drawn unlit, white, opaque draw state, depth written: Remix multiplies a replacement's albedo by the
+  legacy vertex/material colour, and the plain pass's lit dark tint made the panes near black.
+- **Cabin.** The cabin shell is drawn with two shared textures of its own, trim **`0x52573041E54EEEB7`**
+  and headliner **`0x92AE80C504938232`**, without the shell's side and end walls (the path tracer sees
+  faces from both sides; the walls would stand just inside the glass). Seats, dash, floor and headliner
+  stay, so a side window shows the seats, the far window and the street beyond.
+- **Layer prims** (tested from a private copy of the layer, handed to FIX-REMIX-MATERIALS-5; see the
+  NOTE beside the vr-car-glass work order): the pane `AperturePBR_Translucent`, thin-walled
+  (thickness 0.5), IOR 1.5, transmittance (0.86, 0.90, 0.90); trim and headliner `AperturePBR_Opacity`
+  roughness 0.85 / 0.9 over their legacy albedo.
+- **Proof the hash keys:** a probe layer with the pane prim as a flat magenta `diffuse_texture` painted
+  every pane magenta on 000, 013 and 067 in one session (run vg2_rxp7). A prim carrying only
+  `diffuse_color_constant` does NOT show (the legacy albedo stays): probes need a texture.
+  The hash is a constant of the code, the same in every session and for every car.
+
+### 5.2 The mask's class misses (measured offline)
+
+`tools/car_glass_mask.py <models> <stems> [--old] [--sheet s.png] [--dump dir]` is the offline twin of
+`Build` (the same masks to the texel: run vg2_pl1's `GTA2DX9_GLASS_DUMP` dumps against it, 0 texels
+apart on 000/011/012/067/013, 2 of 1442 on 013_2). `--old` gives the 33c34be heuristic;
+`GLASS_DEBUG=1` colours the sheet: glass cyan, strict bodywork red, paint-like orange, band yellow.
+Class rules added (no per-model data):
+
+| Miss | Cause | Rule |
+|---|---|---|
+| 067 two-tone band dropped with its cab windows | the cream band and the window are one component, dropped as paint | a paint-reading component loses only its bright texels and their shade (same chromaticity); the rest is closed and kept if it reads as glass |
+| two-tone uppers in general | the paint colours are sampled on the lower flanks only | light near-neutral roof colours (val > 0.45, sat < 0.25) join the paint colours |
+| 030 dark paint, glass barely found | 0.10 of RGB is most of a dark green's range; `val < 0.18` excluded all dark glass | the paint tolerance scales with the paint's brightness (floor 0.6); only tyre-black (< 0.08) excluded |
+| 012 windscreen bake strip | saturated texels count as livery everywhere | on a screen a saturated texel may be grown into from the glass around it but never seeds glass |
+| 011 pale rear | a rear screen as light as the paint was a tailgate | not when it is cooler (bluer) than a warm paint |
+
+Texel counts old -> new: 011 4039->4091, 012 795->1047, 030 260->349, 067 1463->1993 (both cab side
+windows), 019 289->563, 007 360->1088, 003 280->1714, 000 2968->2994. Tried and dropped: on a dark body a
+light rear screen as glass (012's white-baked rear was found only in part: a ragged dark hole in the
+chase view where FIX-SEATED's band looked better, runs vg2_pl0 vs vg2_pl1). Still short: 003 and 007
+(dark utility bodies) take part of their dark rear doors around the small door windows as glass; 030's
+glass is still mostly missed (its bake paints the glass the paint's own dark green); 012's rear screen
+and the blue sky reflections that match its blue paint's hue; 063 and 004 are authored bodies now
+(their own `_glass`), outside the mask.
+
+### 5.3 Fresnel (plain renderer): tried, NOT working, off
+
+Written: stage 0 looks up a 256x4 ramp by the camera-space normal's depth component (texgen
+`CAMERASPACENORMAL`, u = 0.5 n.z wrapped, so 2 min(u, 1-u) is the cosine to a distant viewer): rgb = the
+sky reflection's strength, 0.20 facing to 0.95 grazing ((1-cos)^4), alpha = the opacity, `car_glass_alpha`
+facing to 0.94 grazing ((1-cos)^3); stage 1 multiplies the sky cube by it, stage 2 adds the lit tint and
+cuts by the mask. GPU texgen only, no per-vertex work. In the frames it does not vary with the angle:
+same-spot A/B (runs vg2_pl1 with the translation row u = 0.5 + 0.5 n.z, vg2_pl3 with the wrapped
+form) made every pane darker by the same amount (the facing value), with no brightening on the grazing
+side windows (013/012/011 front34, 013 side, 012 eye: 4.6k-20k pixels darker, under 1k brighter, the
+brighter ones the moving driver). So the generated coordinate does not reach the ramp as written on
+wined3d. Left in the code as `[devtools] car_glass=3` (experimental); `car_glass=1` draws the constant
+look of section 1. Next step for a successor: a per-vertex factor (a diffuse-carrying copy of the pane
+vertices per frame, n.v on the CPU, ~1-6k vertices) or a small vertex shader.

@@ -3098,7 +3098,9 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
         // VEHICLE-GLASS: in cut mode the body's glass texels are alpha-tested away (the mask on the
         // first free stage multiplies the alpha); the glass pass draws them later.
         int glassStage = 0;
-        if (IDirect3DTexture9* glassMask = CarGlassCutMask(mesh.texture)) {
+        UINT glassKeep = 0;   // VEHICLE-GLASS-2: under Remix the hull is cut by geometry (its panes left out)
+        IDirect3DIndexBuffer9* glassIb = (b && vb && !skinned) ? CarGlassCutIndexBuffer(device, mesh, &glassKeep) : nullptr;
+        if (IDirect3DTexture9* glassMask = glassIb ? nullptr : CarGlassCutMask(mesh.texture)) {
             DWORD op1 = D3DTOP_DISABLE;
             device->GetTextureStageState(1, D3DTSS_COLOROP, &op1);
             glassStage = softPaint ? 3 : op1 != D3DTOP_DISABLE ? 2 : 1;
@@ -3160,9 +3162,9 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
             streams = true;
         } else if (b && vb) {
             device->SetStreamSource(0, vb, 0, sizeof(ModelVertex));
-            device->SetIndices(b->ib);
+            device->SetIndices(glassIb ? glassIb : b->ib);
             device->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, static_cast<UINT>(mesh.vertices.size()), 0,
-                                         static_cast<UINT>(mesh.indices.size() / 3));
+                                         glassIb ? glassKeep : static_cast<UINT>(mesh.indices.size() / 3));
             streams = true;
         } else {
             device->DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, 0, static_cast<UINT>(mesh.vertices.size()),

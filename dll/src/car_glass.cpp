@@ -18,6 +18,9 @@
 #include "view_modes.h"
 #include "../../src/sky.h"
 
+#define XXH_INLINE_ALL
+#include "../deps/xxhash/xxhash.h"
+
 namespace gta2dx9 {
 namespace {
 
@@ -26,11 +29,13 @@ int g_on = 1;
 float g_alpha = 0.52f;
 float g_range = 40.0f;
 
-struct Quad { float p[4][3]; float n[3]; uint32_t colour; };
+// kind: 0 a wall of the cabin shell, 1 its headliner, 2 its floor, 3 furniture (seats, dash).
+struct Quad { float p[4][3]; float n[3]; uint32_t colour; int kind; };
 
 struct Glass {
     std::atomic<int> state{0};   // 0 queued, 1 building, 2 built (CPU), 3 textures made, -1 no glass
     std::map<std::string, std::vector<uint8_t>> masks;   // stem -> kR*kR, 255 = glass
+    std::map<std::string, std::vector<uint8_t>> panes;   // the same eroded by 1 texel: the Remix cut (inside the painted rim)
     std::vector<Quad> cabin;     // model space
     int glassTexels = 0;
     int rearTexels = 0;          // of them on a rear screen (the seated driver seen from behind)
@@ -56,6 +61,83 @@ struct Queued { const Model* model; gta2::Mat4 placement; };
 std::vector<Queued> g_queue;
 
 IDirect3DCubeTexture9* g_cube = nullptr;
+
+// VEHICLE-GLASS-2, the Remix half. Remix ignores the extra texture stage that cuts the hull in the
+// plain renderer and keys its materials on the stage-0 texture's hash. Under Remix the hull is cut
+// by geometry instead (its glass triangles are left out of the draw, CarGlassCutIndexBuffer), the
+// panes are drawn as those triangles with ONE shared glass texture for the whole fleet (fixed
+// content, so a fixed XXH3 hash that a translucent material in the gta2hd layer keys on), and the
+// cabin is drawn with two shared textures (trim, headliner) of their own.
+int g_remixOn = 1;                                         // GTA2DX9_GLASS_REMIX=0: the old behaviour (nothing under Remix)
+IDirect3DTexture9* g_glassTex = nullptr;                   // the fleet's pane texture
+IDirect3DTexture9* g_cabinTex[2] = {nullptr, nullptr};     // trim, headliner
+std::map<const ModelMesh*, GlassPart> g_paneTris;          // under Remix: a mesh's pane triangles (majority on glass)
+struct CutIb { IDirect3DIndexBuffer9* ib = nullptr; UINT tris = 0; bool none = false; };
+std::map<const ModelMesh*, CutIb> g_cutIb;                 // under Remix: a mesh's triangles less its panes
+
+bool RemixMode() { return g_remixOn && RemixApiAvailable(); }
+
+// Under Remix the panes and the cabin are drawn from managed buffers made once, as the hulls are
+// (vg2_rxp1..5: drawn from memory, their layer material never applied).
+struct StaticBuf { IDirect3DVertexBuffer9* vb = nullptr; IDirect3DIndexBuffer9* ib = nullptr; UINT nv = 0, ntri = 0; bool failed = false; };
+std::map<const void*, StaticBuf> g_staticBufs;
+const StaticBuf* StaticBufFor(IDirect3DDevice9* device, const void* key, const void* verts, UINT nv, UINT stride, DWORD fvf,
+                              const uint32_t* idx, UINT ni) {
+    StaticBuf& b = g_staticBufs[key];
+    if (b.vb) return &b;
+    if (b.failed || !nv) return nullptr;
+    b.failed = true;
+    if (FAILED(device->CreateVertexBuffer(nv * stride, D3DUSAGE_WRITEONLY, fvf, D3DPOOL_MANAGED, &b.vb, nullptr)) || !b.vb) { b.vb = nullptr; return nullptr; }
+    void* p = nullptr;
+    if (FAILED(b.vb->Lock(0, 0, &p, 0))) { b.vb->Release(); b.vb = nullptr; return nullptr; }
+    memcpy(p, verts, static_cast<size_t>(nv) * stride);
+    b.vb->Unlock();
+    if (idx && ni) {
+        if (FAILED(device->CreateIndexBuffer(ni * 4, D3DUSAGE_WRITEONLY, D3DFMT_INDEX32, D3DPOOL_MANAGED, &b.ib, nullptr)) || !b.ib) {
+            b.vb->Release(); b.vb = nullptr; b.ib = nullptr; return nullptr;
+        }
+        if (FAILED(b.ib->Lock(0, 0, &p, 0))) { b.vb->Release(); b.ib->Release(); b.vb = nullptr; b.ib = nullptr; return nullptr; }
+        memcpy(p, idx, static_cast<size_t>(ni) * 4);
+        b.ib->Unlock();
+        b.ntri = ni / 3;
+    } else {
+        b.ntri = nv / 3;
+    }
+    b.nv = nv;
+    b.failed = false;
+    return &b;
+}
+
+// A small texture of fixed content (the same bytes every session, so the same Remix hash):
+// a base colour with a 2-bit ordered ripple, so it is unlike any flat texture the game makes.
+IDirect3DTexture9* FixedTexture(IDirect3DDevice9* device, uint32_t argb, const char* what) {
+    // 256 x 256: Remix did not key its materials on the same texture at 16 x 16 (vg2_rxp1..4: the panes
+    // drew with the legacy texture under a probe prim); the body textures that do key are 512-1024.
+    constexpr int kN = 256;
+    IDirect3DTexture9* t = nullptr;
+    if (FAILED(device->CreateTexture(kN, kN, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &t, nullptr)) || !t) return nullptr;
+    D3DLOCKED_RECT lr;
+    if (FAILED(t->LockRect(0, &lr, nullptr, 0))) { t->Release(); return nullptr; }
+    std::vector<uint8_t> bytes(kN * kN * 4);
+    for (int y = 0; y < kN; ++y)
+        for (int x = 0; x < kN; ++x) {
+            const uint32_t d = static_cast<uint32_t>((x * 7 + y * 13) & 3);
+            const uint32_t r = ((argb >> 16) & 0xFF) + d, g = ((argb >> 8) & 0xFF) + d, b = (argb & 0xFF) + d;
+            const uint32_t px = (argb & 0xFF000000u) | ((r & 0xFF) << 16) | ((g & 0xFF) << 8) | (b & 0xFF);
+            memcpy(&bytes[(y * kN + x) * 4], &px, 4);
+        }
+    for (int y = 0; y < kN; ++y) memcpy(static_cast<uint8_t*>(lr.pBits) + y * lr.Pitch, &bytes[y * kN * 4], kN * 4);
+    t->UnlockRect(0);
+    Log("car glass: %s texture 0x%016llX (Remix hash, 256x256 A8R8G8B8)", what, static_cast<unsigned long long>(XXH3_64bits(bytes.data(), bytes.size())));
+    return t;
+}
+
+bool RemixTextures(IDirect3DDevice9* device) {
+    if (!g_glassTex) g_glassTex = FixedTexture(device, 0x50B4C2C8u, "pane");
+    if (!g_cabinTex[0]) g_cabinTex[0] = FixedTexture(device, 0xFF2E2A27u, "cabin trim");
+    if (!g_cabinTex[1]) g_cabinTex[1] = FixedTexture(device, 0xFF6E6862u, "cabin headliner");
+    return g_glassTex && g_cabinTex[0] && g_cabinTex[1];
+}
 float g_cubeKey[6] = {-1, -1, -1, -1, -1, -1};
 
 std::string StemOf(const std::string& texture) {
@@ -167,14 +249,24 @@ void HueSat(float r, float g, float b, float* hue, float* sat, float* val) {
     *hue = h * 60.0f;
 }
 
+constexpr int kMaxClusters = 5;   // up to three flank colours and two light roof colours
+
+// How far a paint colour's RGB tolerance reaches: 0.10 of RGB is most of a dark green's whole range,
+// so the tolerance scales with the paint's brightness (VEHICLE-GLASS-2; 030 Land Roamer).
+float PaintScale(const float c[3]) {
+    const float v = (std::max)((std::max)(c[0], c[1]), c[2]);
+    return (std::max)(0.60f, (std::min)(1.0f, v / 0.40f));
+}
+
 // A texel of the body's paint: near one of its colours, or (a saturated paint) the same hue,
 // brighter or darker (the bake keeps the concept's highlights and shade on the panels).
-bool PaintLike(float r, float g, float b, const float clusters[3][3], int n) {
+bool PaintLike(float r, float g, float b, const float clusters[][3], int n) {
     float hue, sat, val;
     HueSat(r, g, b, &hue, &sat, &val);
     for (int c = 0; c < n; ++c) {
         const float dr = r - clusters[c][0], dg = g - clusters[c][1], db = b - clusters[c][2];
-        if (dr * dr + dg * dg + db * db < 0.10f * 0.10f) return true;
+        const float t = 0.10f * PaintScale(clusters[c]);
+        if (dr * dr + dg * dg + db * db < t * t) return true;
         float ch, cs, cv;
         HueSat(clusters[c][0], clusters[c][1], clusters[c][2], &ch, &cs, &cv);
         if (cs < 0.30f || sat < 0.25f || val < 0.10f) continue;
@@ -185,34 +277,92 @@ bool PaintLike(float r, float g, float b, const float clusters[3][3], int n) {
     return false;
 }
 
-// Drops the glass components that read as paint as a whole: bright and tinted (a cream or white
-// upper body of a two-tone van, a cargo bed's slats, a roof sign), or near white. Glass in the bakes
-// is darker, or a near-neutral pale grey (sat under 0.12).
-int DropPaintComponents(Mask& g, const std::vector<float>& rgb) {
-    std::vector<int> label(g.size(), 0), stack, pts;
-    int n = 0, dropped = 0;
+// 4-connected components of a mask: label per texel (0 = none), the count returned.
+int Label(const Mask& m, std::vector<int>* label) {
+    label->assign(m.size(), 0);
+    std::vector<int> stack;
+    int n = 0;
     for (int i = 0; i < kR * kR; ++i) {
-        if (!g[i] || label[i]) continue;
+        if (!m[i] || (*label)[i]) continue;
         ++n;
-        stack.assign(1, i); label[i] = n; pts.clear();
-        double sv = 0, ss = 0;
+        stack.assign(1, i); (*label)[i] = n;
         while (!stack.empty()) {
             const int a = stack.back(); stack.pop_back();
-            pts.push_back(a);
-            float hue, sat, val;
-            HueSat(rgb[a * 3], rgb[a * 3 + 1], rgb[a * 3 + 2], &hue, &sat, &val);
-            sv += val; ss += sat;
             const int x = a % kR, y = a / kR;
             const int nb[4] = {x > 0 ? a - 1 : -1, x + 1 < kR ? a + 1 : -1, y > 0 ? a - kR : -1, y + 1 < kR ? a + kR : -1};
             for (int b : nb)
-                if (b >= 0 && g[b] && !label[b]) { label[b] = n; stack.push_back(b); }
-        }
-        const double mv = sv / pts.size(), ms = ss / pts.size();
-        if ((mv > 0.62 && ms > 0.12) || mv > 0.85) {
-            for (int a : pts) g[a] = 0;
-            ++dropped;
+                if (b >= 0 && m[b] && !(*label)[b]) { (*label)[b] = n; stack.push_back(b); }
         }
     }
+    return n;
+}
+
+// The glass components that read as paint as a whole: bright and tinted (a cream or white upper
+// body of a two-tone van, a cargo bed's slats, a roof sign), or near white. Glass in the bakes is
+// darker, or a near-neutral pale grey (sat under 0.12).
+std::vector<char> PaintComponents(const Mask& g, const std::vector<float>& rgb, std::vector<int>* label) {
+    const int n = Label(g, label);
+    std::vector<double> sv(n + 1, 0.0), ss(n + 1, 0.0), cnt(n + 1, 0.0);
+    for (int i = 0; i < kR * kR; ++i) {
+        const int l = (*label)[i];
+        if (!l) continue;
+        float hue, sat, val;
+        HueSat(rgb[i * 3], rgb[i * 3 + 1], rgb[i * 3 + 2], &hue, &sat, &val);
+        sv[l] += val; ss[l] += sat; cnt[l] += 1.0;
+    }
+    std::vector<char> drop(n + 1, 0);
+    for (int l = 1; l <= n; ++l) {
+        const double mv = sv[l] / cnt[l], ms = ss[l] / cnt[l];
+        drop[l] = ((mv > 0.62 && ms > 0.12) || mv > 0.85) ? 1 : 0;
+    }
+    return drop;
+}
+
+// Drops the components that read as paint (above). VEHICLE-GLASS-2: such a component first loses
+// only its paint texels, the bright ones and the shaded ones of the same chromaticity (a two-tone
+// van's cream band in light and shade); what is left (the darker cab window the glass grew into the
+// band through) is closed over small highlights and kept when it reads as glass on its own (067).
+int DropPaintComponents(Mask& g, const std::vector<float>& rgb) {
+    std::vector<int> label;
+    std::vector<char> drop = PaintComponents(g, rgb, &label);
+    int dropped = 0;
+    for (size_t l = 1; l < drop.size(); ++l) dropped += drop[l];
+    if (!dropped) return 0;
+    std::vector<float> val(kR * kR), sat(kR * kR), chroma(kR * kR * 3);
+    for (int i = 0; i < kR * kR; ++i) {
+        float hue;
+        HueSat(rgb[i * 3], rgb[i * 3 + 1], rgb[i * 3 + 2], &hue, &sat[i], &val[i]);
+        for (int k = 0; k < 3; ++k) chroma[i * 3 + k] = rgb[i * 3 + k] / (std::max)(val[i], 1e-3f);
+    }
+    auto bright = [&](int i) { return (val[i] > 0.62f && sat[i] > 0.12f) || val[i] > 0.85f; };
+    // Each flagged component's bright chromaticity.
+    std::vector<double> ref((drop.size()) * 3, 0.0), nb(drop.size(), 0.0);
+    for (int i = 0; i < kR * kR; ++i) {
+        const int l = label[i];
+        if (!l || !drop[l] || !bright(i)) continue;
+        for (int k = 0; k < 3; ++k) ref[l * 3 + k] += chroma[i * 3 + k];
+        nb[l] += 1.0;
+    }
+    Mask flagged(kR * kR, 0), rest(kR * kR, 0);
+    for (int i = 0; i < kR * kR; ++i) {
+        const int l = label[i];
+        if (!l || !drop[l]) continue;
+        flagged[i] = 1;
+        if (bright(i)) continue;
+        if (nb[l] >= 10) {
+            double d = 0.0;
+            for (int k = 0; k < 3; ++k) { const double e = chroma[i * 3 + k] - ref[l * 3 + k] / nb[l]; d += e * e; }
+            if (d < 0.12 * 0.12) continue;   // the same paint in shade
+        }
+        rest[i] = 1;
+    }
+    for (int k = 0; k < 2; ++k) rest = Dilate(rest);
+    for (int k = 0; k < 2; ++k) rest = Erode(rest);
+    for (int i = 0; i < kR * kR; ++i) rest[i] = rest[i] && flagged[i];
+    rest = KeepComponents(rest, 30);
+    for (int i = 0; i < kR * kR; ++i) if (flagged[i]) g[i] = rest[i];
+    drop = PaintComponents(g, rgb, &label);
+    for (int i = 0; i < kR * kR; ++i) if (label[i] && drop[label[i]]) g[i] = 0;
     return dropped;
 }
 
@@ -360,7 +510,7 @@ void Build(const Model* model, std::shared_ptr<Glass> glass) {
                 side.push_back(i);
             }
         }
-        float clusters[3][3]; int nClusters = 0;
+        float clusters[kMaxClusters][3]; int nClusters = 0;
         if (!side.empty()) {
             std::map<int, std::vector<int>> bins;
             for (int i : side) {
@@ -386,6 +536,37 @@ void Build(const Model* model, std::shared_ptr<Glass> glass) {
         bool darkPaint = false;
         for (int c = 0; c < nClusters; ++c)
             if ((std::max)((std::max)(clusters[c][0], clusters[c][1]), clusters[c][2]) < 0.2f) darkPaint = true;
+        {   // VEHICLE-GLASS-2: the roof's colour is paint too (the upper body of a two-tone van or bus is the
+            // roof's colour, and the flanks never see it). Light, near-neutral roofs only: a dark roof may
+            // share the glass's tone, a tinted one is a roof rack or a sign.
+            std::vector<int> roof;
+            for (int i = 0; i < kR * kR; ++i)
+                if (valid[i] && (pos[i * 3 + 1] - minY) / H > 0.92f && nrm[i * 3 + 1] > 0.80f && std::fabs(pos[i * 3] - midX) < 0.30f * W)
+                    roof.push_back(i);
+            if (roof.size() >= 40) {
+                std::map<int, std::vector<int>> bins;
+                for (int i : roof)
+                    bins[static_cast<int>((std::min)(7.99f, rgb[i * 3] * 8)) * 64 + static_cast<int>((std::min)(7.99f, rgb[i * 3 + 1] * 8)) * 8 +
+                         static_cast<int>((std::min)(7.99f, rgb[i * 3 + 2] * 8))].push_back(i);
+                std::vector<std::pair<size_t, int>> order;
+                for (auto& b : bins) order.push_back({b.second.size(), b.first});
+                std::sort(order.rbegin(), order.rend());
+                for (size_t o = 0; o < order.size() && o < 2 && nClusters < kMaxClusters; ++o) {
+                    if (order[o].first * 100 < roof.size() * 25) break;
+                    float c[3] = {0, 0, 0};
+                    for (int i : bins[order[o].second]) for (int k = 0; k < 3; ++k) c[k] += rgb[i * 3 + k];
+                    for (int k = 0; k < 3; ++k) c[k] /= order[o].first;
+                    float ch, cs, cv;
+                    HueSat(c[0], c[1], c[2], &ch, &cs, &cv);
+                    bool distinct = true;
+                    for (int k = 0; k < nClusters; ++k) {
+                        const float dr = c[0] - clusters[k][0], dg = c[1] - clusters[k][1], db = c[2] - clusters[k][2];
+                        distinct = distinct && dr * dr + dg * dg + db * db > 0.06f * 0.06f;
+                    }
+                    if (cv > 0.45f && cs < 0.25f && distinct) { for (int k = 0; k < 3; ++k) clusters[nClusters][k] = c[k]; ++nClusters; }
+                }
+            }
+        }
         // The glasshouse: side faces under the roof, the windscreen ahead of it, the rear screen
         // behind; between the belt and nine tenths of the roof, not the roof or bonnet tops.
         Mask g(kR * kR, 0), band(kR * kR, 0), paintLike(kR * kR, 0), strict(kR * kR, 0);
@@ -409,17 +590,30 @@ void Build(const Model* model, std::shared_ptr<Glass> glass) {
             // Strictly bodywork: within 0.12 of a paint colour, a saturated bright livery, or a rear
             // "screen" as light as the paint, or upright and not clearly darker than it (a tailgate).
             bool nearPaint = false;
-            for (int c = 0; c < nClusters && !nearPaint; ++c) {
+            float dmin = 9.0f;   // the distance to the nearest paint, in units of its tolerance scale
+            bool cooler = nClusters > 0;
+            for (int c = 0; c < nClusters; ++c) {
                 const float dr = r - clusters[c][0], dg = gg - clusters[c][1], db = b - clusters[c][2];
-                nearPaint = dr * dr + dg * dg + db * db < 0.12f * 0.12f;
+                const float sc = PaintScale(clusters[c]), d = std::sqrt(dr * dr + dg * dg + db * db);
+                nearPaint = nearPaint || d < 0.12f * sc;
+                dmin = (std::min)(dmin, d / sc);
+                cooler = cooler && (b - r) > (clusters[c][2] - clusters[c][0]) + 0.08f;
             }
-            if (nearPaint || (sat > 0.55f && vv > 0.25f) || (rearScreen && ((ny < 0.15f && !(vv < 0.55f * paintVal)) || !(vv < 0.9f * paintVal || vv < 0.35f))))
+            // VEHICLE-GLASS-2: a rear screen reflecting the sky is cooler (bluer) than a warm pale paint:
+            // glass, not a tailgate (011). (A dark body's light rear screen was tried and dropped: 012's
+            // white-baked rear was only half found, a ragged hole where FIX-SEATED's band looked better.)
+            const bool sky = cooler && sat < 0.35f && dmin > 0.10f;
+            // A screen carries no livery: its saturated bake (the dash's reflection) may be grown into from
+            // the glass around it (012's strip), but never seeds glass (a hot-dog van's sign, 024).
+            const bool livery = sideW && sat > 0.55f && vv > 0.25f;
+            const bool liveryScreen = !sideW && sat > 0.55f && vv > 0.25f;
+            if (nearPaint || livery || (rearScreen && !sky && ((ny < 0.15f && !(vv < 0.55f * paintVal)) || !(vv < 0.9f * paintVal || vv < 0.35f))))
                 strict[i] = 1;
-            if (strict[i] || PaintLike(r, gg, b, clusters, nClusters)) {
+            if (strict[i] || liveryScreen || PaintLike(r, gg, b, clusters, nClusters)) {
                 paintLike[i] = 1;
                 continue;
             }
-            if (val < 0.18f && darkPaint) continue;
+            if (val < 0.08f && darkPaint) continue;   // tyre-black (was 0.18: every dark glass texel of a dark car)
             g[i] = 1;
         }
         g = Dilate(Erode(g));
@@ -463,6 +657,13 @@ void Build(const Model* model, std::shared_ptr<Glass> glass) {
                 }
             }
         }
+        {
+            Mask pane(kR * kR);
+            for (int i = 0; i < kR * kR; ++i) pane[i] = g[i] ? 1 : 0;
+            pane = Erode(pane);
+            for (auto& v : pane) v = v ? 255 : 0;
+            glass->panes[stem] = std::move(pane);
+        }
         glass->masks[stem] = std::move(g);
     }
     glass->glassTexels = totalGlass;
@@ -496,10 +697,12 @@ void Build(const Model* model, std::shared_ptr<Glass> glass) {
         floorY = (std::min)(floorY, belt - 0.04f * H);
     }
     if (ceil < belt + 0.08f * H) { Log("car glass: %s: no room for a cabin under the roof (headliner %.3f, belt %.3f)", model->name.c_str(), ceil, belt); glass->state = -1; return; }
+    int shellKind = -1;   // -1 furniture; else the shell (0 walls, 1 top, 2 bottom by the face)
     auto quad = [&](float a[3], float b[3], float c[3], float d[3], float nx, float ny, float nz, uint32_t col) {
         Quad q;
         memcpy(q.p[0], a, 12); memcpy(q.p[1], b, 12); memcpy(q.p[2], c, 12); memcpy(q.p[3], d, 12);
         q.n[0] = nx; q.n[1] = ny; q.n[2] = nz; q.colour = col;
+        q.kind = shellKind < 0 ? 3 : ny < -0.5f ? 1 : ny > 0.5f ? 2 : 0;   // the shell faces inward: its top's normal points down
         glass->cabin.push_back(q);
     };
     // A box's six faces, each facing inward (seen from inside) or outward.
@@ -515,7 +718,9 @@ void Build(const Model* model, std::shared_ptr<Glass> glass) {
         quad(v[4], v[5], v[1], v[0], 0, -s, 0, bottomCol);    // bottom
     };
     // Colours: trim near black, a lighter headliner (the depth cue through the glass), seats dark.
+    shellKind = 0;
     box(cx - halfW, cx + halfW, floorY, ceil, zr, zf, true, 0xFF1C1A19u, 0xFF4A4642u, 0xFF141210u);
+    shellKind = -1;
     const float cabLen = zf - zr;
     if (cabLen > 0.18f * L && halfW > 0.05f) {
         // Seat backs and headrests, front pair and a rear bench when the cabin is long enough.
@@ -566,12 +771,38 @@ IDirect3DTexture9* MakeMask(IDirect3DDevice9* device, const std::vector<uint8_t>
     return t;
 }
 
-// The glass triangles of a mesh: any of seven points of its UV footprint on glass.
+// Under Remix a triangle is a pane when more than half of it is glass on the pane mask (15 points
+// spread over its UV footprint): a pillar edge stays metal, a coarse body's large window triangles go.
+int PaneVotes(const ModelMesh& mesh, const std::vector<uint8_t>& g, size_t k) {
+    const ModelVertex& a = mesh.vertices[mesh.indices[k]];
+    const ModelVertex& b = mesh.vertices[mesh.indices[k + 1]];
+    const ModelVertex& c = mesh.vertices[mesh.indices[k + 2]];
+    int n = 0;
+    for (int i = 0; i <= 4; ++i)
+        for (int j = 0; i + j <= 4; ++j) {
+            const float l0 = i / 4.0f, l1 = j / 4.0f, l2 = 1.0f - l0 - l1;
+            float u = l0 * a.u + l1 * b.u + l2 * c.u, v = l0 * a.v + l1 * b.v + l2 * c.v;
+            u -= std::floor(u); v -= std::floor(v);
+            const int x = (std::min)(kR - 1, static_cast<int>(u * kR)), y = (std::min)(kR - 1, static_cast<int>(v * kR));
+            n += g[y * kR + x] ? 1 : 0;
+        }
+    return n;
+}
+constexpr int kPaneVotes = 8;   // of 15
+
+// The glass triangles of a mesh: in the plain renderer any of seven points of its UV footprint on
+// glass (the mask's stage cuts the exact contour); under Remix the pane triangles (kPaneVotes).
 const GlassPart& GlassTris(const ModelMesh& mesh, const std::vector<uint8_t>& g) {
-    auto it = g_meshTris.find(&mesh);
-    if (it != g_meshTris.end()) return it->second;
-    GlassPart& part = g_meshTris[&mesh];
+    const bool remix = RemixMode();
+    std::map<const ModelMesh*, GlassPart>& cache = remix ? g_paneTris : g_meshTris;
+    auto it = cache.find(&mesh);
+    if (it != cache.end()) return it->second;
+    GlassPart& part = cache[&mesh];
     std::vector<uint32_t> out;
+    if (remix) {
+        for (size_t k = 0; k + 2 < mesh.indices.size(); k += 3)
+            if (PaneVotes(mesh, g, k) >= kPaneVotes) out.insert(out.end(), {mesh.indices[k], mesh.indices[k + 1], mesh.indices[k + 2]});
+    } else {
     auto at = [&](float u, float v) {
         u -= std::floor(u); v -= std::floor(v);
         const int x = (std::min)(kR - 1, static_cast<int>(u * kR)), y = (std::min)(kR - 1, static_cast<int>(v * kR));
@@ -586,6 +817,7 @@ const GlassPart& GlassTris(const ModelMesh& mesh, const std::vector<uint8_t>& g)
         for (const auto& l : w)
             if (at(l[0] * a.u + l[1] * b.u + l[2] * c.u, l[0] * a.v + l[1] * b.v + l[2] * c.v)) { hit = true; break; }
         if (hit) out.insert(out.end(), {mesh.indices[k], mesh.indices[k + 1], mesh.indices[k + 2]});
+    }
     }
     // Only the vertices those triangles use: an "UP" draw copies every vertex in its range.
     std::map<uint32_t, uint32_t> remap;
@@ -649,6 +881,35 @@ IDirect3DCubeTexture9* SkyCube(IDirect3DDevice9* device) {
     return g_cube;
 }
 
+// The Fresnel ramp (VEHICLE-GLASS-2): 256 x 4, u = 0.5 n.z of the camera-space normal wrapped into
+// 0..1, so 2 min(u, 1 - u) is the cosine to the viewer (either face). rgb = the sky reflection's strength (0.20 facing the eye,
+// rising to 0.95 at grazing: Schlick's (1 - cos)^5 softened to ^4 for the bakes' low-poly panes),
+// alpha = the glass's opacity (car_glass_alpha facing, up to 0.94 at grazing).
+IDirect3DTexture9* g_ramp = nullptr;
+float g_rampAlpha = -1.0f;
+IDirect3DTexture9* FresnelRamp(IDirect3DDevice9* device) {
+    if (g_ramp && std::fabs(g_rampAlpha - g_alpha) < 1e-4f) return g_ramp;
+    if (!g_ramp && (FAILED(device->CreateTexture(256, 4, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &g_ramp, nullptr)) || !g_ramp)) {
+        g_ramp = nullptr;
+        return nullptr;
+    }
+    D3DLOCKED_RECT lr;
+    if (FAILED(g_ramp->LockRect(0, &lr, nullptr, 0))) return nullptr;
+    for (int y = 0; y < 4; ++y) {
+        uint32_t* row = reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(lr.pBits) + y * lr.Pitch);
+        for (int x = 0; x < 256; ++x) {
+            const float u = (x + 0.5f) / 256.0f, c = 2.0f * (std::min)(u, 1.0f - u), k = 1.0f - c;
+            const float refl = (std::min)(1.0f, 0.20f + 0.75f * k * k * k * k);
+            const float op = (std::min)(1.0f, g_alpha + (0.94f - g_alpha) * k * k * k);
+            const uint32_t r8 = static_cast<uint32_t>(refl * 255.0f + 0.5f), a8 = static_cast<uint32_t>(op * 255.0f + 0.5f);
+            row[x] = (a8 << 24) | (r8 << 16) | (r8 << 8) | r8;
+        }
+    }
+    g_ramp->UnlockRect(0);
+    g_rampAlpha = g_alpha;
+    return g_ramp;
+}
+
 float Det3(const gta2::Mat4& m) {
     return m.m[0][0] * (m.m[1][1] * m.m[2][2] - m.m[1][2] * m.m[2][1]) - m.m[0][1] * (m.m[1][0] * m.m[2][2] - m.m[1][2] * m.m[2][0]) +
            m.m[0][2] * (m.m[1][0] * m.m[2][1] - m.m[1][1] * m.m[2][0]);
@@ -658,18 +919,20 @@ float Det3(const gta2::Mat4& m) {
 
 void CarGlassSettings(int enabled, int alphaPercent, int rangeBlocks) {
     g_on = enabled;
+    char v[8] = {};
+    if (GetEnvironmentVariableA("GTA2DX9_GLASS_REMIX", v, sizeof v) && v[0] == '0') g_remixOn = 0;
     g_alpha = (std::max)(0.05f, (std::min)(1.0f, alphaPercent / 100.0f));
     g_range = static_cast<float>((std::max)(1, rangeBlocks));
     Log("car glass: %s, alpha %.2f, range %.0f blocks", g_on ? "on" : "off", g_alpha, g_range);
 }
 
 void CarGlassSetEnabled(int enabled) {
-    if ((enabled != 0) != (g_on != 0)) Log("car glass: %s (devtools)", enabled ? "on" : "off");
+    if (enabled != g_on) Log("car glass: %s (devtools)", enabled == 3 ? "on, Fresnel ramp (experimental)" : enabled ? "on" : "off");
     g_on = enabled;
 }
 
 bool CarGlassOn() {
-    return g_on && !RemixApiAvailable() && CurrentViewMode() != ViewMode::Classic;
+    return g_on && (!RemixApiAvailable() || g_remixOn) && CurrentViewMode() != ViewMode::Classic;
 }
 
 bool CarGlassReady(IDirect3DDevice9* device, const Model& base) {
@@ -760,6 +1023,48 @@ IDirect3DTexture9* CarGlassCutMask(const std::string& texture) {
     return t;
 }
 
+IDirect3DIndexBuffer9* CarGlassCutIndexBuffer(IDirect3DDevice9* device, const ModelMesh& mesh, UINT* triangles) {
+    if (!g_cut || !RemixMode()) return nullptr;
+    auto c = g_cutIb.find(&mesh);
+    if (c != g_cutIb.end()) {
+        if (c->second.none) return nullptr;
+        *triangles = c->second.tris;
+        return c->second.ib;
+    }
+    const std::vector<uint8_t>* g = nullptr;
+    {
+        std::lock_guard<std::mutex> lk(g_lock);
+        const std::string stem = StemOf(mesh.texture);
+        auto gl = g_stemGlass.find(stem);
+        if (gl == g_stemGlass.end()) return nullptr;   // not ready yet: ask again next time
+        auto mk = gl->second->panes.find(stem);
+        if (mk != gl->second->panes.end()) g = &mk->second;
+    }
+    CutIb& e = g_cutIb[&mesh];
+    e.none = true;
+    if (!g) return nullptr;
+    std::vector<uint32_t> keep;
+    keep.reserve(mesh.indices.size());
+    size_t panes = 0;
+    for (size_t k = 0; k + 2 < mesh.indices.size(); k += 3) {
+        if (PaneVotes(mesh, *g, k) >= kPaneVotes) { ++panes; continue; }
+        keep.insert(keep.end(), {mesh.indices[k], mesh.indices[k + 1], mesh.indices[k + 2]});
+    }
+    if (!panes || keep.empty()) return nullptr;
+    IDirect3DIndexBuffer9* ib = nullptr;
+    if (FAILED(device->CreateIndexBuffer(static_cast<UINT>(keep.size() * 4), D3DUSAGE_WRITEONLY, D3DFMT_INDEX32, D3DPOOL_MANAGED, &ib, nullptr)) || !ib)
+        return nullptr;
+    void* p = nullptr;
+    if (FAILED(ib->Lock(0, 0, &p, 0))) { ib->Release(); return nullptr; }
+    memcpy(p, keep.data(), keep.size() * 4);
+    ib->Unlock();
+    e.ib = ib; e.tris = static_cast<UINT>(keep.size() / 3); e.none = false;
+    static int logged = 0;
+    if (logged++ < 40) Log("car glass: remix cut %s: %zu pane triangles of %zu", mesh.texture.c_str(), panes, mesh.indices.size() / 3);
+    *triangles = e.tris;
+    return ib;
+}
+
 namespace {
 const std::vector<DrawEntry>& EntriesFor(const Model& model) {
     auto it = g_entries.find(&model);
@@ -775,8 +1080,10 @@ const std::vector<DrawEntry>& EntriesFor(const Model& model) {
         auto tx = g_stemTex.find(stem);
         auto gl = g_stemGlass.find(stem);
         if (tx == g_stemTex.end() || gl == g_stemGlass.end()) continue;
-        auto mk = gl->second->masks.find(stem);
-        if (mk == gl->second->masks.end()) continue;
+        // Under Remix the panes are cut by triangles: the eroded mask keeps the edge triangles hull.
+        const std::map<std::string, std::vector<uint8_t>>& src = RemixMode() ? gl->second->panes : gl->second->masks;
+        auto mk = src.find(stem);
+        if (mk == src.end()) continue;
         done[stem] = true;
         if (GlassTris(mesh, mk->second).i.empty()) continue;   // wheels, a door with no window
         out.push_back({i, &mesh, tx->second, &mk->second});
@@ -800,14 +1107,21 @@ void CarGlassDrawInterior(IDirect3DDevice9* device, const Model& base, const gta
         if (it == g_models.end() || it->second->state != 3) return;
         glass = it->second;
     }
-    struct V { float x, y, z; uint32_t c; };
-    std::vector<V> verts;
+    struct V { float x, y, z; uint32_t c; float u, v; };
+    const bool remix = RemixMode();
+    if (remix && !RemixTextures(device)) return;
+    // Under Remix: two draws (trim, headliner), and none of the shell's walls: the path tracer sees
+    // them from both sides, so they would stand just inside the glass and hide the cabin; without
+    // them a side window shows the seats, the far window and the street beyond, as in a real car.
+    std::vector<V> verts, lining;
     verts.reserve(glass->cabin.size() * 6);
     // Which way each face is wound: front faces clockwise in D3D, so a quad meant to be seen from
     // the side its normal points to is wound so; a mirrored placement flips the sense.
     const bool mirrored = Det3(placement) < 0.0f;
     const float dim = night ? 0.45f : 1.0f;
     for (const Quad& q : glass->cabin) {
+        if (remix && q.kind == 0) continue;
+        std::vector<V>& to = remix && q.kind == 1 ? lining : verts;
         // The quad's own winding normal (model space), against the face's intended normal.
         const float* a = q.p[0]; const float* b = q.p[1]; const float* c = q.p[2];
         const float e1[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]}, e2[3] = {c[0] - a[0], c[1] - a[1], c[2] - a[2]};
@@ -824,12 +1138,14 @@ void CarGlassDrawInterior(IDirect3DDevice9* device, const Model& base, const gta
         const uint32_t cc = col(q.colour);
         const int order[6] = {0, 1, 2, 0, 2, 3};
         const int rev[6] = {0, 2, 1, 0, 3, 2};
+        const float uv[4][2] = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
         for (int k = 0; k < 6; ++k) {
-            const float* p = q.p[flip ? rev[k] : order[k]];
-            verts.push_back({p[0], p[1], p[2], cc});
+            const int ci = flip ? rev[k] : order[k];
+            const float* p = q.p[ci];
+            to.push_back({p[0], p[1], p[2], remix ? 0xFFFFFFFFu : cc, uv[ci][0], uv[ci][1]});
         }
     }
-    if (verts.empty()) return;
+    if (verts.empty() && lining.empty()) return;
     DWORD lighting, cull, fvf, aTest, aBlend, c0op, c0a1, a0op, a0a1, c1op, a1op, spec;
     IDirect3DBaseTexture9* tex0 = nullptr;
     device->GetRenderState(D3DRS_LIGHTING, &lighting);
@@ -853,15 +1169,29 @@ void CarGlassDrawInterior(IDirect3DDevice9* device, const Model& base, const gta
     device->SetRenderState(D3DRS_CULLMODE, D3DCULL_CCW);
     device->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
     device->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
-    device->SetFVF(D3DFVF_XYZ | D3DFVF_DIFFUSE);
-    device->SetTexture(0, nullptr);
+    device->SetFVF(D3DFVF_XYZ | D3DFVF_DIFFUSE | D3DFVF_TEX1);
+    device->SetTexture(0, remix ? g_cabinTex[0] : nullptr);
     device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
-    device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_DIFFUSE);
+    device->SetTextureStageState(0, D3DTSS_COLORARG1, remix ? D3DTA_TEXTURE : D3DTA_DIFFUSE);
     device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
-    device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_DIFFUSE);
+    device->SetTextureStageState(0, D3DTSS_ALPHAARG1, remix ? D3DTA_TEXTURE : D3DTA_DIFFUSE);
     device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
     device->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
-    device->DrawPrimitiveUP(D3DPT_TRIANGLELIST, static_cast<UINT>(verts.size() / 3), verts.data(), sizeof(V));
+    if (remix) device->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+    if (remix) {
+        const char* key = reinterpret_cast<const char*>(glass.get()) + (mirrored ? 2 : 0);
+        const StaticBuf* a = StaticBufFor(device, key, verts.data(), static_cast<UINT>(verts.size()), sizeof(V), D3DFVF_XYZ | D3DFVF_DIFFUSE | D3DFVF_TEX1, nullptr, 0);
+        const StaticBuf* b = StaticBufFor(device, key + 1, lining.data(), static_cast<UINT>(lining.size()), sizeof(V), D3DFVF_XYZ | D3DFVF_DIFFUSE | D3DFVF_TEX1, nullptr, 0);
+        if (a) { device->SetStreamSource(0, a->vb, 0, sizeof(V)); device->DrawPrimitive(D3DPT_TRIANGLELIST, 0, a->ntri); }
+        if (b) { device->SetTexture(0, g_cabinTex[1]); device->SetStreamSource(0, b->vb, 0, sizeof(V)); device->DrawPrimitive(D3DPT_TRIANGLELIST, 0, b->ntri); }
+        device->SetStreamSource(0, nullptr, 0, 0);
+    } else {
+        if (!verts.empty()) device->DrawPrimitiveUP(D3DPT_TRIANGLELIST, static_cast<UINT>(verts.size() / 3), verts.data(), sizeof(V));
+        if (!lining.empty()) {
+            device->SetTexture(0, g_cabinTex[1]);
+            device->DrawPrimitiveUP(D3DPT_TRIANGLELIST, static_cast<UINT>(lining.size() / 3), lining.data(), sizeof(V));
+        }
+    }
     device->SetRenderState(D3DRS_LIGHTING, lighting);
     device->SetRenderState(D3DRS_SPECULARENABLE, spec);
     device->SetRenderState(D3DRS_CULLMODE, cull);
@@ -883,8 +1213,10 @@ void CarGlassFlush(IDirect3DDevice9* device) {
     std::vector<Queued> queue;
     queue.swap(g_queue);
     if (!CarGlassOn()) return;
-    IDirect3DCubeTexture9* cube = SkyCube(device);
-    if (!cube) return;
+    const bool remix = RemixMode();
+    if (remix && !RemixTextures(device)) return;
+    IDirect3DCubeTexture9* cube = remix ? nullptr : SkyCube(device);
+    if (!remix && !cube) return;
     LARGE_INTEGER t0, t1, freq;
     QueryPerformanceCounter(&t0);
     // What this pass changes, saved and put back (a full state block a frame cost ~0.3 ms on wined3d).
@@ -896,16 +1228,16 @@ void CarGlassFlush(IDirect3DDevice9* device) {
         D3DTSS_ALPHAARG2, D3DTSS_TEXCOORDINDEX, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTSS_RESULTARG};
     static const D3DSAMPLERSTATETYPE kSs[] = {D3DSAMP_MINFILTER, D3DSAMP_MAGFILTER, D3DSAMP_MIPFILTER, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV,
         D3DSAMP_ADDRESSW};
-    DWORD rs[sizeof kRs / sizeof kRs[0]], ts[3][sizeof kTs / sizeof kTs[0]], sm[2][sizeof kSs / sizeof kSs[0]], fvf = 0;
+    DWORD rs[sizeof kRs / sizeof kRs[0]], ts[4][sizeof kTs / sizeof kTs[0]], sm[3][sizeof kSs / sizeof kSs[0]], fvf = 0;
     for (size_t k = 0; k < sizeof kRs / sizeof kRs[0]; ++k) device->GetRenderState(kRs[k], &rs[k]);
-    for (int st = 0; st < 3; ++st) for (size_t k = 0; k < sizeof kTs / sizeof kTs[0]; ++k) device->GetTextureStageState(st, kTs[k], &ts[st][k]);
-    for (int st = 0; st < 2; ++st) for (size_t k = 0; k < sizeof kSs / sizeof kSs[0]; ++k) device->GetSamplerState(st, kSs[k], &sm[st][k]);
+    for (int st = 0; st < 4; ++st) for (size_t k = 0; k < sizeof kTs / sizeof kTs[0]; ++k) device->GetTextureStageState(st, kTs[k], &ts[st][k]);
+    for (int st = 0; st < 3; ++st) for (size_t k = 0; k < sizeof kSs / sizeof kSs[0]; ++k) device->GetSamplerState(st, kSs[k], &sm[st][k]);
     device->GetFVF(&fvf);
-    IDirect3DBaseTexture9* tex[2] = {nullptr, nullptr};
-    device->GetTexture(0, &tex[0]); device->GetTexture(1, &tex[1]);
+    IDirect3DBaseTexture9* tex[3] = {nullptr, nullptr, nullptr};
+    for (int st = 0; st < 3; ++st) device->GetTexture(st, &tex[st]);
     D3DMATERIAL9 oldMat; device->GetMaterial(&oldMat);
-    D3DMATRIX oldWorld, oldTex0;
-    device->GetTransform(D3DTS_WORLD, &oldWorld); device->GetTransform(D3DTS_TEXTURE0, &oldTex0);
+    D3DMATRIX oldWorld, oldTex0, oldTex1;
+    device->GetTransform(D3DTS_WORLD, &oldWorld); device->GetTransform(D3DTS_TEXTURE0, &oldTex0); device->GetTransform(D3DTS_TEXTURE1, &oldTex1);
     IDirect3DVertexShader9* vs = nullptr; IDirect3DPixelShader9* ps = nullptr;
     device->GetVertexShader(&vs); device->GetPixelShader(&ps);
     // The reflection: the eye-space reflection vector turned back to the world by the view's
@@ -983,6 +1315,84 @@ void CarGlassFlush(IDirect3DDevice9* device) {
     mat.Specular = {0.9f, 0.9f, 0.85f, 1.0f};
     mat.Power = 48.0f;
     device->SetMaterial(&mat);
+    // VEHICLE-GLASS-2 Fresnel: real glass reflects more and hides more of the cabin at grazing angles.
+    // Stage 0 looks the facing up in a ramp (the camera-space normal's depth component, |n.z| = the
+    // cosine to a distant viewer) giving the reflection strength (rgb) and the opacity (alpha); stage 1
+    // multiplies the sky reflection by it; stage 2 adds the lit tint and cuts by the mask. GPU texgen,
+    // no per-vertex work. EXPERIMENTAL, off: [devtools] car_glass=3 only. In vg2_pl1/pl3 every pane came
+    // out at the facing value (uniformly darker, no grazing brightening), so the texgen lookup does not
+    // work on wined3d as written; car_glass=1 keeps the constant look (docs/car-glass.md 5.3).
+    IDirect3DTexture9* ramp = !remix && g_on == 3 ? FresnelRamp(device) : nullptr;
+    const DWORD maskStage = ramp ? 2 : 1;
+    if (ramp) {
+        D3DMATRIX fm = {};
+        fm._31 = 0.5f;   // u = 0.5 n.z, wrapped (the generated coordinate's translation row is not applied: vg2_pl1)
+        device->SetTransform(D3DTS_TEXTURE0, &fm);
+        device->SetTransform(D3DTS_TEXTURE1, &tm);
+        device->SetTexture(0, ramp);
+        device->SetTextureStageState(0, D3DTSS_TEXCOORDINDEX, D3DTSS_TCI_CAMERASPACENORMAL);
+        device->SetTextureStageState(0, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_COUNT2);
+        device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+        device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+        device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+        device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+        device->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_WRAP);
+        device->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_WRAP);
+        device->SetTexture(1, cube);
+        device->SetTextureStageState(1, D3DTSS_TEXCOORDINDEX, D3DTSS_TCI_CAMERASPACEREFLECTIONVECTOR);
+        device->SetTextureStageState(1, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_COUNT3);
+        device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_MODULATE);
+        device->SetTextureStageState(1, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+        device->SetTextureStageState(1, D3DTSS_COLORARG2, D3DTA_CURRENT);
+        device->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+        device->SetTextureStageState(1, D3DTSS_ALPHAARG1, D3DTA_CURRENT);
+        device->SetTextureStageState(1, D3DTSS_RESULTARG, D3DTA_CURRENT);
+        device->SetSamplerState(1, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+        device->SetSamplerState(1, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+        device->SetSamplerState(1, D3DSAMP_ADDRESSW, D3DTADDRESS_CLAMP);
+        device->SetTextureStageState(2, D3DTSS_TEXCOORDINDEX, 0);
+        device->SetTextureStageState(2, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE);
+        device->SetTextureStageState(2, D3DTSS_COLOROP, D3DTOP_ADD);
+        device->SetTextureStageState(2, D3DTSS_COLORARG1, D3DTA_CURRENT);
+        device->SetTextureStageState(2, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
+        device->SetTextureStageState(2, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
+        device->SetTextureStageState(2, D3DTSS_ALPHAARG1, D3DTA_CURRENT);
+        device->SetTextureStageState(2, D3DTSS_ALPHAARG2, D3DTA_TEXTURE | D3DTA_COMPLEMENT);
+        device->SetTextureStageState(2, D3DTSS_RESULTARG, D3DTA_CURRENT);
+        device->SetSamplerState(2, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
+        device->SetSamplerState(2, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
+        device->SetSamplerState(2, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+        device->SetSamplerState(2, D3DSAMP_ADDRESSU, D3DTADDRESS_WRAP);
+        device->SetSamplerState(2, D3DSAMP_ADDRESSV, D3DTADDRESS_WRAP);
+        device->SetTextureStageState(3, D3DTSS_COLOROP, D3DTOP_DISABLE);
+        device->SetTextureStageState(3, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+    }
+    if (remix) {
+        // Under Remix: the panes with the fleet's glass texture on stage 0 (its hash keys the layer's
+        // translucent material); the sky reflection and the mask stage mean nothing to the path tracer.
+        device->SetTexture(0, g_glassTex);
+        device->SetTextureStageState(0, D3DTSS_TEXCOORDINDEX, 0);
+        device->SetTextureStageState(0, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE);
+        device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+        device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+        device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+        device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+        device->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_WRAP);
+        device->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_WRAP);
+        device->SetTexture(1, nullptr);
+        device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+        device->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+        device->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
+        // Opaque draw state: the translucency is the layer material's (a blended draw is classed by
+        // Remix as a legacy translucent surface).
+        device->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
+        device->SetRenderState(D3DRS_ZWRITEENABLE, TRUE);
+        // Unlit, white: Remix multiplies the replacement's albedo by the legacy colour (the lit dark
+        // tint of the plain pass made the panes near black and hid the cabin, vg2_rxp1..3).
+        device->SetRenderState(D3DRS_LIGHTING, FALSE);
+        device->SetRenderState(D3DRS_SPECULARENABLE, FALSE);
+        device->SetRenderState(D3DRS_TEXTUREFACTOR, 0xFFFFFFFFu);
+    }
     int drawn = 0, tris = 0;
     IDirect3DTexture9* bound = nullptr;
     std::lock_guard<std::mutex> lk(g_lock);
@@ -997,7 +1407,7 @@ void CarGlassFlush(IDirect3DDevice9* device) {
             const ModelMesh& mesh = *e.mesh;
             const GlassPart& part = GlassTris(mesh, *e.g);
             const std::vector<uint32_t>& idx = part.i;
-            if (e.mask != bound) { device->SetTexture(1, e.mask); bound = e.mask; }
+            if (!remix && e.mask != bound) { device->SetTexture(maskStage, e.mask); bound = e.mask; }
             gta2::Mat4 w;
             for (int r = 0; r < 4; ++r)
                 for (int c = 0; c < 4; ++c)
@@ -1006,18 +1416,29 @@ void CarGlassFlush(IDirect3DDevice9* device) {
             D3DMATRIX m;
             memcpy(&m, w.m, sizeof m);
             device->SetTransform(D3DTS_WORLD, &m);
-            device->DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, 0, static_cast<UINT>(part.v.size()), static_cast<UINT>(idx.size() / 3),
-                                           idx.data(), D3DFMT_INDEX32, part.v.data(), sizeof(ModelVertex));
+            const StaticBuf* sb = remix ? StaticBufFor(device, &part, part.v.data(), static_cast<UINT>(part.v.size()), sizeof(ModelVertex),
+                                                       D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_TEX1, idx.data(), static_cast<UINT>(idx.size()))
+                                        : nullptr;
+            if (sb) {
+                device->SetStreamSource(0, sb->vb, 0, sizeof(ModelVertex));
+                device->SetIndices(sb->ib);
+                device->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, sb->nv, 0, sb->ntri);
+            } else {
+                device->DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, 0, static_cast<UINT>(part.v.size()), static_cast<UINT>(idx.size() / 3),
+                                               idx.data(), D3DFMT_INDEX32, part.v.data(), sizeof(ModelVertex));
+            }
             ++drawn; tris += static_cast<int>(idx.size() / 3);
         }
     }
+    if (remix) { device->SetStreamSource(0, nullptr, 0, 0); device->SetIndices(nullptr); }
     for (size_t k = 0; k < sizeof kRs / sizeof kRs[0]; ++k) device->SetRenderState(kRs[k], rs[k]);
-    for (int st = 0; st < 3; ++st) for (size_t k = 0; k < sizeof kTs / sizeof kTs[0]; ++k) device->SetTextureStageState(st, kTs[k], ts[st][k]);
-    for (int st = 0; st < 2; ++st) for (size_t k = 0; k < sizeof kSs / sizeof kSs[0]; ++k) device->SetSamplerState(st, kSs[k], sm[st][k]);
+    for (int st = 0; st < 4; ++st) for (size_t k = 0; k < sizeof kTs / sizeof kTs[0]; ++k) device->SetTextureStageState(st, kTs[k], ts[st][k]);
+    for (int st = 0; st < 3; ++st) for (size_t k = 0; k < sizeof kSs / sizeof kSs[0]; ++k) device->SetSamplerState(st, kSs[k], sm[st][k]);
     device->SetFVF(fvf);
-    for (int st = 0; st < 2; ++st) { device->SetTexture(st, tex[st]); if (tex[st]) tex[st]->Release(); }
+    for (int st = 0; st < 3; ++st) { device->SetTexture(st, tex[st]); if (tex[st]) tex[st]->Release(); }
     device->SetMaterial(&oldMat);
     device->SetTransform(D3DTS_WORLD, &oldWorld); device->SetTransform(D3DTS_TEXTURE0, &oldTex0);
+    device->SetTransform(D3DTS_TEXTURE1, &oldTex1);
     device->SetVertexShader(vs); device->SetPixelShader(ps);
     if (vs) vs->Release();
     if (ps) ps->Release();
@@ -1043,6 +1464,13 @@ void CarGlassReleaseDevice() {
     g_entries.clear();
     for (auto& m : g_models) if (m.second->state == 3) m.second->state = 2;
     if (g_cube) { g_cube->Release(); g_cube = nullptr; }
+    if (g_glassTex) { g_glassTex->Release(); g_glassTex = nullptr; }
+    if (g_ramp) { g_ramp->Release(); g_ramp = nullptr; }
+    for (auto& t : g_cabinTex) if (t) { t->Release(); t = nullptr; }
+    for (auto& c : g_cutIb) if (c.second.ib) c.second.ib->Release();
+    g_cutIb.clear();
+    for (auto& b : g_staticBufs) { if (b.second.vb) b.second.vb->Release(); if (b.second.ib) b.second.ib->Release(); }
+    g_staticBufs.clear();
     g_queue.clear();
 }
 

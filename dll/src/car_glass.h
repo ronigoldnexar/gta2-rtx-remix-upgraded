@@ -13,7 +13,8 @@
 //    map of this frame's sky colours) and catching the sun's specular.
 //
 // Not in the classic view (no car models there), not the first-person own car (the cockpit), not
-// wrecks or open tops, and not under Remix (which ignores the extra stage; see docs/car-glass.md).
+// wrecks or open tops. Under Remix (which ignores the extra stage) the hull is cut by geometry and
+// the panes and cabin carry shared textures of their own for the gta2hd layer (docs/car-glass.md 5).
 // [renderer] car_glass=1 (0 off), car_glass_alpha=62 (percent), car_glass_range=40 (blocks).
 #pragma once
 
@@ -53,6 +54,11 @@ bool CarGlassHasRear(const Model& base);
 void CarGlassBeginCut(const Model& base, float distance);
 void CarGlassEndCut();
 IDirect3DTexture9* CarGlassCutMask(const std::string& texture);
+// VEHICLE-GLASS-2: under Remix, in cut mode, the mesh's triangles less its glass panes (an index
+// buffer over the mesh's own vertices, 32-bit indices, *triangles of them); null otherwise. The
+// mask stage is then not bound (Remix ignores it): the panes are drawn by CarGlassFlush.
+struct ModelMesh;
+IDirect3DIndexBuffer9* CarGlassCutIndexBuffer(IDirect3DDevice9* device, const ModelMesh& mesh, UINT* triangles);
 void CarGlassCutQueue(const Model& model, const gta2::Mat4& placement);
 
 // The cabin shell inside `base` (floor, headliner, walls, dash, seat backs), placed like its hull.
