@@ -89,6 +89,10 @@ int g_fpSeatFreeze = 1;   // [devtools] fp_seat_freeze=0: FIX-SEAT-ENTRY-4's onc
 int g_doorTopCut = 1;      // [devtools] door_top_cut=0: FIX-SEAT-ENTRY-4's cut of the shoulder faces across the door's top off (A/B)
 int g_forceDoor = 0;        // [devtools] force_car_door=1|-1: every car body drawn with its right|left door open (re-read once a second)
 char g_devIni[260] = {};
+}  // namespace
+extern int g_fpNearMinMilli;
+extern int g_fpNearDeepMilli;
+namespace {
 // FIX-VEHICLES (car-bodies-interpenetrate-in-traffic): each car's drawn footprint (its
 // model's bounds after the fit, in the car's frame, placed by the game) is kept for the next
 // frame; a car whose footprint overlaps another's is drawn moved apart by its share of the
@@ -4094,6 +4098,8 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             if (cap != g_remixBeaconCapMilli) { g_remixBeaconCapMilli = cap; Log("devtools: Remix siren beacon cap %d/1000 tile", cap); }
         }
         g_carWorldSunDev = GetPrivateProfileIntA("devtools", "car_world_sun", -1, g_devIni);
+        g_fpNearMinMilli = GetPrivateProfileIntA("devtools", "fp_near_min_milli", -1, g_devIni);   // FIX-COCKPIT-CAB-4
+        g_fpNearDeepMilli = GetPrivateProfileIntA("devtools", "fp_near_deep_milli", -1, g_devIni);
         // [devtools] vehicle_feel=0|1 (VEHICLE-FEEL): the feel off or on while the game
         // runs, for before/after frames of one scene; absent leaves it as it is.
         const int feelKey = GetPrivateProfileIntA("devtools", "vehicle_feel", -1, g_devIni);
@@ -5541,4 +5547,8 @@ void CarBodiesMemGauges() {
     MemGauge("cb.asked", static_cast<double>(g_dentAsked.size() + g_doorAsked.size() + g_wheelAsked.size() + g_bonnetAsked.size()));
 }
 
+int g_fpNearMinMilli = -1;   // FIX-COCKPIT-CAB-4: [devtools] fp_near_min_milli (-1: the default), read by world_view's look-down near plane
+int CarDevFpNearMinMilli() { return g_fpNearMinMilli; }
+int g_fpNearDeepMilli = -1;   // FIX-COCKPIT-CAB-4: [devtools] fp_near_deep_milli, the floor looking straight down
+int CarDevFpNearDeepMilli() { return g_fpNearDeepMilli; }
 }  // namespace gta2dx9

@@ -118,4 +118,7 @@ int CarBodiesPartStats(const double** ms, const char* const** names);
 // enough albedo to show its shading, and a dark body gets a broader, sky-tinted sheen.
 void SetCarPaintFloor(float fraction);
 
+// FIX-COCKPIT-CAB-4: [devtools] fp_near_min_milli, the first-person look-down near plane floor (-1: the default).
+int CarDevFpNearMinMilli();
+int CarDevFpNearDeepMilli();   // [devtools] fp_near_deep_milli: the floor looking straight down (-1: the default)
 }  // namespace gta2dx9

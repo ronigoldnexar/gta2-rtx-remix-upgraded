@@ -3302,6 +3302,33 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
     // The visual regression harness's fixed camera (regress_cam.h; off unless
     // GTA2DX9_REGRESS_CAM is set): the street views only, the classic view stays the game's.
     if (mode != ViewMode::Classic && transitionT_ >= 1.0f) RegressCameraOverride(&camera_);
+    {   // FIX-COCKPIT-CAB-4 (owner O2g: looking down at the wheel the arms ended in the near plane's cut, forearm fragments
+        // floating at the frame's edges): his shoulders sit ~0.045 block from the eye, inside the 0.05 near plane. Looking
+        // down the far scene leaves the frame (its top edge reaches the horizon at 35 degrees), so the near plane eases in
+        // from 28 degrees to 0.028 by 42 degrees (the arms whole from the frame's edge to the rim, cab4_near3 068) without the far depth
+        // precision a smaller near would cost a level view (at 40 degrees the old 0.05 still cut the forearms, cab4_near5); from 42 to 72 degrees (straight down at the lap) it eases back
+        // out to 0.030, which still clips his collar and chin under the eye (0.020-0.028 showed a skin sliver there, 0.034 cut
+        // the arm into a floating elbow again: cab4_near3/near4 on 021 and 068).
+        // First person in a vehicle only; every other view keeps 0.05. GTA2DX9_FP_NEAR_LOOKDOWN=0: off (A/B); [devtools]
+        // fp_near_min_milli / fp_near_deep_milli: the two floors live.
+        constexpr float kFpNearLookDownMin = 0.028f, kFpNearLookDownDeep = 0.030f;
+        static const bool nearOn = [] { char v[4] = {}; return !(GetEnvironmentVariableA("GTA2DX9_FP_NEAR_LOOKDOWN", v, sizeof v) && v[0] == '0'); }();
+        float nearZ = 0.05f;
+        if (nearOn && mode == ViewMode::FirstPerson && g_viewPlayer.valid && g_viewPlayer.inVehicle) {
+            const float down = -camera_.Pitch() * 57.29578f;
+            const int devMin = CarDevFpNearMinMilli(), devDeep = CarDevFpNearDeepMilli();
+            const float floorMin = devMin > 0 ? devMin / 1000.0f : kFpNearLookDownMin;
+            const float floorDeep = devDeep > 0 ? devDeep / 1000.0f : kFpNearLookDownDeep;
+            auto smooth = [](float x) { x = (std::max)(0.0f, (std::min)(1.0f, x)); return x * x * (3.0f - 2.0f * x); };
+            const float in = smooth((down - 28.0f) / 14.0f), out = smooth((down - 42.0f) / 30.0f);
+            nearZ = 0.05f + (floorMin - 0.05f) * in + (floorDeep - floorMin) * out;
+        }
+        if (nearZ != camera_.NearZ()) {
+            static int logs = 0;
+            if (logs < 40 && std::fabs(nearZ - camera_.NearZ()) > 0.01f) { ++logs; Log("view: near plane %.3f (first person look-down %.0f deg)", nearZ, -camera_.Pitch() * 57.29578f); }
+            camera_.SetNearZ(nearZ);
+        }
+    }
     // ANIM-VEHICLE-ENTRY verification aid (GTA2DX9_BOARDING_CAM=1, off by default): beside the door.
     gta2::Vec3 boardEye; float boardYaw = 0.0f, boardPitch = 0.0f;
     if (mode != ViewMode::Classic && BoardingDebugCamera(&boardEye, &boardYaw, &boardPitch)) {

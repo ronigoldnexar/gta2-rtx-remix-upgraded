@@ -30,6 +30,9 @@ public:
     // Roll about the view direction, radians, positive leaning right. Only the
     // chase and first-person views use it; the top-down view keeps it at 0.
     void SetRoll(float roll) { roll_ = roll; }
+    // The near clip plane (default 0.05). FIX-COCKPIT-CAB-4: first person at the wheel pulls it in while looking down.
+    void SetNearZ(float z) { nearZ_ = z; }
+    float NearZ() const { return nearZ_; }
     float Roll() const { return roll_; }
 
 private:

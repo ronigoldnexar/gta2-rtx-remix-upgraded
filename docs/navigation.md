@@ -1333,3 +1333,33 @@ flat front still makes a bus, never a tank). Adding a vehicle means one table en
   warp (tri-fp-fire-truck-017: the "no cab at steer 4 and 8" frames were taken before the game camera reached him,
   so the game submitted no sprite for his truck; settled, every steer step draws the cab). `gamerun/cab3_seat.py`
   (`keys_cab3_seat.sh`, PROBE_X/PROBE_Y/TAG): warp, settle, board, first person still/left/right/drive, third.
+
+### The seat lock through a hard hit, the rim from the steering keys (FIX-COCKPIT-CAB-4, 10 Nov 2026)
+
+* **Seat lock cap (qar7 O2i).** In a hard wall hit the game can move the car about 0.65 block from the eased
+  first-person eye within one frame (logged as `fp seat eye follows the tilted body 0.647`). The seat lock
+  (FIX-INCAR-1) moves the drawn own body so its seat sits at the eye, but it capped that move at 0.6 block.
+  For the two frames over the cap the cockpit stood about 0.05 block off the eye: the eye sat under the dash,
+  and the rim and hands were seen from below (the filed "blob / flat slab" hands). The cap is now 1.5 block;
+  `GTA2DX9_FP_SEAT_LOCK_MAX=<milli>` sets it for A/B (600 = before). `GTA2DX9_LOG_SEAT=1` logs each frame's
+  `seat lock: ... (len L)`.
+* **Rim and levers from the game's steering keys.** `view_modes GameSteerKeys()` returns the Left/Right the
+  game is told this frame: the camera-relative controller's injected keys, else what the device reported,
+  else the physical arrows before the DirectInput hook is installed (it goes in late with `nav_map=0`). It
+  returns 0 during the knock-down hold. While a key is held, the cab's steer eases to a 0.45 lock that way
+  (+ = left; the cab's +x is the screen's left). On release it hands back to the measured steer (yaw over
+  distance). So a stopped car turns its rim, a car pinned against a wall no longer flips it, and a tank
+  pivoting in place pulls its levers. Log `cab: steer keys Left|Right|none`; `GTA2DX9_FP_KEY_STEER=0` turns it
+  off. Probe: `gamerun/keys_cab4_steer.sh` (stopped 2 s holds, then holds while driving).
+* **The look-down near plane (owner O2g).** His shoulders sit about 0.045 block from the eye, inside the
+  0.05 near plane, so looking down the arms ended in the plane's cut; looking straight down, forearm fragments
+  floated at the top of the frame. In first person in a vehicle the near plane eases from 0.05 to 0.028 between
+  28° and 42° of look-down. By then the frame's top edge is at the horizon, so no distant depth precision is
+  lost. From 42° to 72° (straight down) it eases back out to 0.030, which still clips his collar and chin
+  under the eye. Sweeps showed a chin sliver at 0.020-0.028 and an arm cut into a floating elbow at 0.034+.
+  Every other view keeps 0.05. `GTA2DX9_FP_NEAR_LOOKDOWN=0` turns it off; `[devtools] fp_near_min_milli` and
+  `fp_near_deep_milli` set the two floors live; the log line is `view: near plane`. Probe:
+  `gamerun/keys_cab4_near.sh` (the in-car mouse look recentres within ~2 s, so it looks down and shoots at
+  once; `NEAR_KEY`, `NEAR_FLOORS`, `DEPTHS`). Residual: around 30° the end of a forearm can still meet the
+  0.05 plane inside the frame; straight down, a thin sliver of neck shows between the collar's edges. Remix
+  ignores the near plane, so its look-down does not change.
