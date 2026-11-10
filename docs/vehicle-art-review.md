@@ -604,3 +604,45 @@ change what is drawn). Private stages: `stage_va11` (HEAD 1f812d5 DLLs, the ee51
 - **Not re-authored:** 036, 008 and 056 are already authored bodies (ART-2/7: clean canopy, smooth bonnet, straight
   chequer band; the audit's lines describe the old shells, verified by triage) and 013 Minx is the carkit body; their
   previews at this pass show no torn or crumpled geometry. 013/068 liner re-light (Remix only) not done.
+
+## VEHICLE-ART-13 (10 Nov 2026)
+
+- **050 B-Type (item 6, "crumpled bonnet"):** stale. The shipped 050 has been ART-7's authored body
+  (`tools/vehicle_art2/car_050.py`, mesh dated 9 Nov 23:57) since before the 00:15 triage that verified it. The
+  18:15 and 23:58 triage lines describe the old TRELLIS shell. This pass's parked frames (`out/va13_up_b0`
+  own_front34_050_t) show the smooth authored body with its sealed beams. It was not re-authored again.
+- **Kit bodies inside out (FIX-CAR-IDENTITY-6's finding, 858415f):** all 19 vehicle_art2 kit bodies (004 008 010 018
+  036 038 039 040 042 050 051 053 055 056 057 058 059 060 082) had faces and normals pointing inward. The renderer
+  draws without culling and lights by normal, so the sun lit the inside of every panel. The shipped .mesh files are
+  re-oriented with `tools/car_mesh_orient.py fix` (`check`: 0 inside out), and `tools/vehicle_art2/build.py` now runs
+  the fix on every import.
+- **Floor pan (DEFECT-TRIAGE pass 195, pm33's residual):** every car's underside was near-black texels: the kit's
+  flat `underbody` 28,27,26 and the image-to-3D shells' random projection. A car seen from below read as a black slab.
+  - `tools/vehicle_art/underpan.py` is one shared part for every road car (63 bodies: generated, carkit v1, kit; not
+    063, which has an authored ladder chassis, and not the tank, rail stock, trailers or wrecks). It works on the game's
+    .mesh and adds the draw group `<name>_underpan.tga`, the same texture for every car. The part is a stamped
+    dark-grey pan (tunnel, swages, cross members) 3 mm under the body's measured floor, plus frame rails, sump and
+    gearbox, a front cross-member, a propshaft, a rear axle with its differential, the exhaust with a silencer, and a
+    fuel tank.
+  - Near each axle the pan narrows to 0.2 x the half width, the renderer's wheel-split rule (all corners in the
+    disc and outboard of xin). The tool counts the faces that rule would take: 0 on all 63. Shell radii come from the
+    renderer's own `wheel split of` log lines (`underpan_wheels.json`).
+  - The kit's `underbody` (also the wheel-well liners and the chassis boxes) is now `carkit.tex_underbody()`,
+    road-grimed grey ~66.
+  - `build.py` adds the pan after the orientation fix. A rebuild of 050 from source reproduces the shipped files byte
+    for byte; only `.mesh`, `_underbody` and `_underpan` differ from before.
+  - Offline: `tools/vehicle_art/under_view.py <models> <name> out.png` (upright under the sill, rolled 180 deg).
+  - In game: `[devtools] vehicle_feel2=0` + `force_body_roll_deg=180` draws every live car on its roof. Probe:
+    `keys_va11_own.sh` with `VA6_SETS=t:...|f:vehicle_feel2=0,force_body_roll_deg=180` and poses `high` / `fl34` /
+    `under`. Before `out/va13_up_b0` (050 018 000 012 013), after `out/va13_up_a0` (same cars, first floor rule) and
+    `out/va13_up_a1` (shipped files: 050 018 000 013 004 011; 0 FAULT, 0 'could not be read'). Rolled 180 deg, the
+    flipped cars were black slabs (kit and shells alike); now a grey pan with tunnel, rails, sump, propshaft, axle,
+    differential, exhaust, silencer and tank. Upright from 15 cm beside the sill, only a thin dark band under the
+    sills shows, as on a real car. Floor rule: the 15th percentile of the per-cell lowest points (centre or sill band),
+    never more than 0.02 under a side skirt.
+  - Short of AAA: the shells' own undersides still show their projected texels round the pan (outer 20 % and the
+    overhangs); the parts are plain boxes and tubes (no brackets, springs or brake lines); the pan is mid-grey in
+    direct sun.
+- Remix: new textures with no prims: `<NNN>_underpan.tga` (63 copies of one image, one hash), the 16 kit
+  `<NNN>_underbody.tga` (one image, one hash). Every re-oriented kit .mesh has new normals: its prims are keyed by
+  texture, so they should still apply. Untested under Remix.

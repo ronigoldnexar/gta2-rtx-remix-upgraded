@@ -238,9 +238,14 @@ def measure(m, name=""):
         c = {}
         for key, yv in zip(ix * 16 + iz, Q[:, 1]):
             c[key] = min(c.get(key, 9.0), yv)
-        return float(np.median(list(c.values())))
-    cands = [v for v in (cells(0.0, 0.5), cells(0.5, 0.92)) if v is not None]
+        return float(np.percentile(list(c.values()), 15))
+    # (15th percentile of the cells: the shells' floors are not flat). Never more than 0.02 under the side band's
+    # bottom (0.75-1.0 x half width): lower, the pan would hang in view under the sills from the side
+    centre, sill, side = cells(0.0, 0.5), cells(0.5, 0.92), cells(0.75, 1.0)
+    cands = [v for v in (centre, sill) if v is not None]
     floor = min(cands) if cands else 0.06
+    if side is not None and side - 0.02 < floor + 0.06:   # (a side band far above the floor is no skirt: 023's)
+        floor = max(floor, side - 0.02)
     # the body's length at floor level (where its underside is within 4 cm of the floor)
     near = (np.abs(P[:, 0]) < 0.8 * halfw) & (P[:, 1] < floor + 0.04)
     z0 = float(np.percentile(P[near, 2], 1)) if near.sum() > 20 else zr - 0.12
