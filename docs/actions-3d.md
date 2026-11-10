@@ -1800,3 +1800,19 @@ filmed the 0.7 s version).
   in the jet react only as the game makes them (fire on them).
 - A/B: `GTA2DX9_FLAME_JET_OLD=1` (FIGURE-9's puff jet, the 5-block aim, the long guns' hold, the 2.4 cut;
   the reticle change stays); `GTA2DX9_FLAME_JET=0` (the game's flame sprites only).
+
+### pfl78 (third person): the machine gun out in both hands at the chest, not stocked at the cheek
+
+- Seen (HEAD, fig15_mg1, wil plaza, fixed cameras): side-on the S-Uzi was stocked at the cheek with both hands
+  (a correct rifle hold); from behind the gun is hidden by his head and the right hand at the cheek reads as a
+  hand at the ear with the flash beside his head (the filer's chase-camera frames).
+- Fix (weapon_rig.cpp HoldFor, `mgOut`): in the aim the S-Uzi (stock folded) is held out ahead of the chest in
+  both hands, the grip 0.06 right of his middle, 0.38 m ahead, at the shoulders' height (a compact SMG's
+  point-shoulder hold, elbows soft; 0.48 out locked both elbows straight, fig15_mg2); the head looks ahead,
+  not rolled onto a stock; the left hand under the handguard as before; carry and reload unchanged. The
+  silenced MG and the electro rifle keep the shouldered hold (real stocks).
+- Verified: fig15_mg3 side-on (both hands on the gun at the chest, flash at the muzzle, the kick) and behind
+  right (the arms forward, the gun beside his right side, no hand at the head); the filer's chase camera (pfl78 probe, fig15_mg4): arms forward from behind, no hand at the head, the flash at chest height beside his right side; the gun itself is mostly behind his torso from straight behind.
+- A/B: `GTA2DX9_MG_STANCE_OLD=1`.
+- Short of a shipping frame: from straight behind the gun is hidden by his body (GTA5's chase camera sits over the
+  right shoulder, which is a camera change); no muzzle-climb spread of the hands across a long burst.

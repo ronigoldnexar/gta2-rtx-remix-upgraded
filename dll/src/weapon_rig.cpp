@@ -395,6 +395,11 @@ struct Geo {
 };
 int g_pistolStance = 1;   // FIX-FIGURE-8 (pfl16): 1 arms out along the aim line, 0 the old eye-line hold (test file A/B)
 
+bool MgStanceOld() {
+    static int on = -1;
+    if (on < 0) { char v[8] = {}; on = (GetEnvironmentVariableA("GTA2DX9_MG_STANCE_OLD", v, sizeof v) && v[0] == '1') ? 1 : 0; }
+    return on != 0;
+}
 Geo GeoFor(int weapon) {
     switch (weapon) {
         case wPistol: case wDual: return {0.012f, 0.0f, 0.0f, 0, 0.0f, 0.0f, 0.0f, -0.025f, -0.004f, 0.018f};
@@ -477,6 +482,7 @@ Hold HoldFor(const Ctx& c, int mode, const std::vector<Mat4>& W, const Vec3& F, 
     const bool longGun = cls == cRifle || cls == cShotgun;
     // ---- the gun in the aim (the base of the carry and the reload too) ----
     const Vec3 shoulderTop = shR + U * 0.065f - R * 0.03f;
+    const bool mgOut = c.weapon == wMg && mode == kAim && !MgStanceOld();   // FIX-FIGURE-15, below
     // FIX-FIGURE-8 (pfl16): the pistol out at arm's length along the aim line, the grip centred between
     // the shoulders a hand over their height (an isosceles stance, the arms nearly straight). It was on
     // the eye line 0.34 m ahead of the eye: forearms folded, the gun hidden behind his head from the
@@ -486,6 +492,11 @@ Hold HoldFor(const Ctx& c, int mode, const std::vector<Mat4>& W, const Vec3& F, 
         if (g_pistolStance) put(0.0f, geo.bore, (shR + shL) * 0.5f + R * 0.04f + F * 0.56f + U * 0.12f);
         else put(0.0f, geo.bore, eye + F * 0.34f - U * 0.05f);
     }
+    // FIX-FIGURE-15 (pfl78): the S-Uzi (stock folded) in the aim out ahead of the chest in both hands, the grip a little
+    // right of his middle just under the shoulders' height (a compact SMG's point-shoulder hold), not stocked at the
+    // cheek: there, from the chase camera behind him, the gun was hidden by his head and the right hand at the cheek
+    // read as a hand at the ear with the flash beside his head. GTA2DX9_MG_STANCE_OLD=1: at the cheek as before.
+    else if (mgOut) put(0.0f, geo.bore, (shR + shL) * 0.5f + R * 0.06f + F * 0.38f + U * 0.01f);   // fig15_mg2: 0.48 out locked both elbows straight
     else if (longGun) put(geo.buttZ, geo.buttY, pocket + U * 0.065f);
     else if (cls == cLauncher) put(geo.buttZ, geo.buttY, shoulderTop);
     else if (cls == cFlame) { g.o = shR - U * 0.30f + F * 0.22f + R * 0.02f; pitchAt(-5.0f, g.o); }
@@ -533,9 +544,9 @@ Hold HoldFor(const Ctx& c, int mode, const std::vector<Mat4>& W, const Vec3& F, 
     g.lw = supW; g.lx = supX; g.ly = supY; g.lW = 1.0f;
     if (pistolLow) { g.lW = 0.0f; g.lGrip = 0.0f; }
     // The head down the sights (a long gun: the cheek on the stock).
-    g.look = (cls == cPistol || longGun) ? at(0.0f, geo.bore) + f * 4.0f + u * 0.05f : eye + F * 4.0f;
+    g.look = mgOut ? eye + F * 4.0f : (cls == cPistol || longGun) ? at(0.0f, geo.bore) + f * 4.0f + u * 0.05f : eye + F * 4.0f;
     g.lookW = mode == kAim ? 0.8f : 0.0f;
-    g.roll = (mode == kAim && longGun) ? 9.0f : 0.0f;
+    g.roll = (mode == kAim && longGun && !mgOut) ? 9.0f : 0.0f;   // FIX-FIGURE-15: no cheek on a stock with the S-Uzi out
     (void)shL;
     if (mode == kReload && c.reloadT >= 0.0f) {
         const float t = c.reloadT;
