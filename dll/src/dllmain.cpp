@@ -74,6 +74,9 @@ HMODULE g_backend = nullptr;
 void* g_system = nullptr;
 gta2dx9::WorldView g_world;
 bool g_intro = gta2dx9::kDefaultIntro;
+// FIX-STABILITY-2: [renderer] keep_game_window_restored (default 1): under own_window=2 GTA2's own
+// window is never minimised (see ClosingWndProc). 0 = the old behaviour, for an A/B of the livelock.
+bool g_keepGameWindowRestored = true;
 
 // gbh_GetGlobals hands the game a counter block; the original exposes polys and
 // texture swaps drawn this frame.
@@ -164,6 +167,7 @@ void LoadConfig() {
     const int fov = GetPrivateProfileIntA("camera", "fov_tenths", 150, ini);
     const bool gameTiles = GetPrivateProfileIntA("renderer", "use_game_tiles", 1, ini) != 0;
     const int ownWindow = GetPrivateProfileIntA("renderer", "own_window", 1, ini);
+    g_keepGameWindowRestored = GetPrivateProfileIntA("renderer", "keep_game_window_restored", 1, ini) != 0;
     g_world.Configure(pitch / 10.0f, fov / 10.0f, gameTiles,
                       static_cast<gta2dx9::PresentWindow>(ownWindow));
 
@@ -700,6 +704,74 @@ bool LooksLikeReturnAddress(const uint8_t* p) {
     return false;
 }
 
+// ---- FIX-STABILITY-2: GTA2's paused-while-minimised pump, and keeping it from ever starting ----------
+//
+// The owner's 5090 freeze (owner-5090-minimize-fatal, proven live by the operator): on WM_KILLFOCUS
+// gta2.exe's window procedure (0x4D0B2B, a fullscreen mode) calls ShowWindow(game, SW_SHOWMINNOACTIVE);
+// the WM_SIZE SIZE_MINIMIZED that follows sets the byte at 0x673F50 to 2 (0x4D0C28; SIZE_RESTORED and
+// SIZE_MAXIMIZED set it back to 0 at 0x4D0C12), and WinMain's loop (the PeekMessage at gta2.exe+0xD150B,
+// 0x4D14FB..0x4D153D) spins on PeekMessage for as long as the byte is 2 and no message comes: no frame,
+// one core at 100 percent. Under own_window=2 GTA2's window is not what the user sees, so nothing ever
+// restores it and the pump never returns. An external SW_RESTORE ended it in under 700 ms on the 5090.
+constexpr uintptr_t kGtaMinimisedFlag = 0x673F50;   // byte, gta2.exe .data (fixed image base 0x400000)
+
+int GameMinimisedFlag() {
+    return *reinterpret_cast<volatile const uint8_t*>(kGtaMinimisedFlag);
+}
+
+bool KeepGameWindowRestored() {
+    return g_keepGameWindowRestored && g_world.PresentMode() == gta2dx9::PresentWindow::Topmost;
+}
+
+// Restores the game window from minimised without activating it (SW_SHOWNOACTIVATE, not SW_RESTORE:
+// activating would pull the focus back from the window the user just switched to, and alt-tab would
+// bounce), then sends it to the bottom of the z-order so the restored GTA2 window does not cover that
+// other window either. The game goes on running behind it; our present window is out of the topmost
+// band while the game is away (SetGameActive).
+void UnminimiseGameWindow(HWND window, const char* why) {
+    static int logged = 0;
+    const DWORD start = GetTickCount();
+    const int wasIconic = IsIconic(window) ? 1 : 0;
+    if (wasIconic) ShowWindow(window, SW_SHOWNOACTIVATE);
+    SetWindowPos(window, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    if (logged++ < 200) {
+        Log("focus: game window kept un-minimised (%s): iconic %d -> %d in %lu ms, gta2 minimised flag %d; "
+            "the game keeps running behind the window that took the focus", why, wasIconic, IsIconic(window) ? 1 : 0,
+            static_cast<unsigned long>(GetTickCount() - start), GameMinimisedFlag());
+    }
+}
+
+// From the stall sampler's thread, 4 times a second: the same fix as the operator's guard3.ps1, from
+// inside, for a minimise that did not come through ClosingWndProc. ShowWindowAsync and PostMessage
+// never wait for the game thread.
+void WatchGameWindowMinimised() {
+    static DWORD since = 0;
+    static int fixes = 0;
+    const HWND game = g_world.GameHwnd();
+    if (!game || !KeepGameWindowRestored()) return;
+    const bool iconic = IsIconic(game) != 0;
+    const int flag = GameMinimisedFlag();
+    if (!iconic && flag != 2) {
+        since = 0;
+        return;
+    }
+    const DWORD now = GetTickCount();
+    if (!since) since = now;
+    if (now - since < 500) return;   // ClosingWndProc restores at once; this is the backstop
+    since = now;
+    ++fixes;
+    if (fixes <= 20 || fixes % 100 == 0) {
+        Log("stall sampler: game window minimised (iconic=%d, gta2 minimised flag %d) for 500 ms: restoring it "
+            "(#%d)", iconic ? 1 : 0, flag, fixes);
+    }
+    if (iconic) ShowWindowAsync(game, SW_SHOWNOACTIVATE);
+    if (flag == 2) {
+        RECT client = {};
+        GetClientRect(game, &client);
+        PostMessageA(game, WM_SIZE, SIZE_RESTORED, MAKELPARAM(client.right, client.bottom));
+    }
+}
+
 DWORD WINAPI StallSampler(LPVOID) {
     HANDLE thread = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION,
                                FALSE, g_gameThread);
@@ -727,6 +799,7 @@ DWORD WINAPI StallSampler(LPVOID) {
         Sleep(250);
         gta2dx9::StallDumpTestPoll();
         gta2dx9::GuardedFaultsReport();
+        WatchGameWindowMinimised();   // FIX-STABILITY-2
         const DWORD beat = g_beat;
         const DWORD now = GetTickCount();
         // FIX-STABILITY-1: minimised, the game thread is meant to be idle in its message loop; it is not
@@ -815,8 +888,18 @@ DWORD WINAPI StallSampler(LPVOID) {
             at += _snprintf_s(line + at, sizeof(line) - at, _TRUNCATE, "%s%s", found ? " < " : "", one);
             ++found;
         }
-        Log("stall sampler: game thread idle %lu ms (sample %d) at %s, callers %s",
-            static_cast<unsigned long>(now - beat), samples, where, line);
+        // FIX-STABILITY-2: say "minimised" when that is what it is (the owner's log had only win32u+0x11AC).
+        const HWND gameWindow = g_world.GameHwnd();
+        const int iconic = gameWindow && IsIconic(gameWindow) ? 1 : 0;
+        const int minimisedFlag = GameMinimisedFlag();
+        char state[120] = "";
+        if (iconic || minimisedFlag == 2) {
+            _snprintf_s(state, sizeof(state), _TRUNCATE,
+                        " [game window minimised: iconic=%d, gta2 minimised flag %d: GTA2's paused pump]", iconic,
+                        minimisedFlag);
+        }
+        Log("stall sampler: game thread idle %lu ms (sample %d)%s at %s, callers %s",
+            static_cast<unsigned long>(now - beat), samples, state, where, line);
     }
     CloseHandle(thread);
     return 0;
@@ -945,7 +1028,7 @@ void NoteEntryException(const char* entry) {
 // way to run the path here): WM_KILLFOCUS, WM_ACTIVATEAPP 0, WM_SIZE SIZE_MINIMIZED, then 3 s later
 // WM_SIZE SIZE_RESTORED, WM_ACTIVATEAPP 1, WM_SETFOCUS; simulate_focus_loss_start_s (default 30)
 // after the level is up, simulate_focus_loss_gap_s (default 8) between cycles.
-struct FocusLossTest { int cycles, startS, gapS; };
+struct FocusLossTest { int cycles, startS, gapS, restore; };
 DWORD WINAPI FocusLossTestThread(LPVOID param) {
     const FocusLossTest test = *static_cast<FocusLossTest*>(param);
     delete static_cast<FocusLossTest*>(param);
@@ -970,7 +1053,40 @@ DWORD WINAPI FocusLossTestThread(LPVOID param) {
         const long c = send(WM_SIZE, SIZE_MINIMIZED, 0);
         Log("devtools: simulate_focus_loss %d/%d: sent (ms, -1 = timed out) killfocus %ld activateapp %ld size %ld",
             k, test.cycles, a, b, c);
-        Sleep(3000);
+        // FIX-STABILITY-2: GTA2's own WM_KILLFOCUS handler minimises the window (ShowWindow 7, Wine does
+        // it too); how long the window stays iconic and GTA2's minimised flag stays 2, and whether its
+        // frames go on (the frame counter moves only while WinMain's loop is out of its paused pump).
+        {
+            const int frame0 = g_world.FrameCount();
+            const DWORD t0 = GetTickCount();
+            long iconicUntil = -1, flagUntil = -1;
+            int sawIconic = 0, sawFlag = 0;
+            for (int i = 0; i < 125; ++i) {   // 2 s at 16 ms
+                const bool iconic = IsIconic(game) != 0;
+                const bool flag = GameMinimisedFlag() == 2;
+                sawIconic |= iconic;
+                sawFlag |= flag;
+                if (!iconic && iconicUntil < 0) iconicUntil = static_cast<long>(GetTickCount() - t0);
+                if (!flag && flagUntil < 0) flagUntil = static_cast<long>(GetTickCount() - t0);
+                if (iconicUntil >= 0 && flagUntil >= 0 && i >= 31) break;
+                Sleep(16);
+            }
+            Log("devtools: simulate_focus_loss %d/%d: game window iconic=%d (seen %d, not iconic from +%ld ms), gta2 "
+                "minimised flag %d (seen 2: %d, not 2 from +%ld ms), frames %d -> %d in %lu ms", k, test.cycles,
+                IsIconic(game) ? 1 : 0, sawIconic, iconicUntil, GameMinimisedFlag(), sawFlag, flagUntil, frame0,
+                g_world.FrameCount(), static_cast<unsigned long>(GetTickCount() - t0));
+        }
+        if (!test.restore) {
+            // Nobody restores the window: the owner box under own_window=2.
+            InterlockedExchange(&g_simulatingFocusLoss, 0);
+            const int frame0 = g_world.FrameCount();
+            Sleep(static_cast<DWORD>(test.gapS) * 1000);
+            Log("devtools: simulate_focus_loss %d/%d: no restore sent (simulate_focus_loss_restore=0): frames %d -> %d "
+                "in %d s, game window iconic=%d, gta2 minimised flag %d", k, test.cycles, frame0, g_world.FrameCount(),
+                test.gapS, IsIconic(game) ? 1 : 0, GameMinimisedFlag());
+            continue;
+        }
+        Sleep(1000);
         const long d = send(WM_SIZE, SIZE_RESTORED, MAKELPARAM(client.right, client.bottom));
         const long e = send(WM_ACTIVATEAPP, TRUE, 0);
         const long f = send(WM_SETFOCUS, 0, 0);
@@ -983,6 +1099,11 @@ DWORD WINAPI FocusLossTestThread(LPVOID param) {
     return 0;
 }
 
+void LogMinimiseRefused(const char* what) {
+    static int logged = 0;
+    if (logged++ < 200) Log("focus: %s (own_window=2: the game window stays up, GTA2 never pauses in its pump)", what);
+}
+
 LRESULT CALLBACK ClosingWndProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
     // FIX-STABILITY-1: what the minimise path needs, before anything else.
     if (message == WM_SIZE || message == WM_SETFOCUS || message == WM_KILLFOCUS || message == WM_ACTIVATEAPP ||
@@ -993,6 +1114,16 @@ LRESULT CALLBACK ClosingWndProc(HWND window, UINT message, WPARAM wparam, LPARAM
         const bool simulated = g_simulatingFocusLoss != 0;
         if (message == WM_SIZE && wparam == SIZE_MINIMIZED) {
             g_world.SetGameParked(true, "WM_SIZE SIZE_MINIMIZED", simulated);
+            // FIX-STABILITY-2: under own_window=2 the game never sees the minimise (so its flag at 0x673F50
+            // never turns 2 and WinMain never enters its paused pump), and the window is restored at once
+            // (not activated): the restore's own WM_SIZE SIZE_RESTORED unparks our presenter.
+            if (KeepGameWindowRestored()) {
+                LogMinimiseRefused("WM_SIZE SIZE_MINIMIZED withheld from GTA2");
+                UnminimiseGameWindow(window, "WM_SIZE SIZE_MINIMIZED");
+                // Keep rendering: not iconic any more (a simulated minimise never was) means not parked.
+                if (!IsIconic(window)) g_world.SetGameParked(false, "game window un-minimised");
+                return 0;
+            }
         } else if (message == WM_SIZE && (wparam == SIZE_RESTORED || wparam == SIZE_MAXIMIZED)) {
             g_world.SetGameParked(false, "WM_SIZE restored");
         } else if (message == WM_KILLFOCUS) {
@@ -1003,6 +1134,14 @@ LRESULT CALLBACK ClosingWndProc(HWND window, UINT message, WPARAM wparam, LPARAM
             if (!IsIconic(window) || simulated) g_world.SetGameParked(false, "WM_SETFOCUS");
             g_world.SetGameActive(true, "WM_SETFOCUS");
         }
+    }
+    // FIX-STABILITY-2: a minimise asked for by the system menu, the taskbar or Win+D's SC_MINIMIZE is
+    // refused outright under own_window=2 (the user never sees this window; ours is the picture).
+    // WM_ACTIVATEAPP 0 is not a reason to stop: GTA2's procedure ignores it (DefWindowProc), and our
+    // presenter only leaves the topmost band on it (SetGameActive), it keeps rendering.
+    if (message == WM_SYSCOMMAND && (wparam & 0xFFF0) == SC_MINIMIZE && KeepGameWindowRestored()) {
+        LogMinimiseRefused("WM_SYSCOMMAND SC_MINIMIZE refused");
+        return 0;
     }
     // The messages that would say the game is changing its display mode or window: logged with
     // the code that sent them, the first few times each (focus and size: the first 200, so the
@@ -1261,9 +1400,11 @@ __declspec(dllexport) int __stdcall gbh_Init(int param) {
             started = true;
             FocusLossTest* test = new FocusLossTest{
                 cycles, GetPrivateProfileIntA("devtools", "simulate_focus_loss_start_s", 30, iniPath),
-                GetPrivateProfileIntA("devtools", "simulate_focus_loss_gap_s", 8, iniPath)};
-            Log("devtools: simulate_focus_loss %d cycle(s), %d s after the level is up, %d s apart", test->cycles,
-                test->startS, test->gapS);
+                GetPrivateProfileIntA("devtools", "simulate_focus_loss_gap_s", 8, iniPath),
+                GetPrivateProfileIntA("devtools", "simulate_focus_loss_restore", 1, iniPath)};
+            Log("devtools: simulate_focus_loss %d cycle(s), %d s after the level is up, %d s apart, restore %d, "
+                "keep_game_window_restored %d", test->cycles, test->startS, test->gapS, test->restore,
+                KeepGameWindowRestored() ? 1 : 0);
             if (HANDLE thread = CreateThread(nullptr, 0, FocusLossTestThread, test, 0, nullptr)) CloseHandle(thread);
         }
     }

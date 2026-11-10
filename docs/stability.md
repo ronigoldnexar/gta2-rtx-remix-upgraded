@@ -66,10 +66,63 @@ does not have.
   0 until the RTX Remix API answers, then 1 (log: `sky: follow_clock=auto: RTX Remix runtime detected`).
   Plain GL keeps the fixed sun. 0 and 1 still force either.
 
+## The freeze itself: GTA2's paused-while-minimised loop (FIX-STABILITY-2)
+
+The operator proved on the 5090 that every freeze is GTA2's own loop and that restoring its window ends it.
+In gta2.exe 9.6:
+
+- The window procedure (0x4D0A00), on WM_KILLFOCUS (0x4D0B2B), in a fullscreen video mode (the mode record's
+  bit 0 clear, which our video DLL reports as the original does), calls `Vid_CloseScreen` and
+  `ShowWindow(game, SW_SHOWMINNOACTIVE)`. **GTA2 minimises itself.**
+- On WM_SIZE (0x4D0BFC) it sets the byte at **0x673F50** to 2 for SIZE_MINIMIZED, and to 0 for SIZE_RESTORED
+  or SIZE_MAXIMIZED.
+- WinMain's loop (0x4D14FB..0x4D153D, the PeekMessage call at **gta2.exe+0xD150B**) goes on calling
+  PeekMessage and dispatching for as long as that byte is 2 and no message is waiting. It draws no frame, and
+  it spins one core at 100 percent.
+
+Under own_window=2 the user sees our window, not GTA2's, so nothing ever restores GTA2's window and the loop
+never returns. c7d3c7c5 parked our presenter, but the game stayed in its loop.
+
+The fix (dllmain.cpp `ClosingWndProc`, own_window=2 only, `[renderer] keep_game_window_restored=1`, the default):
+
+- **WM_SIZE SIZE_MINIMIZED is withheld from GTA2.** It never sees it, so its byte never becomes 2 and WinMain
+  never enters the loop. The window is restored at once with `ShowWindow(SW_SHOWNOACTIVATE)`. That is a
+  restore that does not take the focus back from the window the user switched to; SW_RESTORE would, and
+  alt-tab would bounce. Then `SetWindowPos(HWND_BOTTOM)`, so the restored GTA2 window does not cover that
+  other window. Our presenter is parked around the restore (c7d3c7c5) and unparked as soon as the window is
+  not iconic, so the game keeps rendering behind the other window. Log:
+  `focus: WM_SIZE SIZE_MINIMIZED withheld from GTA2` and
+  `focus: game window kept un-minimised (...): iconic 1 -> 0 in N ms, gta2 minimised flag 0`.
+- **WM_SYSCOMMAND SC_MINIMIZE is refused** (return 0). Log: `focus: WM_SYSCOMMAND SC_MINIMIZE refused`.
+- **WM_ACTIVATEAPP 0 keeps rendering.** GTA2's procedure ignores it anyway; our presenter only leaves the topmost
+  band.
+- **A backstop on the stall sampler's thread, 4 times a second.** If the game window has been iconic, or
+  GTA2's byte has been 2, for 500 ms, it calls `ShowWindowAsync(SW_SHOWNOACTIVATE)` and posts a WM_SIZE
+  SIZE_RESTORED. Neither waits for the game thread. This is the operator's guard3.ps1 done from inside the
+  process. Log: `stall sampler: game window minimised (iconic=1, gta2 minimised flag 2) for 500 ms: restoring it`.
+- **The stall line says what it is.** A stall sample taken while the window is iconic or the byte is 2 carries
+  `[game window minimised: iconic=1, gta2 minimised flag 2: GTA2's paused pump]` instead of a bare
+  win32u address.
+
+### Proof here (Wine does run GTA2's self-minimise)
+
+`[devtools] simulate_focus_loss=5`, `simulate_focus_loss_restore=0`: no restore is sent at all, which is the
+owner box. Each cycle logs the window's iconic state, GTA2's byte and the frames drawn over the next 2 s and 8 s.
+
+| run | keep_game_window_restored | what the 5 cycles log | frames |
+|---|---|---|---|
+| fs2_ab_off_norestore | 0 (the old code) | iconic=1, gta2 minimised flag 2, frames 559 -> 559 for 50 s | shot_050 .. shot_120 byte-identical: frozen |
+| fs2_keep_norestore2 | 1 | iconic 1 -> 0 in 5-43 ms, flag never 2, frames 282 -> 349, 353 -> 399, ... | in colour, hero walking, every frame different |
+| fs2_rebased_keep (same, rebased on 3a3c5828) | 1 | iconic 1 -> 0 in 4-33 ms, flag never 2, frames 610 -> 777, 791 -> 995, ... | in colour, hero walking |
+
+0 FAULT and 0 guarded faults in all three. vreg on the fix: spawn_classic 0 changed tiles (29 PASS; spawn_first FAIL
+= the first-person fist pose of other commits, spawn_third WARN). The before/after is the owner's freeze reproduced and cured on one build.
+
 ## What GTA2 does on a focus loss (seen in the test run)
 
-GTA2 stops calling frames while it is inactive. Its thread sits in its own message loop, which is the
-"game thread idle ... at win32u" the owner's log shows, and it is normal. On reactivation it restyles its
+GTA2 stops calling frames while its window is minimised (it minimises itself on WM_KILLFOCUS; see above). Its
+thread sits in its own message loop, which is the "game thread idle ... at win32u" the owner's log shows. Under
+own_window=2 that is the freeze; FIX-STABILITY-2 keeps the window from staying minimised. On reactivation it restyles its
 window (WM_STYLECHANGED twice, WM_SIZE) and goes on. It does not call `gbh_CloseScreen` on either.
 
 ## The test hook and its result
@@ -89,3 +142,37 @@ Run `fixstab1_focus` (plain GL, third person, own_window=2, 02:00 at 10 tenths, 
 
 Not verifiable here: the owner box itself (real minimise, MSCTF, the Remix bridge on Windows). See "For the
 5090 box" in the work orders.
+
+## For the 5090 box (FIX-STABILITY-2; the owner box itself is untested from here)
+
+Build: camera-modes at or after the FIX-STABILITY-2 "keep GTA2's window from staying minimised" commit.
+gta2dx9.ini, in the first [renderer] block:
+
+    [renderer]
+    mode=takeover
+    own_window=2
+    keep_game_window_restored=1     ; the default; 0 brings the freeze back (A/B only)
+
+Steps: reach the street, press V to third person and play for 30 s. Then alt-tab to the desktop, wait 10 s
+and come back. Do that three times, then once more with Win+D and back. Leave the operator's guard3.ps1
+running: it is the witness.
+
+For each alt-tab, gta2dx9.log must show:
+
+    focus: game window lost the focus (WM_KILLFOCUS); present window leaves the topmost band
+    focus: game window minimised (WM_SIZE SIZE_MINIMIZED): presenting paused ...
+    focus: WM_SIZE SIZE_MINIMIZED withheld from GTA2 (own_window=2: ...)
+    focus: game window restored (WM_SIZE restored): presenting again after N ms ...
+    focus: game window kept un-minimised (WM_SIZE SIZE_MINIMIZED): iconic 1 -> 0 in N ms, gta2 minimised flag 0 ...
+
+For Win+D, either the same lines or `focus: WM_SYSCOMMAND SC_MINIMIZE refused`.
+
+It must NOT show any of these:
+
+- `stall sampler: game thread idle ... at win32u.dll+0x11AC`;
+- `[game window minimised: ...GTA2's paused pump]`;
+- a FAULT line.
+
+guard3.ps1 must log no `RESTORED` line, and the CPU of gta2.exe must not sit at one full core while you are
+away. If the backstop line `stall sampler: game window minimised ... restoring it` appears, the minimise came
+by a path the window procedure did not see. Send the lines around it.

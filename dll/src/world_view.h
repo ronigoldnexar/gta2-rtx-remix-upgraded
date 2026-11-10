@@ -149,6 +149,7 @@ public:
     bool GameActive() const { return active_; }
     HWND PresentHwnd() const { return window_; }
     HWND GameHwnd() const { return gameWindow_; }
+    PresentWindow PresentMode() const { return present_; }   // FIX-STABILITY-2: own_window as configured
     int FrameCount() const { return frameCount_; }
     bool WorldUploaded() const { return worldUploaded_; }
     // A C++ exception escaped a frame: close the scene the device may still be in.
