@@ -225,6 +225,7 @@ void LoadConfig() {
         vm.tpOrbitFollow = GetPrivateProfileIntA("camera", "orbit_follow", 0, ini) != 0;
         vm.carImpactShake = static_cast<float>(GetPrivateProfileIntA("camera", "car_impact_shake", 100, ini)) / 100.0f;
         vm.fpBodyRide = static_cast<float>(GetPrivateProfileIntA("camera", "first_body_ride", 100, ini)) / 100.0f;
+        vm.pedHitBump = static_cast<float>(GetPrivateProfileIntA("camera", "ped_hit_bump", 100, ini)) / 100.0f;   // FIX-KNOCKDOWN-5
         {
             // Soft follow on foot (seconds): follow_tau_walk 0 turns it off.
             auto iniFloat = [&](const char* key, float fallback) {

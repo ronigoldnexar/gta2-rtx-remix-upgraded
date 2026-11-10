@@ -216,6 +216,10 @@ struct ViewModeSettings {
     // first_body_ride (percent).
     float carImpactShake = 1.0f;
     float fpBodyRide = 1.0f;
+    // FIX-KNOCKDOWN-5 (pfl77): a pedestrian struck by his car gives the camera a short nod (nose down, a
+    // small heave, settled in ~0.3 s) scaled by the car's speed and the ped's mass against the car's; nothing
+    // under 0.5 block/s. [camera] ped_hit_bump (percent, 0 = off).
+    float pedHitBump = 1.0f;
     // RTX Remix's own motion blur, pushed through its API while a chase or
     // first-person view is up: 0 leaves Remix's setting alone, 1 turns it on
     // there and back off in the classic view, 2 keeps it on everywhere.
@@ -324,6 +328,9 @@ const void* GamePlayerPed();
 // The sprite pass's contribution to the fallback above: the pedestrian on foot
 // it drew nearest the game's camera centre this frame.
 void NotePedNearCamera(const void* ped, float distanceTiles);
+// FIX-KNOCKDOWN-5 (pfl77): a pedestrian went down struck by a car at x,z (renderer frame); the camera
+// checks whether it was his car (the next update) and gives the bump.
+void ViewNotePedStruck(float x, float z);
 
 // The car nearest a point in the game's frame (x east, y south), for the log
 // and for scripted play: false when there is none within `within` tiles.
@@ -457,6 +464,8 @@ private:
     float roll_ = 0.0f;                     // eased camera roll
     float shake_ = 0.0f;                    // impact energy, decaying
     float carPitch_ = 0.0f, carRoll_ = 0.0f, carHeave_ = 0.0f;   // the drawn body of his car (vehicle_fx)
+    float bumpAmp_ = 0.0f, bumpT_ = 1.0f;   // FIX-KNOCKDOWN-5: the ped-hit nod (radians, seconds since)
+    float bumpPitch_ = 0.0f, bumpHeave_ = 0.0f;   // this frame's nod (radians, nose down +) and drop (blocks)
     double shakeClock_ = 0.0;
     float bobPhase_ = 0.0f;                 // walking cycle, turns
     // pm-fp-respawn-eye-pressed-into-facade: after a respawn or level cut the first-person

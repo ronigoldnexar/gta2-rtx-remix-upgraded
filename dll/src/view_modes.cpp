@@ -1748,6 +1748,19 @@ const char* KeyName(int vk) {
     }
 }
 
+// FIX-KNOCKDOWN-5 (pfl77): peds struck by a car this frame (the figure code's knock-down start), read by the
+// camera's next update. A ped hit gives the car no measurable impact (24 own-car run-overs in kd3_ro1-6:
+// one 'vehicle physics: impact' within 0.3 s, dv 0.28-0.39), so the bump has its own event.
+namespace {
+struct PedStruck { float x, z; ULONGLONG tick; };
+PedStruck g_pedStruck[4] = {};
+int g_pedStruckN = 0;
+}  // namespace
+void ViewNotePedStruck(float x, float z) {
+    if (g_pedStruckN >= 4) { for (int i = 1; i < 4; ++i) g_pedStruck[i - 1] = g_pedStruck[i]; g_pedStruckN = 3; }
+    g_pedStruck[g_pedStruckN++] = PedStruck{x, z, GetTickCount64()};
+}
+
 void NotePedNearCamera(const void* ped, float distanceTiles) {
     if (!ped) return;
     if (distanceTiles < g_nearPedNowDist) {
@@ -3097,7 +3110,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     // drawn pitch, roll and heave are kept for the first-person eye.
     {
         VehicleFxMotion m;
-        const bool have = inVehicle && VehicleFxPlayerMotion(&m);
+        const bool have = inVehicle && VehicleFxPlayerMotion(&m, true);
         VehicleFxSetFirstRide(s.fpBodyRide);
         carPitch_ = have ? m.pitch : 0.0f;
         carRoll_ = have ? m.roll : 0.0f;
@@ -3107,6 +3120,52 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             shake_ = (std::min)(shake_ + add, 1.5f);
             Log("view: car impact %.2f blocks/s lost, camera shake %.2f", m.impulse, shake_);
         }
+    }
+    // FIX-KNOCKDOWN-5 (pfl77): a ped struck by his own car. The car takes the ped's momentum: its speed drops by
+    // v m/(M+m) and the push at bumper height, under the body's centre of mass, pitches the sprung body nose down
+    // and back over its springs (~2.8 Hz, about 0.6 of critical): one nod of the eye and the chase lens, a small
+    // drop of the eye with it, settled in ~0.3 s; no shudder (that is a wall's). The mass ratio from the body's
+    // footprint: a saloon (0.5 square block) takes a man as 0.06 of its mass, a van ~0.04, a truck ~0.015.
+    // Nothing under 0.5 block/s (a brush), full from 1.0; at most 2 degrees. GTA2DX9_PED_HIT_BUMP=0: off (A/B).
+    {
+        static int bumpEnv = -1;
+        if (bumpEnv < 0) { char b[8] = {}; bumpEnv = GetEnvironmentVariableA("GTA2DX9_PED_HIT_BUMP", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
+        const ULONGLONG now = GetTickCount64();
+        for (int i = 0; i < g_pedStruckN; ++i) {
+            const PedStruck e = g_pedStruck[i];
+            if (!inVehicle || !bumpEnv || s.pedHitBump <= 0.0f || now - e.tick > 250) continue;
+            float bodyLength = 1.0f, bodyHeight = 0.4f, bodyHalfWidth = 0.25f;
+            if (!CarBodiesExtent(player.vehicleSprite, &bodyLength, &bodyHeight, &bodyHalfWidth)) {
+                bodyLength = 1.0f; bodyHalfWidth = 0.25f;
+            }
+            const float dx = e.x - px, dz = e.z - pz;
+            const float along = dx * hx + dz * hz, across = -dx * hz + dz * hx;
+            const bool his = std::fabs(along) < 0.5f * bodyLength + 0.45f && std::fabs(across) < bodyHalfWidth + 0.45f;
+            const float v = speed;
+            const float area = (std::max)(0.1f, bodyLength * 2.0f * bodyHalfWidth);
+            const float ratio = 0.06f * (std::min)((std::max)(0.5f / area, 0.2f), 1.3f);
+            const float ramp = (std::min)((std::max)((v - 0.5f) / 0.5f, 0.0f), 1.0f);
+            const float peakDeg = (std::min)(12.0f * v * ratio * ramp, 2.0f) * (std::min)(s.pedHitBump, 2.0f);
+            Log("view: ped struck at %.2f,%.2f, %.2f along / %.2f across his car (%s), %.2f blocks/s, mass ratio %.3f: bump %.2f deg",
+                e.x, e.z, along, across, his ? "his" : "not his", v, ratio, his ? peakDeg : 0.0f);
+            if (his && peakDeg > 0.05f) {
+                // a(t) = A sin(w t) e^(-t/tau), w = 2 pi 2.8, tau = 0.11: its first peak is 0.505 A at 62 ms,
+                // the rebound -0.10 A at 0.24 s.
+                const float amp = peakDeg / 0.505f * kDegToRad;
+                const float left = bumpT_ < 0.45f ? bumpAmp_ * std::exp(-bumpT_ / 0.11f) : 0.0f;
+                if (amp > left) { bumpAmp_ = amp; bumpT_ = 0.0f; }
+            }
+        }
+        g_pedStruckN = 0;
+        bumpPitch_ = bumpHeave_ = 0.0f;
+        if (bumpT_ < 0.45f && bumpAmp_ > 0.0f) {
+            const float f = std::sin(2.0f * kPi * 2.8f * bumpT_) * std::exp(-bumpT_ / 0.11f);
+            bumpPitch_ = bumpAmp_ * f;
+            bumpHeave_ = bumpPitch_ * 0.6f;   // ~0.01 block of drop a degree of nod
+            static int every = 0;
+            if (cameraLogOn() || (++every % 3) == 1) Log("view: ped-hit bump t=%.3f pitch %.2f deg heave %.4f", bumpT_, bumpPitch_ / kDegToRad, bumpHeave_);
+        }
+        bumpT_ += dt;
     }
     shake_ *= std::exp(-dt / 0.22f);
     shakeClock_ += dt;
@@ -3690,6 +3749,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             pitch += dbgShake;
             roll += Wobble(shakeClock_ + 7.7, 5.0f) * 2.0f * kDegToRad * k;
         }
+        if (bumpPitch_ != 0.0f && inVehicle) { pitch -= bumpPitch_; eye.y -= bumpHeave_; }   // FIX-KNOCKDOWN-5
         pitch = (std::min)((std::max)(pitch, -80.0f * kDegToRad), 80.0f * kDegToRad);
         const float fov = (std::min)((std::max)(s.fpFov, 30.0f), 120.0f) + s.speedFov * speedFrac_;
 
@@ -5722,6 +5782,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         eye.x += Wobble(shakeClock_, 11.0f) * 0.04f * shake_;
         eye.y += Wobble(shakeClock_ + 2.3, 13.0f) * 0.03f * shake_;
     }
+    if (bumpPitch_ != 0.0f && inVehicle) eye.y -= bumpHeave_;   // FIX-KNOCKDOWN-5
     // Pulled in close (a wall behind him, craned up over him): the point looked at
     // comes back from ahead of him toward his chest, so the frame holds him and
     // not the wall beyond (on foot; at 0.4 block or less, 80 % of the way).
@@ -6020,6 +6081,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         camPitch += Wobble(shakeClock_ + 4.2, 10.0f) * 1.2f * kDegToRad * shake_;
         roll += Wobble(shakeClock_ + 6.5, 6.0f) * 1.5f * kDegToRad * shake_;
     }
+    if (bumpPitch_ != 0.0f && inVehicle) camPitch -= bumpPitch_;   // FIX-KNOCKDOWN-5
     roll_ += (roll - roll_) * (1.0f - std::exp(-dt / 0.15f));
     const float fov = (std::min)((std::max)(s.tpFov, 20.0f), 110.0f) + chaseFovExtra;
 

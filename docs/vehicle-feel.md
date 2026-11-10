@@ -156,6 +156,23 @@ model (VEHICLE-PHYSICS above) and changes what is drawn and what the camera does
 - **Impact camera shake** at the wheel (`[camera] car_impact_shake`, 100 %): from the speed lost in
   a hit as the body model measures it (`VehicleFxPlayerMotion`, filtered against GTA2's traffic
   jumps), above 0.6 blocks/s; log line `view: car impact N blocks/s lost, camera shake S`.
+  FIX-KNOCKDOWN-5 (pfl77): only the camera consumes the impulse (`VehicleFxPlayerMotion(&m, true)`); the
+  first-person seat lock's read used to consume it first, so at the wheel in first person the shake almost
+  never fired (0 `view: car impact` lines over 101 impacts in kd3_ro1-3; 13-20 a run since).
+  `GTA2DX9_IMPULSE_TAKE_ANY=1`: as before.
+- **Pedestrian hit bump** (FIX-KNOCKDOWN-5, pfl77; `[camera] ped_hit_bump`, 100 %): a person struck by
+  your car gives the car no measurable impact (24 own-car run-overs in kd3_ro1-6: one impact line within
+  0.3 s, dv 0.28-0.39), so the cab and the chase lens showed nothing. The figure code's knock-down start
+  (`ViewNotePedStruck`) is matched against your car's body (within half its length + 0.45 along,
+  half its width + 0.45 across); the camera then takes one nod, nose down and back
+  (A sin(2 pi 2.8 t) e^(-t/0.11): peak at 62 ms, a 0.1 A rebound at 0.24 s, gone by 0.45 s) and a drop
+  of ~0.01 block a degree, in first and third person. Peak = 12 deg x speed (blocks/s) x mass ratio,
+  the ratio 0.06 for a saloon footprint of 0.5 square block, scaled by footprint (0.04 for the F9 van),
+  nothing under 0.5 block/s, full from 1.0, at most 2 degrees. No shudder (that stays a wall's).
+  Log: `view: ped struck at x,z, along / across his car (his|not his), speed, mass ratio: bump N deg`,
+  then `view: ped-hit bump t= pitch heave` while it runs. `GTA2DX9_PED_HIT_BUMP=0`: off (A/B).
+  Measured (kd5_ro4, first person, F9 van at 2.6 and 2.4 blocks/s): bumps of 1.23 and 1.14 degrees; the
+  frame (world and cab together) steps 13 and 9 pixels and returns over ~5 frames.
 - **First person rides the body** (`[camera] first_body_ride`, 100 %): the eye takes the drawn
   pitch, roll and heave; the cut cockpit body takes the same share (it was a third, QB-5), so the
   bonnet holds still under the eye while the street tilts.

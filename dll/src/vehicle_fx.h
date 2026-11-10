@@ -109,8 +109,12 @@ struct VehicleFxMotion {
     uint32_t frame = 0;
     float pitch = 0.0f, roll = 0.0f, heave = 0.0f;
     float impulse = 0.0f;
+    uint32_t impulseFrame = 0;   // FIX-KNOCKDOWN-5: the frame of the last impact added (stale ones are dropped)
 };
-bool VehicleFxPlayerMotion(VehicleFxMotion* out);
+// FIX-KNOCKDOWN-5 (pfl77): only the camera (takeImpulse) consumes the impulse. The first-person seat lock's
+// read (car_bodies.cpp) consumed it first in most frames: no 'view: car impact' line in kd3_ro1-3 over 101
+// impacts at the wheel in first person. GTA2DX9_IMPULSE_TAKE_ANY=1: any read consumes it (as before).
+bool VehicleFxPlayerMotion(VehicleFxMotion* out, bool takeImpulse = false);
 // The share of the body's pose the first-person eye rides ([camera] first_body_ride,
 // set by the camera): the cut cockpit body is drawn with the same share (at least a
 // third), so the bonnet holds still under the eye while the street tilts.

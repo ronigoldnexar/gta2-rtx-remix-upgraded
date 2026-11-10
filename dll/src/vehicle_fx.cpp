@@ -669,10 +669,13 @@ void VehicleFxSetLean(int pitchPercent, int rollPercent) {
 }
 void VehicleFxSetFirstRide(float share) { g_firstRide = Clamp(share, 0.0f, 1.0f); }
 float VehicleFxFirstRide() { return g_firstRide; }
-bool VehicleFxPlayerMotion(VehicleFxMotion* out) {
-    if (!g_on || !g_player.frame || g_newestFrame - g_player.frame > 3) { g_player.impulse = 0.0f; return false; }
+bool VehicleFxPlayerMotion(VehicleFxMotion* out, bool takeImpulse) {
+    static const bool takeAny = [] { char b[8] = {}; return GetEnvironmentVariableA("GTA2DX9_IMPULSE_TAKE_ANY", b, sizeof b) && atoi(b) == 1; }();
+    if (!g_on || !g_player.frame || g_newestFrame - g_player.frame > 3) { if (takeImpulse || takeAny) g_player.impulse = 0.0f; return false; }
     *out = g_player;
-    g_player.impulse = 0.0f;
+    // Nobody took it within a few frames (the classic view runs no camera): an old impact, not this frame's.
+    if (!takeAny && g_newestFrame - g_player.impulseFrame > 4) { out->impulse = 0.0f; g_player.impulse = 0.0f; }
+    if (takeImpulse || takeAny) g_player.impulse = 0.0f;
     return true;
 }
 
@@ -939,7 +942,7 @@ const VehicleFeel& VehicleFxUpdate(const VehicleFxCar& car, uint32_t frame) {
                 EmitSparks(at, groundY, along, out, 8 + static_cast<int>(22.0f * k));
                 st.sparkT = 0.08f;
             }
-            if (car.driven) g_player.impulse += dv * kick;
+            if (car.driven) { g_player.impulse += dv * kick; g_player.impulseFrame = frame; }
             if (st.sinceHit > 0.3f && (car.driven || g_logFeel > 0))
                 Log("vehicle physics: impact%s dv=%.2f blocks/s (along %.2f, across %.2f) at corner %d, damage +%d -> %d, corners %.0f %.0f %.0f %.0f",
                     car.driven ? " (player)" : "", dv, dvF, dvL, corner, dDamage, car.damage, st.zone[0], st.zone[1], st.zone[2], st.zone[3]);
@@ -1108,7 +1111,7 @@ const VehicleFeel& VehicleFxUpdate(const VehicleFxCar& car, uint32_t frame) {
         const bool hit = (dDamage > 0 && speed + std::sqrt(st.rvx * st.rvx + st.rvz * st.rvz) > 0.3f) || jolt > 45.0f;
         if (hit) {
             const float k = Clamp((dDamage > 0 ? dDamage / 1500.0f : 0.0f) + (jolt - 30.0f) / 120.0f, 0.2f, 1.0f);
-            if (car.driven) g_player.impulse += jolt * dt;
+            if (car.driven) { g_player.impulse += jolt * dt; g_player.impulseFrame = frame; }
             // The jolt's direction in the car frame: where the push came from.
             float jF = jx * f.x + jz * f.z, jL = jx * r.x + jz * r.z;
             const float jl = std::sqrt(jF * jF + jL * jL);

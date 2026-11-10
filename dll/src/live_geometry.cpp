@@ -11094,6 +11094,8 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         }
         if (wantAction == 4 && track.action != 4) {
             track.action = 4; track.actionTime = 0.0f; track.actionReverse = false;
+            // FIX-KNOCKDOWN-5 (pfl77): struck by a car: the camera checks whether it was his and gives the bump.
+            if (track.lieClip == 2 && !ownPed) ViewNotePedStruck(cx, cz);
             // FIX-KNOCKDOWN: struck by a car or blown off his feet: the full sequence (above).
             track.kd = (track.lieClip == 2 || track.lieClip == 3) && KnockdownFullEnabled() && RagdollEnabled() && !track.waterFrame;
             track.kdSecs = 0.0f; track.kdSettledAt = -1.0f; track.kdGameUp = false; track.kdRising = false; track.kdAlign = false;
