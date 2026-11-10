@@ -2566,7 +2566,19 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             // out of the car the figure faces away from it; his eyes keep the door in view: part way
             // round toward the car while he climbs out, onto it while he shuts the door
             float target = WrapAngle(ride.heading);
-            if (ride.mode >= 3) {
+            // FIX-CAMERA-12 (pfl48): out of the car the eye no longer rides the figure's turn (away from the car,
+            // round to shut the door, back): with the eyes kept on the door that was a ~300 degree sweep along the
+            // van's flank to its grille over 3 s while his facing stayed put. Out of the seat (modes 3 and 4) the
+            // view keeps his facing, with at most a short glance (under 20 degrees) toward the door while he climbs
+            // out. GTA2DX9_FP_EXIT_FACING=0: the ride's turn as before (A/B).
+            static int exitFacing = -1;
+            if (exitFacing < 0) { char b[8] = {}; exitFacing = GetEnvironmentVariableA("GTA2DX9_FP_EXIT_FACING", b, sizeof b) && atoi(b) == 0 ? 0 : 1;
+                                  Log("view: fp exit %s (FIX-CAMERA-12 pfl48)", exitFacing ? "keeps his facing" : "rides the figure's turn (old)"); }
+            if (ride.mode >= 3 && exitFacing) {
+                const float toCar = std::atan2(ride.carX - eye.x, ride.carZ - eye.z);
+                const float glance = (std::max)(-35.0f * kDegToRad, (std::min)(35.0f * kDegToRad, WrapAngle(toCar - headingYaw)));
+                target = WrapAngle(headingYaw + glance * (ride.mode == 3 ? 0.5f : 0.0f));
+            } else if (ride.mode >= 3) {
                 const float toCar = std::atan2(ride.carX - eye.x, ride.carZ - eye.z);
                 target = WrapAngle(target + WrapAngle(toCar - target) * (ride.mode == 3 ? 0.6f : 0.8f));
             }

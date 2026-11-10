@@ -925,3 +925,9 @@ host; the governor paused some runs for minutes, so a few frames were taken mid 
   least 60 % clear, else the beat hands the frame back to the chase camera (eased over ~0.12 s, still
   looking at him). `GTA2DX9_BEAT_CAM_GUARD=0` = before (A/B). Log: `beat cam: ... from the eye N% clear,
   handed back K`, `... cut to D deg`, `... the chase camera keeps the frame`.
+- **First-person exit (pfl48, `view_modes.cpp` first person, the boarding ride).** Out of the seat the
+  eye rode the exit figure's turn (away from the car, round to shut the door) with its eyes held on the
+  door: a ~300 degree sweep along the van's flank to its grille over ~3 s while his facing stayed put. On
+  every first-person exit with a boarding plan (ride modes 3 and 4) the view now keeps his facing, with at
+  most a glance of under 20 degrees toward the door while he climbs out. `GTA2DX9_FP_EXIT_FACING=0` = the
+  old ride turn. Log: `view: fp exit keeps his facing`.
