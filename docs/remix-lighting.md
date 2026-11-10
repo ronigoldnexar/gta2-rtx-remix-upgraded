@@ -177,3 +177,51 @@ Still short of a shipping frame: the window light is one spot per pane tile, so 
 rather than individual rooms (no per-window variation, no curtains, no unlit rooms); the lit windows themselves are
 still albedo, not emissive (they do not bloom); the gantry lens is a teal lamp with one fixed colour (the tile has no
 phase); the lifted signal pool is a soft blob of signal colour, not a lens throw; the SAVES letters stay speckled.
+
+## FIX-REMIX-NIGHT-7 (10 Nov): a moonlit night between the sodium lamps, the siren lamp on its light bar
+
+Play config (`rtx_play.conf.extra`, `ignoreGameDirectionalLights = True` checked in every take), GPU 4, private
+stages, paused clock, same-session `[devtools]` toggles labelled from the DLL's `devtools:` log lines; probes
+`gamerun/frn7_probe1.py` (light-class variants at a spot, third/first/classic, two hours), `frn7_probe2.py` (siren
+states), `frn7_probe3.py` (fixed REGRESS_CAM cameras + views, moon fill A/B) with `gamerun/rn4_keys.sh`.
+
+| change | where | gate | A/B key |
+|---|---|---|---|
+| Night moon fill: by the lamps' clock the street views' fill is 0.14 x (0.36, 0.48, 1.0) in place of 0.06 x (0.78, 0.86, 1.0); the dusk ramp before the lamps' hour and the classic view keep the old fill | `remix_lights.cpp` `ApplyAmbientFill` | Remix, street views, lamps' clock | `remix_moon_fill_milli=0` (the NIGHT-6 fill), `remix_moon_rgb` |
+| Live probes of the sodium amber and strength (defaults unchanged) | `Describe` | street views | `remix_sodium_rgb`, `remix_sodium_pct` |
+| Siren beacons under Remix: no more three crossed additive glow quads per bulb (Remix drew them as a wheel-sized flat red/blue disc with a cross, floating off the roof); one small eye-facing glow cap (half-size 0.022 tile) per lit bulb on the top of the model's own light bar, found once per model as the vertices in the top 5 % of the body's height (none on a flat-roofed body) | `car_bodies.cpp` `DrawBeacons` Remix branch, `BeaconLampSpot` | Remix only (the plain renderer's beacons unchanged) | `remix_beacon_quads=1` (old quads), `remix_beacon_cap_milli` |
+
+Why the bil street was olive (prmx): the filer's DLL predated the amber sodium rule (road blue 6/255); on the
+0d1520c stage the street was already warm-brown, not sulphur (frn7_rt1: road by the car 75,69,50; hero tee
+near-black, skin natural). The class split at bil 150.5,130.5 21:00 (frn7_p1): with the street lamps out the road
+read neutral (25,26,24), all our lights out near black (3,4,5); the 0.06 fill added only ~(5,7,8). The rest of the
+warmth between lamps is the sodium amber on an asphalt whose albedo is itself green-yellow, so only a clearly blue
+fill can give a blue-grey shade (frn7_t1 sweep: moon (0.55,0.70,1) x 0.15 turned the road teal-green, G > B).
+
+Evidence (mean RGB of the PNG; old = key off in the same session):
+
+| check | old | new |
+|---|---|---|
+| bil 150.5,130.5 21:00 third, road between lamps (frn7_v1 shot_135/150) | 41,42,33 (B < R, olive) | 41,46,46 (B >= R, blue-grey), luma 41 -> 45 |
+| same, lamp pool under the post | 58,40,26 | 58,41,28 (warm pool kept) |
+| same, hero tee (chest patch) at 21:00; 13:00 reference 35,35,35 (neutral charcoal) | 12-17,11-15,10-13 (warm brown-black, hue 21-27) | 16-17,15-16,17 (neutral-cool, B >= R) |
+| bil 100.5,100.5 21:00 third, the lit road at the police station (shot_260/250) | 110,107,72 | 111,108,78 (warm pool kept) |
+| 13:00 at both spots, third/first/classic full-frame luma (shot_375/355, 405/390, 435/420) | 132 / 116 / 139 | 131-132 / 116 / 139 (day: identical) |
+| bil 21:00 classic, ground patches (shot_215/205) | 31,35,28 / 38,42,32 | 30,35,28 / 38,42,32 (classic unchanged) |
+| wil SAVES 22:30 stair camera (frn7_w1 shot_140/160): sign / paving / stair wall | 203,135,122 / 58,53,47 / s 0.37 | 196,126,114 / 59,57,58 / s 0.24 (wall still red-tinted, weaker) |
+| wil SAVES 22:30 third (shot_250/265): sign / paving | 206,162,147 / 65,66,57 | 206,162,147 / 66,70,70 |
+| ste 206.5,227.5 22:00 lit tower, west camera (frn7_s1 shot_150/135): windows / ledge | 51,41,32 / 61,44,29 | 51,42,35 / 61,45,32 (warm windows kept) |
+| ste 22:00 classic (shot_340/355) | luma 28 | luma 28, 0.75 % of pixels differ (sprite flicker) |
+| siren, bil 47.5,74.5 19:30/23:00 first person (frn7_o2b, frn7_o2c), S0 and S2 | a red/blue disc with a cross right of the roof in every quads-on frame | no disc in any frame; a small red or blue cap on the light bar, alternating; third person: the red/blue dot no longer floats above the roof, the cap sits on the bar |
+| siren with VEHICLE-ART-15's authored 012 (a red and a blue dome on the bar; frn7_o2d, rebased build) | the disc above the bar | the cap glows on the top of the red dome, then the blue one (`caps at x -0.098 / 0.098` in the log); cap 0: both domes unlit |
+| order 1 re-taken on the rebased build (frn7_v2 shot_135/155, 205/215) | road 41,42,33 | road 41,46,46, pool 58,41,28; classic identical |
+| plain GL, same pose (frn7_pl1 shot_070/090): beacon region max difference, quads on vs off/cap 0 | | 1 of 255 (the plain draw is untouched) |
+
+Not changed: the grey "bubbles" rising from the siren car in first person stay with `remix_puff_mode=2` (frn7_o2b
+shot_250/255) and with the quads off, so they are not our puffs nor the beacon draw (still open on the siren order).
+
+Still short of a shipping frame: the moon fill is one overhead distant light, so the shade has no sky gradient
+or moon direction and the far facades stay dim slabs; the asphalt's own green-yellow albedo still reads olive inside
+the sodium pools' outer ring; the beacon cap is a flat eye-facing disc (no lens refraction, no rotating reflector),
+and the cap was filmed on the 012 cop car only: on a body without a distinct top part (`car bodies: Remix beacon
+cap for <model>: none` in the log) no cap is drawn, only the siren lights; the ambulance, fire truck and SWAT van are untested.

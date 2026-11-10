@@ -43,6 +43,13 @@ int g_poolCone = -1;             // [devtools] remix_pool_cone: PoolConeDegrees,
 int g_nightFillMilli = -1;       // [devtools] remix_night_fill_milli: NightSkyFill x1000, live (-1 = the setting)
 int g_dayFillMilli = -1;        // [devtools] remix_day_fill_milli: DayBounceFill x1000, live (-1 = the setting, 0 = off)
 int g_sodiumWhite = 1;          // [devtools] remix_sodium_white=0: sodium map lights keep #FF8000 in the street views (A/B)
+// FIX-REMIX-NIGHT-7 (prmx bil night olive wash): live tuning of the night palette, milli per channel / percent.
+// [devtools] remix_moon_rgb=R,G,B (x1000): the night sky fill's colour; remix_sodium_rgb=R,G,B: the street views'
+// sodium amber; remix_sodium_pct: the sodium lamps' strength in the street views. Absent = the compiled defaults.
+float g_moonRgb[3] = {0.36f, 0.48f, 1.0f};
+int g_moonFillMilli = -1;        // [devtools] remix_moon_fill_milli: the night's moon fill x1000 (-1 = 140, 0 = the NIGHT-6 fill)
+float g_sodiumRgb[3] = {1.0f, 0.74f, 0.46f};
+int g_sodiumPct = 100;
 int g_windowPct = 100;           // [devtools] remix_window_pct: lit-window room lights, % of default (0 = off; FIX-REMIX-NIGHT-6)
 int g_windowOutMilli = 250;
 int g_gantryPct = 100;           // [devtools] remix_gantry_pct: the wil gantry signal lenses' night glow, % (0 = off; FIX-REMIX-NIGHT-6)      // [devtools] remix_window_out_milli: how far in front of the pane they hang (tiles x1000)
@@ -433,10 +440,11 @@ void Describe(const RemixTrackedLight& t, float* pos, float* rgb, float* scaleOu
     // lamp-post pool with it. [devtools] remix_sodium_white=0: the game's colour (same-session A/B).
     if (g_sodiumWhite && t.def.source == kLightSourceGame && !t.moving && StreetPresentation() &&
         SodiumLike(t.def.rgb) && !(ov && ov->recolor)) {
-        static const float kAmber[3] = {1.0f, 0.74f, 0.46f};
+        const float* kAmber = g_sodiumRgb;
         const float lumaAmber = 0.2126f * kAmber[0] + 0.7152f * kAmber[1] + 0.0722f * kAmber[2];
         const float luma = 0.2126f * rgb[0] + 0.7152f * rgb[1] + 0.0722f * rgb[2];
         for (int i = 0; i < 3; ++i) rgb[i] = kAmber[i] * luma / lumaAmber;
+        scale *= static_cast<float>(g_sodiumPct) / 100.0f;
     }
 
     // FIX-REMIX-NIGHT-2 (pt-remix-traffic-light-green-wash-slab-and-grainy-red-crosswalk-pool): in
@@ -562,7 +570,7 @@ void ApplyAmbientFill() {
 
     const float level = g_settings.ambientFill ? g_ambient * g_settings.ambientFillScale : 0.0f;
     // The night sky's fill (nightSkyFill in remix_lights.h): a moonlit sky's blue-grey, by the lamps' clock.
-    float night = 0.0f;
+    float night = 0.0f, moonShare = 0.0f;
     {
         DaylightGate gate;
         gate.enabled = true;
@@ -583,9 +591,27 @@ void ApplyAmbientFill() {
                 share = (std::max)(share, t);
             }
             night = fill * share;
+            moonShare = DaylightGateFactor(gate);   // the lamps' clock alone: 0 through the dusk ramp, 1 at night
         }
     }
-    static const float kMoonSky[3] = {0.78f, 0.86f, 1.0f};
+    // FIX-REMIX-NIGHT-7 (prmx-remix-bil-night-third-street-and-hero-wash-sulphur-olive-...): at night (by the lamps'
+    // clock) the fill was a 0.06 pale blue-grey, too weak against the sodium lamps and the warm player fill: between
+    // the lamps the bil streets read olive-brown (the asphalt's own green-yellow under warm light: B < R), the hero's
+    // navy tee near black-khaki. A moonlit street's shade is a dark blue-grey: the night share is now a stronger,
+    // bluer moon fill (0.14 x 0.36,0.48,1.0; out frn7_t1: road between lamps 41,42,33 -> blue >= red at about the same
+    // luminance). The dusk ramp before the lamps' hour keeps the old fill and colour (no cobalt shade at 17:00), and the
+    // classic view keeps the old fill at every hour.
+    // [devtools] remix_moon_fill_milli=0: the NIGHT-6 fill at night too (A/B); remix_moon_rgb=R,G,B (x1000) live.
+    static const float kDuskSky[3] = {0.78f, 0.86f, 1.0f};
+    const float moonFill = g_moonFillMilli >= 0 ? static_cast<float>(g_moonFillMilli) / 1000.0f : 0.14f;
+    float nightRgb[3];
+    for (int i = 0; i < 3; ++i) nightRgb[i] = night * kDuskSky[i];
+    // Street views only: the classic view's night light list is as before.
+    if (moonFill > 0.0f && moonShare > 0.0f && night > 0.0f && StreetPresentation()) {
+        const float fill = g_nightFillMilli >= 0 ? static_cast<float>(g_nightFillMilli) / 1000.0f : g_settings.nightSkyFill;
+        const float share = night / fill, w = (std::min)(1.0f, moonShare);
+        for (int i = 0; i < 3; ++i) nightRgb[i] = share * ((1.0f - w) * fill * kDuskSky[i] + w * moonFill * g_moonRgb[i]);
+    }
     // FIX-REMIX-NIGHT-4 (pt-remix-morning-dusk-shade-cobalt-blue-roads-and-facades): the day look scales the
     // sky's indirect light 3x (so shade is not black), and the sky is blue: at 07:00 and 16:30 the shaded roads
     // and lower storeys went saturated cobalt (sat 0.40-0.53, hue 210) beside cream sunlit faces. What a real
@@ -627,8 +653,8 @@ void ApplyAmbientFill() {
     remixapi_LightInfo info = {};
     info.sType = REMIXAPI_STRUCT_TYPE_LIGHT_INFO;
     info.hash = kAmbientFillId;
-    info.radiance = remixapi_Float3D{level + night * kMoonSky[0] + day * kBounce[0], level + night * kMoonSky[1] + day * kBounce[1],
-                                     level + night * kMoonSky[2] + day * kBounce[2]};
+    info.radiance = remixapi_Float3D{level + nightRgb[0] + day * kBounce[0], level + nightRgb[1] + day * kBounce[1],
+                                     level + nightRgb[2] + day * kBounce[2]};
     info.isDynamic = 1;
 
     remixapi_LightInfoDistantEXT distant = {};
@@ -1359,6 +1385,30 @@ void LightsReconcile() {
             if (puff != lastPuff) {
                 lastPuff = puff; VehicleFxSetRemixPuffMode(puff);
                 Log("devtools: Remix smoke puffs mode %d (0 dither, 1 wisps, 2 none, 3 wisps without exhaust)", puff);
+            }
+            {
+                // FIX-REMIX-NIGHT-7: the night palette live (see g_moonRgb).
+                auto rgbKey = [&](const char* key, float* out, const float* def) {
+                    char buf[64] = {};
+                    GetPrivateProfileStringA("devtools", key, "", buf, sizeof buf, ini);
+                    float v[3] = {def[0], def[1], def[2]};
+                    int a = 0, b = 0, c = 0;
+                    if (buf[0] && sscanf(buf, "%d,%d,%d", &a, &b, &c) == 3) { v[0] = a / 1000.0f; v[1] = b / 1000.0f; v[2] = c / 1000.0f; }
+                    if (v[0] != out[0] || v[1] != out[1] || v[2] != out[2]) {
+                        for (int i = 0; i < 3; ++i) out[i] = v[i];
+                        Log("devtools: %s %.3f,%.3f,%.3f", key, out[0], out[1], out[2]);
+                        return true;
+                    }
+                    return false;
+                };
+                static const float kMoonDef[3] = {0.36f, 0.48f, 1.0f};
+                static const float kSodiumDef[3] = {1.0f, 0.74f, 0.46f};
+                rgbKey("remix_moon_rgb", g_moonRgb, kMoonDef);
+                if (rgbKey("remix_sodium_rgb", g_sodiumRgb, kSodiumDef)) g_reliftPending = true;
+                const int mf = GetPrivateProfileIntA("devtools", "remix_moon_fill_milli", -1, ini);
+                if (mf != g_moonFillMilli) { g_moonFillMilli = mf; Log("devtools: night moon fill %d/1000 (-1: 140, 0: the NIGHT-6 fill)", mf); }
+                const int sp = GetPrivateProfileIntA("devtools", "remix_sodium_pct", 100, ini);
+                if (sp != g_sodiumPct) { g_sodiumPct = sp; g_reliftPending = true; Log("devtools: sodium lamps %d%% in the street views", sp); }
             }
             const int sodium = GetPrivateProfileIntA("devtools", "remix_sodium_white", 1, ini);
             if (sodium != g_sodiumWhite) { g_sodiumWhite = sodium; g_reliftPending = true; Log("devtools: sodium lamps as amber white %s", sodium ? "on" : "off"); }
