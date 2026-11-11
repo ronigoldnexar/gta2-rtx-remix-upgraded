@@ -568,3 +568,18 @@ Defect qaf90-wil-third-first-fire-truck-kill-frenzy-shows-only-the-clock: in the
   line (hose held, reverse when stuck), cycles the views every `FH7_CYCLE` s and, when the counter drops, shoots
   classic, third and first back to back. Two to three kills a 60 s frenzy (the wil yard is thin of people).
   `GTA2_GPU=4 STAGE=<stage> QA_DISTRICT=wil PRIO=1 QA_ENV="-e GTA2DX9_STATE_EVERY=3 -e GTA2DX9_LOG_VEHICLES=1 -e FH7_HUNT=1 -e FH7_DUR=64 -e FH7_CYCLE=3" gamerun/qa_run.sh <name> 240 fh7a`
+
+Verified (FIX-HUD-7, 11 Nov 2026, frames opened; 1280x720, plain GL, private stage = the cdd395e5 stage + this build):
+- Fire-truck frenzy (fh7g, fh7f, fh7h after the rebase): classic, third and first at the start (classic panel 20 / 00:58,
+  third 00:57 KILLS 20, first 00:56 KILLS 20, the hose icon and WATER CANNON with no number in both, as classic's
+  icon alone) and right after kills (bursts at 19, 18, 17: classic 18 / 00:4x, third 00:41 KILLS 18, first 00:39 KILLS
+  18; classic 17 / 00:05, third 00:03, first 00:01); the FRENZY FAILED! banner in third with the chips gone.
+- Tank frenzy (fh7tank, qaf2_d.py): third 00:43 and first 00:15, KILLS 35, K.F. and TANK CANNON (the game writes K.F., so
+  the number stays).
+- On-foot frenzy wil_kf06 (fh7kf, `gamerun/fh7_b.py`, keys `keys_qa_fh7b.sh`, `-e GTA2DX9_SCENE_NO_CAR=1`: warp onto
+  the skull at 112.5,241.5 L2, fire while turning, bursts on each kill): silenced S-Uzi, 25 to kill; at 23 classic 23 /
+  00:35 with K.F. under the gun, third 00:35 KILLS 23 with K.F. and SILENCED MG, first 00:33 KILLS 23.
+- Classic: vreg `spawn_classic` PASS, 0 tiles (vreg_stage_fixhud7_1111_042613). The 3D shots differ from the goldens
+  (rev b89b95a8, before FIX-HUD-4/5) in the HUD's regions and other streams' window glass; no shot has a clock up.
+- Not verified: a gun-car frenzy (a car with a front gun: CAR GUN, same path), a job's clock alone (COUNT/no chip),
+  1080p/1440p (the LCD at 3x the height factor), night, Remix.
