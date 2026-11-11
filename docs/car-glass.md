@@ -593,3 +593,66 @@ In 2x crops of passing cars' side glass, the defaults leave sparse fine dots and
 and the isolated-pixel count is noise (lane lines). Nothing ends the sparkle measurably. The runtime knobs are exhausted
 (10.3, 10.5, here). AperturePBR_Translucent has no roughness input. An opaque-glossy pane was not tried. The next test
 needs DLSS-RR (the owner's 5090).
+
+## 12. VEHICLE-GLASS-7 (11 Nov 2026): the belt cut, completion to the glasshouse bound, the films GLASS-6 did not make
+
+### 12.1 Step 1: 1b2ce32c confirmed, moving traffic, first person
+
+- Fixed poses (`gamerun/keys_qa_vg7own.sh` + `vg7_own.py` = VEHICLE-ART-5's `va5_own.py` plus two first-person frames per
+  model; wil 164.5,147.6, noon, own car forced, `[devtools] car_glass` 0/1 per pose), HEAD f68928ea build:
+  run qa_vg7_p0 (`GTA2DX9_GLASS_SYNTH=0`) against qa_vg7_p1 (on). 028: FIX-SEATED's dark band box with the driver's torso
+  drawn through it (p0) -> side windows, windscreen and rear screen over the cabin (p1). 005: no windscreen -> a windscreen
+  with the driver behind it. Same as GLASS-6's qa_vg6_b0/a4.
+- Moving traffic, third person (run qa_vg7_t1, `keys_qa_vg6cen.sh` at the wil kerbs 164.5,149.5 and 158.5,139.5, 30 fps,
+  frames cut at 6 fps): the passing bodies' panes are stable from frame to frame (no flicker, no pane without its body);
+  census of the run: 068, 005 and 011 on `glass + cabin`, every other passing model `own glass (authored)` (the fleet's
+  authored share has grown: most traffic no longer goes through the mask at all).
+- First person seated in 028, 005, 071, 001 (qa_vg7_p1 `own_fp_*`, `own_fpL_*`): the seat view draws the cockpit (cab
+  table in identity.cpp: pillars, dash, wheel, gauges), not the body hull, so no synthesized pane is drawn from the eye and
+  none fights the cab; the windscreen and side openings are clear (no tint, no holes). A glass tint seen from the seat
+  would be the cockpit's business (CAB), not this mask's.
+
+### 12.2 Belt cut (`SynthesizePanes` end, twin `belt_cut`): 11.5's "001 dark belt strip"
+
+Measured in the twin (heights as fractions of the roof, side faces): 001 Wellard's side+ glass had a full row at 0.60-0.63
+(68 of 68 texels) under an up-facing sill ledge at 0.65-0.70, separated from the window above it. Those texels are the
+door's top: their colour is the beige body paint (0.57, 0.52, 0.39 against a 0.18 window) and the paint mask covers them
+(alpha 0.99). No colour rule held them because 001's bake gives no paint cluster (`paints []`: its beige spreads over
+many RGB bins, none reaches 15 %). The paint mask cannot be the rule: it covers glass on most bodies (028: 1030 of
+1040 glass texels; 047 fleet bodies checked).
+
+Rule (geometry only): where the body has a sill ledge (normal y > 0.7, 0.55-0.72 of the roof, |x| over 0.30 of the width
+from the middle), side glass at the same station (1/48 of the length) and side that is lower than the ledge's top AND
+outboard of its inner edge is dropped: a window stands inboard of its sill, the door skin under the sill is outboard.
+A first form without the outboard test (any glass under the ledge's top) also raised 002's window bottom; a gap-in-the-
+column form missed the strip (the ledge faces up, so it was not counted as body between the two runs). Both dropped.
+`GTA2DX9_GLASS_BELTCUT=0` / twin `--nobeltcut`. Log: `...; belt cut -N`.
+
+### 12.3 Column completion to the glasshouse bound (twin `coltop`): 11.5's stair-stepped window tops
+
+GLASS-6's completion filled a found window's station above the median of its found glass up to 0.87 of the roof; the band
+the bakes leave along a window's top sits from 0.87 to the roof's turn (071: at 0.875-0.90, 15 of 88 texels glass, 57
+paint-hued). The fill now goes up to 0.90 (the glasshouse band's own top), still only side faces (|nx| > 0.4, normal y <=
+0.80: where the roof turns over the fill stops) and still only at stations whose aperture is at least 0.4 glass. The pane's
+top is then the hull's own roof line, not the bake's pale band. No texel is lost by it (it only adds).
+`GTA2DX9_GLASS_COLTOP=0` / twin `--nocoltop`.
+
+Fleet (twin, the 47 mask bodies in assets/models, HEAD rules -> both new rules): 16 bodies change, the rest identical
+(added by the top fill / dropped by the belt cut): 001 1969 -> 1733 (+34 / -270), 002 2415 -> 2139 (+60 / -336), 005 1778 ->
+1604 (-174: synthesized side panes under the ledge), 016 3639 -> 3841 (+202), 023 755 -> 787 (+32), 028 1040 -> 978 (-62:
+synthesized side panes under the ledge), 031 -6, 032 +136 / -78, 033 +62 / -47, 037 +50 / -10, 047 +13 / -76, 048 +9 / -23,
+049 +73 / -65, 071 1880 -> 1966 (+119 / -33), 083 +25 / -56, 084 -15. The top fill adds only (the "no texel lost" bar holds
+for it); the belt cut's drops are door-top texels by construction, filmed on 001/002/005/071 (12.4), not on 033/047/083/084.
+The DLL in the game (run qa_vg7_p2): 001 1733 and 002 2139
+(the twin's to the texel); 005 1608, 071 1968, 028 996 (the twin +4, +2, +18: the same offsets the HEAD DLL has against the
+twin, 1783/1882/1058, so not from these rules).
+
+### 12.4 Evidence (plain GL) and the classic view
+
+Runs (local, not in git), wil 164.5,147.6, noon, own car forced, `keys_qa_vg7own.sh` poses: qa_vg7_p1 (HEAD) against
+qa_vg7_p2 (both rules; models 001, 002, 071, 005, 028), qa_vg7_p3 (the same after the rebase onto 28b3392d: identical counts,
+0 FAULT). 001 rear three-quarter: the dark translucent band over the belt under the rear quarter window is the beige door top
+again; the window stays a dark pane with the driver (red shirt) behind it; no notch under the chrome sill. 002/005/071: no
+regression at these poses (no notch, no new hole). Classic: `tools/vreg/vreg.sh stage` run vg7_a, spawn_classic PASS 0 tiles;
+its other 29 shots FAIL on 17-43 tiles each, all on the HUD (the game-font HUD of FIX-HUD-5 against the b89b95a goldens),
+no car in the changed tiles.
