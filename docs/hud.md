@@ -581,5 +581,9 @@ Verified (FIX-HUD-7, 11 Nov 2026, frames opened; 1280x720, plain GL, private sta
   00:35 with K.F. under the gun, third 00:35 KILLS 23 with K.F. and SILENCED MG, first 00:33 KILLS 23.
 - Classic: vreg `spawn_classic` PASS, 0 tiles (vreg_stage_fixhud7_1111_042613). The 3D shots differ from the goldens
   (rev b89b95a8, before FIX-HUD-4/5) in the HUD's regions and other streams' window glass; no shot has a clock up.
+- Remix (fh7_rx2, `GTA2_GPU=5 STAGE=<stage> gamerun/rn_remix.sh <name> 720 wil 12.5 none -e PROBE=fh7_a.py -e FH7_DUR=14
+  -e FH7_CYCLE=4 -e GTA2DX9_STATE_EVERY=3 -e GTA2DX9_LOG_VEHICLES=1`; rn_remix.sh does not forward `PROBE` itself): path-traced
+  wil noon, third 00:58 KILLS 20 and 00:47 KILLS 19, first 00:56 KILLS 20 and 00:45 KILLS 17, the LCD cells crisp and in
+  their own colours (UI, no Remix lighting), WATER CANNON under the hearts.
 - Not verified: a gun-car frenzy (a car with a front gun: CAR GUN, same path), a job's clock alone (COUNT/no chip),
-  1080p/1440p (the LCD at 3x the height factor), night, Remix.
+  1080p/1440p (the LCD at 3x the height factor), night.
