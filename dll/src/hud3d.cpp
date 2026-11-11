@@ -2313,42 +2313,54 @@ void DrawRespect(ImDrawList* dl, const Values& v, float A) {
             const ImVec2 sz = Measure(g_fonts.heavy, g_fonts.heavyPx, st.glyph);
             Text(dl, g_fonts.heavy, g_fonts.heavyPx, ImVec2(ec.x - sz.x * 0.5f, cy - sz.y * 0.5f), st.emblem, st.glyph, A);
         }
-        // The track: a dark pill with a light edge.
-        const float x0 = margin + emblemW + 8.0f * u, x1 = x0 + barW, xm = (x0 + x1) * 0.5f;
-        const ImVec2 a(x0, cy - barH * 0.5f), b(x1, cy + barH * 0.5f);
-        dl->AddRectFilled(ImVec2(a.x - 1.5f * u, a.y - 1.5f * u), ImVec2(b.x + 1.5f * u, b.y + 1.5f * u), Fade(IM_COL32(0, 0, 0, 170), A), barH);
-        dl->AddRectFilled(a, b, Fade(IM_COL32(18, 20, 28, 220), A), barH * 0.5f);
-        // The fill, from the middle out; a lighter top half for a little body.
-        const float frac = (std::max)(-1.0f, (std::min)(1.0f, g.respect / 100.0f));
-        const float inset = 1.5f * u;
-        if (std::fabs(frac) > 0.004f) {
-            const float half = (x1 - x0) * 0.5f - inset;
-            const float fx = xm + frac * half;
-            // Below zero the gang's colour darkened, with a red cap: (a red fill would read as the
-            // Russians' own colour).
-            const ImU32 col = frac > 0 ? st.bar : Mix(st.bar, IM_COL32(0, 0, 0, 255), 0.45f);
-            const ImVec2 fa(frac > 0 ? xm : fx, a.y + inset), fb(frac > 0 ? fx : xm, b.y - inset);
-            const ImDrawFlags round = frac > 0 ? ImDrawFlags_RoundCornersRight : ImDrawFlags_RoundCornersLeft;
-            dl->AddRectFilled(fa, fb, Fade(col, A), (barH - 2 * inset) * 0.5f, round);
-            dl->AddRectFilled(fa, ImVec2(fb.x, (fa.y + fb.y) * 0.5f), Fade(Mix(col, kWhite, 0.35f), A * 0.55f), (barH - 2 * inset) * 0.5f,
-                              frac > 0 ? ImDrawFlags_RoundCornersTopRight : ImDrawFlags_RoundCornersTopLeft);
-            // The edge of the fill: a bright cap, as the game's marker.
-            dl->AddLine(ImVec2(fx, a.y + inset), ImVec2(fx, b.y - inset), Fade(frac > 0 ? Mix(col, kWhite, 0.6f) : kRed, A), 2.0f * u);
+        // FIX-HUD-9 (owner 11 Nov, RTX 5090: "the three bars look too modern and don't match the style of the hearts"):
+        // the meter in the hearts' language (HeartShape): ten square blocks, five a side of respect 0, each with the
+        // hearts' hard black edge and drop shadow, a flat fill in the gang's colour with the hearts' light upper-left
+        // highlight, and an unearned block in the lost heart's dark red. No rounded track, no gradient. A block is 20
+        // respect (the game's own meter); the block holding the current value fills in proportion. Above zero the blocks
+        // fill rightward from the middle, below zero leftward in the gang's colour darkened with a red edge (they hate you).
+        const int kCells = 10;
+        const float gap = (std::max)(1.0f, 2.0f * u);
+        const float cellW = (barW - gap * (kCells - 1)) / kCells, cellH = 13.0f * u;
+        const float x0 = margin + emblemW + 8.0f * u, xm = x0 + 5 * (cellW + gap) - gap * 0.5f;
+        const float top = cy - cellH * 0.5f, bot = cy + cellH * 0.5f;
+        const float edge = (std::max)(1.0f, 1.3f * u), shadow = (std::max)(1.0f, 1.5f * u);
+        const float val = (std::max)(-100.0f, (std::min)(100.0f, static_cast<float>(g.respect)));
+        const ImU32 lost = IM_COL32(40, 20, 22, 255);
+        for (int i = 0; i < kCells; ++i) {
+            const float cx0 = x0 + i * (cellW + gap), cx1 = cx0 + cellW;
+            // How much of this block the respect covers, 0..1, counted from the middle out.
+            float cover = 0.0f;
+            const bool right = i >= 5;
+            const int k = right ? i - 5 : 4 - i;          // 0 next to the middle
+            const float side = right ? val : -val;          // respect toward this side
+            if (side > 0.0f) cover = (std::max)(0.0f, (std::min)(1.0f, (side - k * 20.0f) / 20.0f));
+            dl->AddRectFilled(ImVec2(cx0 + shadow, top + shadow), ImVec2(cx1 + shadow, bot + shadow), Fade(kShadow, A * 0.85f));
+            dl->AddRectFilled(ImVec2(cx0, top), ImVec2(cx1, bot), Fade(lost, A * 0.6f));
+            if (cover > 0.0f) {
+                const ImU32 col = right ? st.bar : Mix(st.bar, IM_COL32(0, 0, 0, 255), 0.45f);
+                // Fill from the middle side of the block.
+                const float fx0 = right ? cx0 : cx1 - cellW * cover, fx1 = right ? cx0 + cellW * cover : cx1;
+                dl->AddRectFilled(ImVec2(fx0, top), ImVec2(fx1, bot), Fade(col, A));
+                if (cover >= 0.999f)   // the hearts' light lobe, a small highlight in the upper left
+                    dl->AddRectFilled(ImVec2(cx0 + cellW * 0.16f, top + cellH * 0.18f), ImVec2(cx0 + cellW * 0.42f, top + cellH * 0.40f),
+                                      Fade(IM_COL32(255, 255, 255, 255), A * 0.45f));
+            }
+            dl->AddRect(ImVec2(cx0, top), ImVec2(cx1, bot), Fade(right || val >= 0 ? IM_COL32(0, 0, 0, 230) : (cover > 0 ? kRed : IM_COL32(0, 0, 0, 230)), A),
+                        0.0f, 0, edge);
         }
-        // Five bars a side: thin separators, and the middle mark.
-        for (int i = 1; i < 10; ++i) {
-            const float x = x0 + (x1 - x0) * i / 10.0f;
-            if (i == 5) dl->AddLine(ImVec2(x, a.y - 2.5f * u), ImVec2(x, b.y + 2.5f * u), Fade(kWhite, A * 0.85f), 1.6f * u);
-            else dl->AddLine(ImVec2(x, a.y + 2.0f * u), ImVec2(x, b.y - 2.0f * u), Fade(IM_COL32(0, 0, 0, 150), A), 1.0f * u);
-        }
-        dl->AddRect(a, b, Fade(IM_COL32(244, 240, 228, 70), A), barH * 0.5f, 0, 1.0f * u);
-        // The phones' tiers under the track: 0, 2 and 4 bars (green, yellow, red jobs).
+        // Respect 0: a short white tick between the halves.
+        dl->AddLine(ImVec2(xm, top - 3.0f * u), ImVec2(xm, bot + 3.0f * u), Fade(kWhite, A * 0.85f), (std::max)(1.0f, 1.6f * u));
+        // The phones' tiers under the meter (0, 2 and 4 blocks: green, yellow, red jobs), as small black-edged squares.
         static const ImU32 kTier[3] = {IM_COL32(92, 220, 96, 255), IM_COL32(255, 196, 40, 255), IM_COL32(240, 64, 52, 255)};
         for (int t = 0; t < 3; ++t) {
-            const float x = xm + (x1 - xm - inset) * (t * 40) / 100.0f;
+            const float x = xm + (t * 2) * (cellW + gap);
             const bool lit = g.respect >= t * 40;
-            const ImVec2 p0(x - 4.0f * u, b.y + 3.0f * u), p1(x + 4.0f * u, b.y + 3.0f * u), p2(x, b.y + 7.5f * u);
-            dl->AddTriangleFilled(p0, p1, p2, Fade(lit ? kTier[t] : IM_COL32(60, 62, 70, 255), A * (lit ? 1.0f : 0.8f)));
+            const float h = 2.6f * u;
+            const ImVec2 q0(x - h, bot + 3.5f * u), q1(x + h, bot + 3.5f * u + 2 * h);
+            dl->AddRectFilled(ImVec2(q0.x + shadow, q0.y + shadow), ImVec2(q1.x + shadow, q1.y + shadow), Fade(kShadow, A * 0.8f));
+            dl->AddRectFilled(q0, q1, Fade(lit ? kTier[t] : lost, A * (lit ? 1.0f : 0.6f)));
+            dl->AddRect(q0, q1, Fade(IM_COL32(0, 0, 0, 230), A), 0.0f, 0, edge);
         }
         y += rowH;
         ++g_respectDrawn;
