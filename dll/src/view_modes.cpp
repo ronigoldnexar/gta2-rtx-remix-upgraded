@@ -2515,6 +2515,10 @@ float g_yaw0 = 0.0f;       // where round him the orbit starts (polar angle abou
 float g_clearR = 1e9f;     // the radius the walls leave, eased
 float g_lastLog = -1.0f;
 bool g_cut = false;        // the chase camera was far from him at the start: cut, not blend
+// FIX-CAMERA-21: the chase camera's eye on the frames before a beat (no beat up), so a beat that
+// cuts (the chase camera already at the hospital) starts on the side the player watched from.
+bool g_lastChaseOk = false;
+gta2::Vec3 g_lastChase{0.0f, 0.0f, 0.0f};
 // FIX-CAMERA-12 (pmq77): the shown eye's own line to him. Blocked (under half clear) for a
 // moment, the orbit is searched again from where it stands (cut to the clearest place round
 // him); with no place half clear the beat hands the frame back to the chase camera.
@@ -2614,6 +2618,8 @@ void Apply(const ViewQueries& q, float dt, gta2::Camera* camera) {
     const BeatState& b = Beat();
     if (b.kind == BeatKind::None) {
         g_serial = 0;
+        g_lastChase = camera->Position();
+        g_lastChaseOk = true;
         return;
     }
     float w = b.camera;
@@ -2630,7 +2636,14 @@ void Apply(const ViewQueries& q, float dt, gta2::Camera* camera) {
         // Where round him to stand: the clearest of 24 angles near the preferred one - for
         // the death and the arrest where the camera already is, for the job in front of him.
         g_serial = b.serial;
-        const float prefer = b.kind == BeatKind::Complete ? b.yaw : phiN;
+        float prefer = b.kind == BeatKind::Complete ? b.yaw : phiN;
+        // Cut (the chase camera is far, at the new body): from where the chase eye stood last
+        // beside him, when that is near the beat's spot (qaf91: the side of the burning wreck
+        // the player was looking from, not the hospital's direction).
+        if (b.kind != BeatKind::Complete && std::hypot(rn, hn) > 6.0f && g_lastChaseOk) {
+            const float lx = g_lastChase.x - A.x, lz = g_lastChase.z - A.z;
+            if (std::hypot(lx, lz) > 0.3f && std::hypot(lx, lz) < 8.0f) prefer = std::atan2(lx, lz);
+        }
         float best = -1e9f, bestFree = 0.0f;
         g_yaw0 = prefer;
         const float rTest = 0.5f * (shot.r0 + shot.r1), hTest = 0.5f * (shot.h0 + shot.h1);

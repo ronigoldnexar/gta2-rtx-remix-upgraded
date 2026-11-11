@@ -1764,3 +1764,35 @@ first frame can show the cab a half-step off at 4+ b/s; open tops, the train and
   passage. The clip covers that case if it comes back (the truss is a sparse lattice); not demonstrated on the filed spot.
 - Short of a shipping frame: the clip is a cut through the lattice by a plane, not a fade; a lattice more than a block from
   the lens still hides him (the dock fence at 24-25 s); Remix, night untested.
+
+## The death beat holds on the wreck when the game has already moved him (FIX-CAMERA-21, 11 Nov 2026)
+
+- qaf91 / qaf92 (every death seated in a car that blows up, third AND first person). When the car blows up with him in it,
+  the game removes him with the car (the locator finds nobody for one frame), and on the next frame its player object is
+  already the new body at the hospital: the same frame as its WASTED big message. beats.cpp anchored the beat on the
+  previous frame's place (`g_prev`), which on that frame held nothing (lost) or the jump, so it fell through to the new
+  body's position: `beat: WASTED start ... at 44.50,2.00,64.50` (the hospital bay, 93-112 blocks away) and the beat
+  camera framed the empty bay while the blast happened off screen. Classic holds on the street under WASTED (qaf91
+  classic6: the fireball under WASTED), and the game's own camera stays at the death place for ~2-3 s
+  (`cam[N] bounds=` lines), so the wreck, flames and blast sprites are submitted and drawable there.
+- Now (`beats.cpp`): `g_last` keeps the last place that did not jump, with its age. At a WASTED/BUSTED start, if the
+  chosen anchor is more than 6 blocks from a place seen under 1.5 s ago, the beat is held on that place (the car's
+  position, `in a car` framing) and logs `beat: WASTED anchor at ... would be N blocks from where he was T s ago: held
+  there (death place)` and `..., the death place (already moved)` on the start line. Since he is already far from the
+  anchor, the respawn cut waits for the fade to black (fade_after + 0.5 s) instead of 1 s, so the cut to the hospital
+  happens under the black as on foot. `[beats] anchor_death=1` (default; 0 = before), env A/B `GTA2DX9_BEAT_ANCHOR_DEATH`.
+- The beat camera (`view_modes.cpp` beatcam) already cut, not swept, when the chase camera was far (`g_cut`); its orbit
+  start was the direction of that far chase camera (the hospital's direction). It now remembers the chase eye of the
+  frames before the beat and, on such a cut, starts on the side that eye stood (when it was within 8 blocks of the
+  anchor), so the beat opens on the side of the wreck the player was watching (third person; in first person the
+  seat eye is on the anchor and the old preference stays).
+- Verified (bil, noon, plain GL, private stage = HEAD stage + this build; the filer's qaf91_a.py blast mode, copied as
+  gamerun/cam21_blast.py with `QF91_V=0` so the filer's V taps 0.5/1.6 s into the beat do not switch views, keys
+  keys_qa_cam21blast{third,first}.sh; 0 FAULT each): first person qa_cam21_b1first and qa_cam21_b4first, third person
+  qa_cam21_b2third and qa_cam21_b3third (and qa_cam21_b1third, the filer's own keys, whose V taps go to first then classic
+  mid-beat). 3 fps sheets of game.mp4 opened for each: the burning car, then WASTED framed on the wreck with the
+  fireball for ~2.7 s, the fade to black, the hospital fading in. Classic reference qa_qaf91classic6 opened: the
+  fireball under WASTED. Log: `respawned after 2.7 s (moved 102-112 blocks)`, `end after 3.7 s`.
+- Not covered: a BUSTED arrested in a car (the game's arrest body is a new ped beside the car: anchor not exercised),
+  a death by cops' gunfire in the car (qaf91's force_wanted recipe: same code path, not re-run), other districts,
+  night, Remix. The first-person beat is the same third-person orbit shot as before (no in-cab death shot).

@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 
@@ -37,6 +38,7 @@ struct Config {
     bool enabled = true;          // [beats] enabled
     float completeSecs = 4.2f;    // [beats] complete_ms / 1000
     float fadeAfter = 1.6f;       // [beats] fade_after_ms / 1000: WASTED/BUSTED go to black from here
+    bool anchorDeath = true;      // [beats] anchor_death (FIX-CAMERA-21): frame the death place the game moved him from
     float maxSecs = 12.0f;        // the longest a death/arrest beat waits for the respawn
     char sting[3][260] = {};      // [beats] sting_wasted, sting_busted, sting_complete
 };
@@ -51,6 +53,14 @@ int g_farFrames = 0;         // consecutive frames he has been found far from th
 // beat is anchored on the frame before.
 struct Seen { bool valid = false; float x = 0, y = 0, z = 0, yaw = 0; bool inVehicle = false; };
 Seen g_prev;
+// FIX-CAMERA-21 (qaf91/qaf92): the last place that did not jump, and how long ago it was
+// seen. A car that blows up under him loses him for a frame and the next frame the game's
+// player object is already the new body at the hospital, on the very frame of the WASTED
+// message: g_prev then holds nothing (lost) or the jump, and the beat used to frame the
+// bare hospital bay. g_last keeps the death place through that.
+Seen g_last;
+float g_lastAge = 1e9f;
+bool g_heldDeath = false;    // this beat frames a place the game had already moved him from
 
 // The keys' texts, letters only, upper case, from data\e.gxt.
 struct KeySet { BeatKind kind; const char* keys[4]; };
@@ -79,6 +89,8 @@ void LoadConfig() {
     if (ini && ini[0]) {
         g_cfg.enabled = GetPrivateProfileIntA("beats", "enabled", 1, ini) != 0;
         g_cfg.completeSecs = (std::max)(1500, (std::min)(10000, static_cast<int>(GetPrivateProfileIntA("beats", "complete_ms", 4200, ini)))) / 1000.0f;
+        g_cfg.anchorDeath = GetPrivateProfileIntA("beats", "anchor_death", 1, ini) != 0;
+        if (const char* e = getenv("GTA2DX9_BEAT_ANCHOR_DEATH")) g_cfg.anchorDeath = atoi(e) != 0;
         g_cfg.fadeAfter = (std::max)(500, (std::min)(9000, static_cast<int>(GetPrivateProfileIntA("beats", "fade_after_ms", 1600, ini)))) / 1000.0f;
         GetPrivateProfileStringA("beats", "sting_wasted", "", g_cfg.sting[0], sizeof g_cfg.sting[0], ini);
         GetPrivateProfileStringA("beats", "sting_busted", "", g_cfg.sting[1], sizeof g_cfg.sting[1], ini);
@@ -235,8 +247,19 @@ void BeatsUpdate(const PlayerState& player, bool street, float px, float py, flo
                 // Lost already (a car that blew up under him): where he was last seen.
                 b.x = g_prev.x; b.y = g_prev.y; b.z = g_prev.z; b.yaw = g_prev.yaw; b.inVehicle = g_prev.inVehicle;
             }
-            Log("beat: %s start \"%s\" at %.2f,%.2f,%.2f yaw %.0f%s%s", BeatName(kind), words.c_str(), b.x, b.y, b.z,
-                b.yaw * 57.29578f, b.inVehicle ? ", in a car" : "", player.valid ? "" : ", player not found");
+            // The game moved him before its message (seated blast: the hospital body is found on
+            // the message's frame): frame the place he died, as classic does, not the new body.
+            g_heldDeath = false;
+            const bool anchorHeld = g_cfg.anchorDeath && kind != BeatKind::Complete;
+            if (anchorHeld && g_last.valid && g_lastAge < 1.5f && std::hypot(b.x - g_last.x, b.z - g_last.z) > 6.0f) {
+                Log("beat: %s anchor at %.2f,%.2f,%.2f would be %.1f blocks from where he was %.2f s ago: held there (death place)",
+                    BeatName(kind), b.x, b.y, b.z, std::hypot(b.x - g_last.x, b.z - g_last.z), g_lastAge);
+                b.x = g_last.x; b.y = g_last.y; b.z = g_last.z; b.yaw = g_last.yaw; b.inVehicle = g_last.inVehicle;
+                g_heldDeath = true;
+            }
+            Log("beat: %s start \"%s\" at %.2f,%.2f,%.2f yaw %.0f%s%s%s", BeatName(kind), words.c_str(), b.x, b.y, b.z,
+                b.yaw * 57.29578f, b.inVehicle ? ", in a car" : "", player.valid ? "" : ", player not found",
+                g_heldDeath ? ", the death place (already moved)" : "");
             Sting(kind, words.c_str());
         }
     }
@@ -244,6 +267,8 @@ void BeatsUpdate(const PlayerState& player, bool street, float px, float py, flo
     {
         const bool jump = g_prev.valid && player.valid && std::hypot(px - g_prev.x, pz - g_prev.z) > 3.0f;
         // A jump leaves no anchor for one frame; the frame after, the new place counts.
+        g_lastAge += dt;
+        if (player.valid && !jump) { g_last = Seen{true, px, py, pz, yaw, player.inVehicle}; g_lastAge = 0.0f; }
         if (player.valid && !jump) g_prev = Seen{true, px, py, pz, yaw, player.inVehicle};
         else if (player.valid) g_prev = Seen{false, px, py, pz, yaw, player.inVehicle};
         else g_prev.valid = false;   // (the last place is kept for a lost start)
@@ -283,7 +308,8 @@ void BeatsUpdate(const PlayerState& player, bool street, float px, float py, flo
     // Put back: found far away for a third of a second running (one far frame is the
     // locator glancing at the new body before the game uses it).
     g_farFrames = player.valid && moved > 6.0f ? g_farFrames + 1 : 0;
-    const bool respawned = g_farFrames >= 10 && t > 1.0f;
+    // A held death place: he is far from the start, so the cut waits for the black.
+    const bool respawned = g_farFrames >= 10 && t > (g_heldDeath ? g_cfg.fadeAfter + 0.5f : 1.0f);
     if (g_respawnAt < 0.0f && (respawned || t > g_cfg.maxSecs)) {
         g_respawnAt = t;
         Log("beat: %s: %s after %.1f s (moved %.1f blocks)", BeatName(b.kind), respawned ? "respawned" : "no respawn seen",
