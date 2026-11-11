@@ -546,3 +546,21 @@ core over the van. Tongues off (`fire_ab=2`): the same stippled cloud. Smoke off
 fireball with no grain. So the grain is the **smoke** (the mode-4 soft blended puffs, a regular stipple of their
 translucency on this Wine rig with no NGX denoiser), not the flame tongues. Whether DLSS-RR resolves it is the owner's
 5090 test (NEEDS OWNER 40); on our side, fewer, larger, more opaque far puffs would also reduce it (untried).
+
+## FIX-FX-10 (11 Nov): effect sprites that lay flat in the street views
+
+**Electro gun bolt (qaexp76).** The game draws the bolt as a chain of code-object segments **8/480-495** (12x32 texels,
+a quarter block along the aim line; four frames of four styles; additive), laid end to end on the ground from the
+shooter to what it hits and on to the next target. Classic shows it as a short zig-zag along the aim line. The effect
+pass stood each segment up like any flame (`UprightPedMatrix`), so every quarter block became its own short column on
+the paving. From a chase camera the columns stacked into ground-cut zig-zags with square haze edges, which is what the
+filer saw. In first person the same columns stood on the target. Now each segment keeps its long axis along the line it
+lay on, is lifted 0.30 block (the figure's gun height, as the bullet streaks), and is turned about that axis to face the
+eye (`ElectroRibbonMatrix`). The chain reads as one arc from the rifle to the target in third person, and as a strike on
+the target in first person. The segments are also not dropped beside the shooter (`fxAtShooter`), so the arc reaches his
+hand. They are never fire spots either: over a car the fire path enlarged and stacked them into a purple-white column
+above the roof. `GTA2DX9_ELECTRO_OLD=1` gives the old drawing (A/B). The classic view is untouched (the effect path runs
+only in the street views): vreg `spawn_classic` 0 of 144 tiles.
+Runs: qa_fx10_e1 (old, sprite kinds), qa_fx10_e4new / qa_fx10_e4old (same probe `gamerun/fx10_electro.py`, noon, A/B),
+qa_fx10_e5night (23:00). Still short of AAA: where the chain bends, adjacent segments leave small wedge gaps and seams at
+the joins (square segment ends). Remix is untested.

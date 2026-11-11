@@ -516,6 +516,23 @@ bool ShotgunFxOld() {
     static const bool on = [] { char v[8] = {}; return GetEnvironmentVariableA("GTA2DX9_SHOTGUN_FX_OLD", v, sizeof v) && v[0] == '1'; }();
     return on;
 }
+// FIX-FX-10 (qaexp76): the Electro gun's bolt is a chain of code-object segments 8/480-495 (12x32 texels,
+// a quarter block along the aim line, four frames of four styles), laid flat end to end from the shooter to
+// what it hits. Stood up one by one like any effect each became its own short column standing on the paving,
+// and from a chase camera the columns stacked into ground-cut zig-zags with hard square edges. In the street
+// views each segment keeps its long axis along the bolt, lifted to gun height and turned about that axis to
+// face the eye (ElectroRibbonMatrix), so the chain reads as one arc. GTA2DX9_ELECTRO_OLD=1: the old way (A/B).
+bool ElectroBoltSprite(const void* object) {
+    static const bool old = [] { char v[8] = {}; return GetEnvironmentVariableA("GTA2DX9_ELECTRO_OLD", v, sizeof v) && v[0] == '1'; }();
+    if (old || !object) return false;
+    int base = -1; unsigned num = 0;
+    GTA2_TRY {
+        const uint8_t* obj = static_cast<const uint8_t*>(object);
+        base = *reinterpret_cast<const int32_t*>(obj + game::kSpriteObjectBase);
+        num = *reinterpret_cast<const uint16_t*>(obj + game::kSpriteObjectNumber);
+    } GTA2_EXCEPT { base = -1; }
+    return base == game::kSpriteBaseCodeObj && num >= 480 && num <= 495;
+}
 int g_carLamps = 1;         // [renderer] car_lamps: 0 none, 1 when dark + brake lamps, 2 always
 gta2::Vec3 g_viewEye = {0.0f, 0.0f, 0.0f};
 gta2::Vec3 g_viewForward = {0.0f, -1.0f, 0.0f};
@@ -8201,6 +8218,48 @@ static gta2::Mat4 UprightPedMatrix(const LiveGeometry::Vertex* local, int corner
     return m;
 }
 
+// FIX-FX-10: a long effect segment (the Electro bolt) kept along the line it lay on, its centre lifted by
+// `lift`, turned about its long axis so its face looks at the eye. Same handedness as the game's placement.
+static gta2::Mat4 ElectroRibbonMatrix(const LiveGeometry::Vertex* local, int corners, const gta2::Mat4& placed,
+                                      const gta2::Vec3& eye, float lift) {
+    float lo[3] = {1e9f, 1e9f, 1e9f}, hi[3] = {-1e9f, -1e9f, -1e9f}, lc[3] = {0, 0, 0};
+    for (int i = 0; i < corners; ++i) {
+        const float v[3] = {local[i].x, local[i].y, local[i].z};
+        for (int j = 0; j < 3; ++j) { lo[j] = (std::min)(lo[j], v[j]); hi[j] = (std::max)(hi[j], v[j]); lc[j] += v[j] / corners; }
+    }
+    const float (*P)[4] = placed.m;
+    auto rowLen = [&](int r) { return std::sqrt(P[r][0] * P[r][0] + P[r][1] * P[r][1] + P[r][2] * P[r][2]); };
+    const int a = (hi[2] - lo[2]) * rowLen(2) >= (hi[0] - lo[0]) * rowLen(0) ? 2 : 0;   // the long local axis
+    const int b = 2 - a;
+    float c[3];
+    for (int j = 0; j < 3; ++j) c[j] = lc[0] * P[0][j] + lc[1] * P[1][j] + lc[2] * P[2][j] + P[3][j];
+    c[1] += lift;
+    const float sa = rowLen(a), sb = rowLen(b), sn = rowLen(1);
+    float L[3] = {P[a][0], 0.0f, P[a][2]};
+    float ll = std::sqrt(L[0] * L[0] + L[2] * L[2]);
+    if (ll < 1e-5f) { L[0] = 1.0f; ll = 1.0f; }
+    L[0] /= ll; L[2] /= ll;
+    float E[3] = {eye.x - c[0], eye.y - c[1], eye.z - c[2]};
+    const float el = E[0] * L[0] + E[2] * L[2];
+    float N[3] = {E[0] - el * L[0], E[1], E[2] - el * L[2]};
+    float nl = std::sqrt(N[0] * N[0] + N[1] * N[1] + N[2] * N[2]);
+    if (nl < 1e-5f) { N[0] = 0.0f; N[1] = 1.0f; N[2] = 0.0f; nl = 1.0f; }
+    for (float& v : N) v /= nl;
+    float B[3] = {N[1] * L[2] - N[2] * L[1], N[2] * L[0] - N[0] * L[2], N[0] * L[1] - N[1] * L[0]};
+    auto det3 = [](const float* r0, const float* r1, const float* r2) {
+        return r0[0] * (r1[1] * r2[2] - r1[2] * r2[1]) - r0[1] * (r1[0] * r2[2] - r1[2] * r2[0]) + r0[2] * (r1[0] * r2[1] - r1[1] * r2[0]);
+    };
+    float rows[3][3];
+    for (int j = 0; j < 3; ++j) { rows[a][j] = L[j] * sa; rows[1][j] = N[j] * sn; rows[b][j] = B[j] * sb; }
+    const float want = det3(P[0], P[1], P[2]);
+    if ((det3(rows[0], rows[1], rows[2]) < 0.0f) != (want < 0.0f)) for (int j = 0; j < 3; ++j) rows[b][j] = -rows[b][j];
+    gta2::Mat4 m;
+    for (int r = 0; r < 3; ++r) { for (int j = 0; j < 3; ++j) m.m[r][j] = rows[r][j]; m.m[r][3] = 0.0f; }
+    for (int j = 0; j < 3; ++j) m.m[3][j] = c[j] - (lc[0] * rows[0][j] + lc[1] * rows[1][j] + lc[2] * rows[2][j]);
+    m.m[3][3] = 1.0f;
+    return m;
+}
+
 // ---------------------------------------------------------------------------
 // GTA2DX9_FORCE_ACTION_FILE (see DrawPedFigures): the forced action, lying clip
 // and weapon, read from the file every 15 frames.
@@ -15218,7 +15277,10 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
                 }
             }
         }
-        if (effect && g_fire.onTop && sprite.corners == 4 && (!roofs.empty() || fireBodies)) {
+        // FIX-FX-10 (qaexp76): an Electro bolt segment over a car (the hit's arc on the body) is never a flame:
+        // the fire-spot path enlarged and stacked it into a purple-white column over the roof.
+        const bool electroSeg = effect && CurrentViewMode() != ViewMode::Classic && ElectroBoltSprite(reinterpret_cast<const void*>(sprite.object));
+        if (effect && !electroSeg && g_fire.onTop && sprite.corners == 4 && (!roofs.empty() || fireBodies)) {
             const float (*sm)[4] = sprite.objectToWorld.m;
             auto toWorld = [&](const Vertex& v, float* out) {
                 for (int j = 0; j < 3; ++j) out[j] = v.x * sm[0][j] + v.y * sm[1][j] + v.z * sm[2][j] + sm[3][j];
@@ -15821,7 +15883,8 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
                             Log("fx sprite: base %d number %u size %.3f at %.1f,%.1f,%.1f%s", base, num, size, c[0], c[1], c[2], small ? " small" : "");
                     }
                 }
-                if (small && sp.object) {
+                const bool electro = ElectroBoltSprite(reinterpret_cast<const void*>(sp.object));   // FIX-FX-10 (qaexp76)
+                if (small && sp.object && !electro) {
                     // In flight? Where this object was drawn last frame.
                     auto seen = fxSeen.find(sp.object);
                     float px = c[0], py = c[1], pz = c[2];
@@ -15878,10 +15941,11 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
                     }
                 }
                 if (fxAtEye(c, size)) continue;
-                if (size < 0.3f && fxAtShooter(c, false)) continue;   // the game's flash at a shooter (above)
+                if (!electro && size < 0.3f && fxAtShooter(c, false)) continue;   // the game's flash at a shooter (above)
                 if (fxFlameAtShooter(c, size)) continue;
-                gta2::Mat4 up = UprightPedMatrix(sp.local, sp.corners, sp.objectToWorld, fxEye);
-                if (small) {
+                gta2::Mat4 up = electro ? ElectroRibbonMatrix(sp.local, sp.corners, sp.objectToWorld, fxEye, 0.30f)
+                                        : UprightPedMatrix(sp.local, sp.corners, sp.objectToWorld, fxEye);
+                if (small && !electro) {
                     // Centred at gun height rather than stood on the road.
                     float minZ = 1e9f, maxZ = -1e9f;
                     for (int i = 0; i < 4; ++i) { minZ = (std::min)(minZ, sp.local[i].z); maxZ = (std::max)(maxZ, sp.local[i].z); }
