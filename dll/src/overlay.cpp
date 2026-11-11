@@ -871,6 +871,22 @@ void Overlay::Flush(IDirect3DDevice9* device, int targetWidth, int targetHeight)
     } else {
         s_plateShift8 = 0.0f;
     }
+    // FIX-HUD-8 (qar33): the lowest edge of the plates as placed this frame (480 tall), so the modern HUD's
+    // collect chip sits under them rather than over the zone name, as the game's own word does.
+    if (plates) {
+        float low = -1.0f;
+        for (const Draw& draw : draws_) {
+            if (!draw.hud || (draw.part != 7 && draw.part != 8)) continue;
+            const float shift = draw.part == 7 ? plateShift7 : s_plateShift8;
+            for (uint32_t i = 0; i < draw.count; ++i) {
+                if ((vertices_[draw.first + i].colour >> 24) < 48) continue;
+                low = (std::max)(low, vertices_[draw.first + i].y + shift);
+            }
+        }
+        Hud3dNoteTopPlatesBottom(low);
+    } else {
+        Hud3dNoteTopPlatesBottom(-1.0f);
+    }
     {
         static int s_lastPlates = -1;
         const int state = plates ? (band > 0.0f ? 2 : 1) : 0;

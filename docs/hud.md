@@ -587,3 +587,54 @@ Verified (FIX-HUD-7, 11 Nov 2026, frames opened; 1280x720, plain GL, private sta
   their own colours (UI, no Remix lighting), WATER CANNON under the hearts.
 - Not verified: a gun-car frenzy (a car with a front gun: CAR GUN, same path), a job's clock alone (COUNT/no chip),
   1080p/1440p (the LCD at 3x the height factor), night.
+
+## FIX-HUD-8: every collect word as a modern chip, the quit prompt as a card (qar33, pmw2, 11 Nov 2026)
+
+**The weapon collect word (qar33).** After collecting the S-Uzi at bil, third person showed the game's red
+pixel word "S-Uzi Machine Gun" at the top centre over the modern HUD. FIX-HUD-4's part-9 swallow only
+classified the word at its first frame in a street view. That failed for two reasons (log line
+`hud3d: collect message (part 9) ...`, run fh8_a):
+
+1. The word comes up on the pickup frame, but the gun reaches his hand a frame or more later. At the
+   word's first frame the ped still read weapon 0, so nothing had been gained and the word was 'unknown'.
+2. A word that started in the classic view (the filer's scenario collects the gun in classic and presses
+   V about a second later) had never been classified. The weapon and health gains were tracked only in the
+   street views (`ReadValues` runs only there), so the gain was gone by the first street frame.
+
+Now the part is classified at its first frame in any view, and asked again each frame for its first second
+while the answer is 'unknown'. Health, weapon and ammunition gains are also followed in the classic view
+(a cheap read of the ped in `Hud3dRender`). The classic view still draws the game's word. A weapon word in
+a street view is swallowed and drawn as a chip in the slot where the collect chip already sits (the
+health chip's glass panel, a green accent, a ring with a plus). The chip shows the game's own words for
+the gun: e.gxt `cNN`, where NN is the game's weapon type (c00 Pistol, c01 S-Uzi Machine Gun,
+c02 Rocket Launcher ... c10 Dual Pistol). If a key is missing, the chip falls back to the renderer's
+weapon name. The chip shows exactly while the game's word does and fades out over a quarter of a second.
+Any other part-9 word whose last text key is one of c28-c37 (Multiplier +1, Life +1, Armor, Get Outta
+Jail Free Card, Cop Bribe, Invulnerability, Double Damage, Fast Reload, ElectroFingers; c30 Health keeps
+its own chip) gets a cyan chip with the game's words. Otherwise the word stays the game's, as before.
+
+The chip sits under the street views' top plates when they are up: `Overlay::Flush` passes the zone
+plate's and car plate's lowest edge (`Hud3dNoteTopPlatesBottom`), and the chip eases below it.
+Otherwise it uses the game's slot at y 30 of 480. The game's own word overlaps the zone plate; the chip
+does not. The world layer's weapon pop now writes MACHINE GUN, not MACHINE_GUN.
+
+**The quit prompt (pmw2).** Esc puts up HUD part 18 (`FUN_004C8710`, reached by a tail jump): e.gxt quit1
+"Is that it?", quit2 "Press the ENTER key to quit play.", quit3 "Press the ESC key to resume play.". In the
+street views it was the game's olive 640x480 font on the live scene, about 3.5:1 against stone paving.
+Now, in a street view, the part is swallowed (log `hud3d: quit prompt (part 18) in a street view: swallowed,
+drawn as a card over a scrim`) and `DrawQuit` draws it instead:
+
+- a black scrim at 59 % over the whole frame, dimming the scene and the modern HUD under it;
+- a centred dark glass card with a thin gold rule;
+- the title in the beat-title type, in gold, upper case;
+- the two lines in the brief's type, with the upper-case word of each line (ENTER, ESC) on a light key cap.
+
+The lines are read from e.gxt, so a localised gxt keeps its own words. The card fades in over 0.12 s and out
+over 0.1 s. Measured on fh8_b (1280x720, bil noon, third and first, WCAG relative luminance): the lines
+15.0-15.2:1 against the card, the title 10.2:1. The classic view keeps the game's prompt.
+
+Probes: `gamerun/keys_fh8_b.sh` (bil: V, the MG collected in third; third shots while the word is up,
+then V first, V classic; Escape in classic, third and first, each resumed) and `gamerun/keys_fh8_c.sh`
+(the MG collected in classic, V at once, third shots every 0.3 s). Run with SWAP_LEVEL=bil,
+GTA2_DIRECT_KEYS=1 and `-e GTA2DX9_HUD_LOG_PARTS=1`. `gamerun/qaf2_d.py`'s state regex now accepts the
+`cargun=` field that FIX-HUD-6 added (it read None).

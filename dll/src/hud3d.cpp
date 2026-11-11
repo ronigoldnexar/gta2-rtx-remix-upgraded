@@ -1113,7 +1113,7 @@ void DrawWorldLayer(ImDrawList* dl, const Values& v, float A, float W, float H, 
             }
             PopAnchor(&x, &y, &z);
             std::string name = WeaponName(v.weapon);
-            for (char& c : name) c = static_cast<char>(toupper(static_cast<unsigned char>(c)));
+            for (char& c : name) c = c == '_' ? ' ' : static_cast<char>(toupper(static_cast<unsigned char>(c)));   // FIX-HUD-8: was MACHINE_GUN
             w.pops.push_back({x, y, z, kPopTime, name, kGreen});
             ++w.weaponPops;
             w.recent.clear();
@@ -2226,13 +2226,35 @@ void Smiley(ImDrawList* dl, ImVec2 c, float r, ImU32 face, float A) {
 // qaf23: the game's collect message (part 9, one sprite word at the top centre: "Health", a weapon's
 // name) over a street view was the 1990s red pixel word. Told apart by what just changed: the health
 // rose (read live at the part's first frame, and against the last frames) -> ours, a modern chip;
-// a weapon or its ammunition gained -> swallowed (the world layer's green name pop carries it); any
-// other part-9 word (armour: no field known) stays the game's.
-enum class CollectKind { None, Health, Weapon };
-struct Collect { uint32_t frame = 0; CollectKind kind = CollectKind::None; int gain = 0; float alpha = 0.0f; int shown = 0, kept = 0, swallowed = 0; };
+// a weapon or its ammunition gained -> swallowed and drawn as a chip with the game's own words for it.
+// FIX-HUD-8 (qar33): the part is classified at its first frame in ANY view (the classic view keeps the
+// game's word, but a word collected there and still up after V was 'unknown' in the street view: the
+// gain was never seen, the values are read only in the street views), the gains are followed in the
+// classic view too, and the weapon chip says what the game's word says: the e.gxt text 'cNN' with NN
+// the game's weapon type (c01 "S-Uzi Machine Gun"). The game's last text key, when it is one of the
+// collect words c28-c37 (multiplier, life, armour, power-ups), names any other part-9 word the same way.
+enum class CollectKind { None, Health, Weapon, Other };
+struct Collect { uint32_t frame = 0; CollectKind kind = CollectKind::None; int gain = 0; float alpha = 0.0f; int shown = 0, kept = 0, swallowed = 0;
+                 std::string text; uint32_t first = 0; bool logged = false; CollectKind drawn = CollectKind::None; std::string drawnText; };
 Collect g_collect;
+float g_platesBottom = -1.0f;   // FIX-HUD-8: the top plates' lowest edge (game y of 480), from the overlay's flush
 int g_seenHealth = -1, g_seenWeapon = -1, g_seenAmmo = -1;
 uint32_t g_healthRiseFrame = 0, g_weaponGainFrame = 0;
+
+// The game's own words for a collect key (e.gxt, Latin-1 to UTF-8, upper case, '*' and '#' dropped).
+std::string CollectWords(const char* key) {
+    std::u16string t;
+    if (!Hud3dGameText(key, &t)) return std::string();
+    std::string out;
+    for (char16_t c : t) {
+        if (c == u'*' || c == u'#') continue;
+        if (c >= u'a' && c <= u'z') c = static_cast<char16_t>(c - 32);
+        if (c < 0x80) out.push_back(static_cast<char>(c));
+        else if (c < 0x100) { out.push_back(static_cast<char>(0xC0 | (c >> 6))); out.push_back(static_cast<char>(0x80 | (c & 0x3F))); }
+    }
+    while (!out.empty() && out.back() == ' ') out.pop_back();
+    return out;
+}
 
 int g_respectDrawn = 0;
 void DrawRespect(ImDrawList* dl, const Values& v, float A) {
@@ -2762,24 +2784,40 @@ void Draw(ImDrawList* dl, IDirect3DDevice9* device, const Values& v, float W, fl
         an.hurt = (std::max)(0.0f, an.hurt - dt / 0.6f);
     }
 
-    // qaf23: the health collect message as a chip at the game's top-centre slot.
+    // qaf23: the health collect message as a chip at the game's top-centre slot; FIX-HUD-8 (qar33):
+    // a weapon's (green accent) and any other collect word's (cyan) the same way, in the game's own
+    // words, up exactly while the game's word is (the part's frames), out over a quarter second.
     {
-        const bool on = g_collect.kind == CollectKind::Health && g_collect.frame + 2 >= g_frame;
+        const bool on = g_collect.kind != CollectKind::None && g_collect.frame + 2 >= g_frame;
+        if (on) { g_collect.drawn = g_collect.kind; g_collect.drawnText = g_collect.text; }
         g_collect.alpha += ((on ? 1.0f : 0.0f) - g_collect.alpha) * (1.0f - std::exp(-dt * (on ? 20.0f : 8.0f)));
-        if (g_collect.alpha > 0.01f) {
+        if (g_collect.alpha > 0.01f && g_collect.drawn != CollectKind::None) {
             const float ca = A * g_collect.alpha;
-            const char* word = "HEALTH";
+            const bool health = g_collect.drawn == CollectKind::Health;
+            const std::string word = health ? std::string("HEALTH") : g_collect.drawnText;
             char gain[16] = {};
-            if (g_collect.gain > 0) snprintf(gain, sizeof gain, "+%d", g_collect.gain);
-            const ImVec2 ws = Measure(g_fonts.heavy, g_fonts.heavyPx, word);
+            if (health && g_collect.gain > 0) snprintf(gain, sizeof gain, "+%d", g_collect.gain);
+            const ImVec2 ws = Measure(g_fonts.heavy, g_fonts.heavyPx, word.c_str());
             const ImVec2 gs = gain[0] ? Measure(g_fonts.heavy, g_fonts.heavyPx, gain) : ImVec2(0, 0);
             const float h = ws.y + 8 * u, iconW = 30 * u;
             const float w = iconW + ws.x + (gain[0] ? gs.x + 10 * u : 0) + 26 * u;
-            const float top = H * (30.0f / 480.0f) + (1.0f - g_collect.alpha) * -6 * u;
+            // Under the zone/car plates when they are up (eased, they slide), else the game's slot.
+            static float s_top480 = 30.0f;
+            const float want480 = (std::max)(30.0f, g_platesBottom > 0.0f ? g_platesBottom + 4.0f : 30.0f);
+            s_top480 = g_collect.alpha < 0.05f ? want480 : s_top480 + (want480 - s_top480) * (1.0f - std::exp(-dt * 12.0f));
+            const float top = H * (s_top480 / 480.0f) + (1.0f - g_collect.alpha) * -6 * u;
             const ImVec2 a(W * 0.5f - w * 0.5f, top), b(W * 0.5f + w * 0.5f, top + h);
-            Panel(dl, a, b, ca, kRed);
-            Heart(dl, ImVec2(a.x + 12 * u + iconW * 0.5f, (a.y + b.y) * 0.5f), 11.0f * u, 0.82f, ca, true);   // the row's mesh, scaled
-            Text(dl, g_fonts.heavy, g_fonts.heavyPx, ImVec2(a.x + 14 * u + iconW, a.y + 4 * u), kWhite, word, ca);
+            const ImU32 accent = health ? kRed : g_collect.drawn == CollectKind::Weapon ? kGreen : kCyan;
+            Panel(dl, a, b, ca, accent);
+            const ImVec2 ic(a.x + 12 * u + iconW * 0.5f, (a.y + b.y) * 0.5f);
+            if (health) Heart(dl, ic, 11.0f * u, 0.82f, ca, true);   // the row's mesh, scaled
+            else {   // a plus in a ring: "collected"
+                const float r = 9.5f * u, t = (std::max)(1.5f, 2.2f * u);
+                dl->AddCircle(ic, r, Fade(accent, ca), 24, t);
+                dl->AddLine(ImVec2(ic.x - r * 0.5f, ic.y), ImVec2(ic.x + r * 0.5f, ic.y), Fade(kWhite, ca), t);
+                dl->AddLine(ImVec2(ic.x, ic.y - r * 0.5f), ImVec2(ic.x, ic.y + r * 0.5f), Fade(kWhite, ca), t);
+            }
+            Text(dl, g_fonts.heavy, g_fonts.heavyPx, ImVec2(a.x + 14 * u + iconW, a.y + 4 * u), kWhite, word.c_str(), ca);
             if (gain[0]) Text(dl, g_fonts.heavy, g_fonts.heavyPx, ImVec2(b.x - 12 * u - gs.x, a.y + 4 * u), kGreen, gain, ca);
         }
     }
@@ -3050,12 +3088,98 @@ bool Hud3dTopPlates(float* bandBottom) {
     return true;
 }
 
+void Hud3dNoteTopPlatesBottom(float y480) { g_platesBottom = y480; }
+
 bool Hud3dGameText(const char* key, std::u16string* out) {
     LoadGxt();
     const auto it = g_gxt.find(key ? key : "");
     if (it == g_gxt.end()) return false;
     if (out) *out = it->second;
     return true;
+}
+
+// FIX-HUD-8 (pmw2): the quit prompt (part 18, FUN_004C8710: "Is that it?" / "Press the ENTER key to quit
+// play." / "Press the ESC key to resume play.", e.gxt quit1-quit3) over a street view was the game's olive
+// 640x480 pixel font straight on the live scene. There it is swallowed and drawn here: the scene (and the
+// modern HUD) dimmed by a scrim, a centred glass card with the game's three lines in the HUD's type, the
+// key word of each line (the upper-case word: ENTER, ESC) on a key cap. The classic view keeps the game's.
+uint32_t g_quitFrame = 0;
+float g_quitAlpha = 0.0f;
+std::string QuitLine(const char* key, const char* fallback) {
+    std::u16string t;
+    if (!Hud3dGameText(key, &t)) return fallback;
+    std::string out;
+    for (char16_t c : t) {
+        if (c == u'#') continue;
+        if (c < 0x80) out.push_back(static_cast<char>(c));
+        else if (c < 0x100) { out.push_back(static_cast<char>(0xC0 | (c >> 6))); out.push_back(static_cast<char>(0x80 | (c & 0x3F))); }
+    }
+    return out.empty() ? std::string(fallback) : out;
+}
+void DrawQuit(ImDrawList* dl, float W, float H, float alpha) {
+    const float u = g_u;
+    // The scrim: the whole frame dimmed, a little more towards the middle where the card sits.
+    dl->AddRectFilled(ImVec2(0, 0), ImVec2(W, H), IM_COL32(0, 0, 0, static_cast<int>(150 * alpha)));
+    static std::string title, lines[2];
+    if (title.empty()) {
+        title = QuitLine("quit1", "Is that it?");
+        lines[0] = QuitLine("quit2", "Press the ENTER key to quit play.");
+        lines[1] = QuitLine("quit3", "Press the ESC key to resume play.");
+        for (char& c : title) c = static_cast<char>(toupper(static_cast<unsigned char>(c)));
+    }
+    ImFont* tf = g_fonts.title ? g_fonts.title : g_fonts.heavy;
+    const float tpx = (g_fonts.title ? g_fonts.titlePx * 0.62f : g_fonts.heavyPx * 1.4f);
+    ImFont* lf = g_fonts.text ? g_fonts.text : g_fonts.heavy;
+    const float lpx = g_fonts.text ? g_fonts.textPx * 1.12f : g_fonts.heavyPx;
+    const float capPad = 7 * u, gap = lpx * 0.28f;
+    // Lay each line out as words; the all-capitals word (2+ letters) goes on a key cap.
+    struct Piece { std::string s; bool cap; float w; };
+    std::vector<Piece> rows[2];
+    float rowW[2] = {0, 0};
+    for (int r = 0; r < 2; ++r) {
+        size_t i = 0;
+        const std::string& L = lines[r];
+        while (i < L.size()) {
+            size_t j = L.find(' ', i);
+            if (j == std::string::npos) j = L.size();
+            std::string w = L.substr(i, j - i);
+            i = j + 1;
+            if (w.empty()) continue;
+            int letters = 0, upper = 0;
+            for (char c : w) if (isalpha(static_cast<unsigned char>(c))) { ++letters; if (isupper(static_cast<unsigned char>(c))) ++upper; }
+            const bool cap = letters >= 2 && upper == letters;
+            const float ww = Measure(lf, lpx, w.c_str()).x + (cap ? capPad * 2 : 0);
+            rows[r].push_back({w, cap, ww});
+            rowW[r] += ww + (rows[r].size() > 1 ? gap : 0);
+        }
+    }
+    const ImVec2 ts = Measure(tf, tpx, title.c_str());
+    const float cardW = (std::max)((std::max)(rowW[0], rowW[1]), ts.x) + 64 * u;
+    const float rowH = lpx + 10 * u;
+    const float cardH = 22 * u + ts.y + 16 * u + rowH * 2 + 8 * u + 22 * u;
+    const ImVec2 a(W * 0.5f - cardW * 0.5f, H * 0.42f - cardH * 0.5f), b(W * 0.5f + cardW * 0.5f, H * 0.42f + cardH * 0.5f);
+    dl->AddRectFilled(a, b, IM_COL32(8, 10, 16, static_cast<int>(222 * alpha)), 10 * u);
+    dl->AddRect(a, b, Fade(kYellow, 0.55f * alpha), 10 * u, 0, (std::max)(1.0f, 1.5f * u));
+    float y = a.y + 22 * u;
+    Text(dl, tf, tpx, ImVec2(W * 0.5f - ts.x * 0.5f, y), kYellow, title.c_str(), alpha);
+    y += ts.y + 8 * u;
+    dl->AddRectFilled(ImVec2(W * 0.5f - cardW * 0.32f, y), ImVec2(W * 0.5f + cardW * 0.32f, y + (std::max)(1.0f, 1.5f * u)), Fade(kWhite, 0.25f * alpha));
+    y += 8 * u;
+    for (int r = 0; r < 2; ++r) {
+        float x = W * 0.5f - rowW[r] * 0.5f;
+        for (const Piece& pc : rows[r]) {
+            if (pc.cap) {
+                const ImVec2 c0(x, y + 1 * u), c1(x + pc.w, y + lpx + 5 * u);
+                dl->AddRectFilled(c0, c1, Fade(kWhite, 0.92f * alpha), 5 * u);
+                dl->AddRectFilled(ImVec2(c0.x, c1.y - 3 * u), c1, IM_COL32(120, 120, 128, static_cast<int>(235 * alpha)), 5 * u, ImDrawFlags_RoundCornersBottom);
+                Text(dl, lf, lpx, ImVec2(x + capPad, y + 1 * u), IM_COL32(12, 14, 20, 255), pc.s.c_str(), alpha, false);
+            } else {
+                Text(dl, lf, lpx, ImVec2(x, y + 3 * u), kWhite, pc.s.c_str(), alpha);
+            }
+            x += pc.w + gap;
+        }
+        y += rowH;
+    }
 }
 
 // GTA2DX9_HUD_LOG_PARTS=1 (FIX-HUD-4, qaf23): in a street view, each appearance of a centred text part
@@ -3102,30 +3226,62 @@ bool Hud3dSwallow(bool hud, int part, const void* texture, const void* corners, 
                 q[0].x, q[0].y, q[2].x - q[0].x, q[2].y - q[0].y, q[0].colour);
         }
     }
-    if (part == 9 && g_active && g_street) {
-        if (g_collect.frame + 3 < g_frame) {   // a new appearance: what is it?
-            int health = -1, weapon = -1, ammo = 0;
+    if (part == 18 && g_street) {   // FIX-HUD-8 (pmw2): the quit prompt, drawn by DrawQuit
+        if (g_quitFrame + 3 < g_frame) Log("hud3d: quit prompt (part 18) in a street view: swallowed, drawn as a card over a scrim");
+        g_quitFrame = g_frame; g_partSeen[part] = g_frame;
+        return true;
+    }
+    if (part == 9) {
+        // A new appearance (in any view: FIX-HUD-8): what is it? Asked again each frame of the first second
+        // while the answer is 'unknown': the word comes up the frame of the pickup, the gun reaches his
+        // hand a frame or more later (fh8_a: weapon 0 at the word's first frame, 4 after).
+        const bool fresh = g_collect.frame + 3 < g_frame;
+        if (fresh) { g_collect.first = g_frame; g_collect.logged = false; }
+        if (fresh || (g_collect.kind == CollectKind::None && g_frame <= g_collect.first + 30)) {
+            int health = -1, weapon = -1, ammo = 0, raw = -1;
             GTA2_TRY {
                 const uint8_t* ped = static_cast<const uint8_t*>(ViewPlayer().ped);
                 if (ped) {
                     health = *reinterpret_cast<const int16_t*>(ped + 0x216);
-                    const int raw = game::PedWeaponRaw(ped, &ammo);
+                    raw = game::PedWeaponRaw(ped, &ammo);
                     weapon = raw >= 0 ? game::PedWeaponOf(ped, nullptr) : 0;
                 }
             } GTA2_EXCEPT {}
             const bool healthUp = (g_seenHealth >= 0 && health > g_seenHealth) || g_healthRiseFrame + 30 >= g_frame;
             const bool weaponUp = (weapon > 0 && g_seenWeapon >= 0 && (weapon != g_seenWeapon || ammo > g_seenAmmo)) || g_weaponGainFrame + 30 >= g_frame;
+            const std::string key = ReadMessageKey();
+            g_collect.text.clear();
             g_collect.kind = healthUp ? CollectKind::Health : weaponUp ? CollectKind::Weapon : CollectKind::None;
+            if (g_collect.kind == CollectKind::Weapon) {
+                char k[8];
+                snprintf(k, sizeof k, "c%02d", raw >= 0 && raw < 100 ? raw : 0);
+                g_collect.text = raw >= 0 ? CollectWords(k) : std::string();
+                if (g_collect.text.empty()) {   // not in the gxt: the renderer's own name for it
+                    g_collect.text = WeaponName(weapon);
+                    for (char& c : g_collect.text) c = c == '_' ? ' ' : static_cast<char>(toupper(static_cast<unsigned char>(c)));
+                }
+            } else if (g_collect.kind == CollectKind::None && key.size() == 3 && key[0] == 'c' && key >= "c28" && key <= "c37" && key != "c30") {
+                g_collect.text = CollectWords(key.c_str());
+                if (!g_collect.text.empty()) g_collect.kind = CollectKind::Other;
+            }
             g_collect.gain = healthUp && g_seenHealth >= 0 && health > g_seenHealth ? health - g_seenHealth : 0;
-            if (g_collect.kind == CollectKind::Health) ++g_collect.shown;
-            else if (g_collect.kind == CollectKind::Weapon) ++g_collect.swallowed;
-            else ++g_collect.kept;
-            Log("hud3d: collect message (part 9) in a street view: %s (health %d -> %d, weapon %d ammo %d)",
-                g_collect.kind == CollectKind::Health ? "health, drawn as a chip" : g_collect.kind == CollectKind::Weapon ? "a weapon, carried by the name pop" : "unknown, the game's",
-                g_seenHealth, health, weapon, ammo);
+            const bool streetNow = g_active && g_street;
+            if (!g_collect.logged && (g_collect.kind != CollectKind::None || g_frame >= g_collect.first + 30)) {
+            g_collect.logged = true;
+            if (streetNow) {
+                if (g_collect.kind == CollectKind::Health) ++g_collect.shown;
+                else if (g_collect.kind != CollectKind::None) ++g_collect.swallowed;
+                else ++g_collect.kept;
+            }
+            Log("hud3d: collect message (part 9) %s: %s%s%s (health %d -> %d, weapon %d raw %d ammo %d, text key '%s')",
+                streetNow ? "in a street view" : "in the classic view (the game's; classified for a switch)",
+                g_collect.kind == CollectKind::Health ? "health, drawn as a chip" : g_collect.kind == CollectKind::Weapon ? "a weapon, drawn as a chip: " :
+                g_collect.kind == CollectKind::Other ? "a collect word, drawn as a chip: " : "unknown, the game's",
+                g_collect.text.c_str(), g_frame > g_collect.first ? " (told on a later frame)" : "", g_seenHealth, health, weapon, raw, ammo, key.c_str());
+            }
         }
         g_collect.frame = g_frame;
-        if (g_collect.kind != CollectKind::None) { g_partSeen[part] = g_frame; return true; }
+        if (g_active && g_street && g_collect.kind != CollectKind::None) { g_partSeen[part] = g_frame; return true; }
     }
     g_partSeen[part] = g_frame;
     const Corner* k = static_cast<const Corner*>(corners);
@@ -3249,6 +3405,22 @@ void Hud3dRender(IDirect3DDevice9* device, int width, int height, const gta2::Ma
         if (g_seenHealth >= 0 && v.health > g_seenHealth) g_healthRiseFrame = g_frame;
         if (v.weapon > 0 && g_seenWeapon >= 0 && (v.weapon != g_seenWeapon || v.ammo > g_seenAmmo)) g_weaponGainFrame = g_frame;
         g_seenHealth = v.health; g_seenWeapon = v.weapon; g_seenAmmo = v.ammo;
+    } else if (worldLoaded && ViewPlayer().valid && ViewPlayer().ped) {
+        // FIX-HUD-8 (qar33): the same in the classic view (where the values are not read), so a collect
+        // word that began there is still known for what it is after V.
+        int health = -1, weapon = -1, ammo = 0;
+        GTA2_TRY {
+            const uint8_t* ped = static_cast<const uint8_t*>(ViewPlayer().ped);
+            health = *reinterpret_cast<const int16_t*>(ped + 0x216);
+            const int raw = game::PedWeaponRaw(ped, &ammo);
+            weapon = raw >= 0 ? game::PedWeaponOf(ped, nullptr) : 0;
+            if (raw < 0) ammo = 0;
+        } GTA2_EXCEPT { health = -1; }
+        if (health >= 0) {
+            if (g_seenHealth >= 0 && health > g_seenHealth) g_healthRiseFrame = g_frame;
+            if (weapon > 0 && g_seenWeapon >= 0 && (weapon != g_seenWeapon || ammo > g_seenAmmo)) g_weaponGainFrame = g_frame;
+            g_seenHealth = health; g_seenWeapon = weapon; g_seenAmmo = ammo;
+        }
     }
     // The pause and stats screen (part 16) is the game's alone: the modern HUD steps aside.
     const bool paused = g_partSeen[16] + 2 >= g_frame;
@@ -3380,7 +3552,11 @@ void Hud3dRender(IDirect3DDevice9* device, int width, int height, const gta2::Ma
     const bool markersShown = markerFade > 0.01f && v.valid;
 
     const bool beatShown = street && Beat().kind != BeatKind::None;
-    if (((an.fade > 0.01f && v.valid) || beatShown || markersShown) && device && width > 0 && height > 0 && EnsureContext(device, height)) {
+    // FIX-HUD-8 (pmw2): the quit prompt's card, in fast, out fast (the game drops it the frame Esc is let go).
+    const bool quitWant = street && g_quitFrame + 2 >= g_frame;
+    g_quitAlpha = quitWant ? (std::min)(1.0f, g_quitAlpha + dt / 0.12f) : (std::max)(0.0f, g_quitAlpha - dt / 0.1f);
+    const bool quitShown = g_quitAlpha > 0.01f && street;
+    if (((an.fade > 0.01f && v.valid) || beatShown || markersShown || quitShown) && device && width > 0 && height > 0 && EnsureContext(device, height)) {
         ImGuiContext* previous = ImGui::GetCurrentContext();
         ImGui::SetCurrentContext(g_ctx);
         if (g_fontHeight != height || g_glyphs.gen != HudGameFontGeneration()) BuildFonts(height);
@@ -3395,6 +3571,7 @@ void Hud3dRender(IDirect3DDevice9* device, int width, int height, const gta2::Ma
         if (an.fade > 0.01f && v.valid)
             Draw(ImGui::GetForegroundDrawList(), device, v, static_cast<float>(width), static_cast<float>(height), dt);
         if (beatShown) DrawBeat(ImGui::GetForegroundDrawList(), static_cast<float>(width), static_cast<float>(height));
+        if (quitShown) DrawQuit(ImGui::GetForegroundDrawList(), static_cast<float>(width), static_cast<float>(height), g_quitAlpha);
         ImGui::EndFrame();
         ImGui::Render();
         LARGE_INTEGER q0, q1;

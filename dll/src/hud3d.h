@@ -43,6 +43,8 @@ void Hud3dHoldForSwitch(bool hold);
 // first-person cockpit's roof band in game pixels (480 tall; 0 when there is none), the plates
 // drop out from under it.
 bool Hud3dTopPlates(float* bandBottom);
+// FIX-HUD-8: the street views' top plates' lowest edge this frame (game y of 480; < 0: none).
+void Hud3dNoteTopPlatesBottom(float y480);
 
 // QB-17/18: a text of the player's data\e.gxt by key ("wasted", "1124"); false when unknown.
 bool Hud3dGameText(const char* key, std::u16string* out);
