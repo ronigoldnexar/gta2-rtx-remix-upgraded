@@ -26,8 +26,16 @@ constexpr int kDefaultPedCap = 80;
 constexpr int kDefaultZoneCarDensity = 400;
 void SetZoneCarDensity(int density);
 // FIX-PERF-6: watch the game's object-grid node pools (0x5E6684/0x5E6688) and stand the raised budgets
-// down while they run low; [density] grid_headroom (1), GTA2DX9_GRID_HEADROOM.
-void SetGridHeadroom(bool on);
+// down while they run low; [density] grid_headroom (2; 1 = FIX-PERF-6's static thresholds, 0 off),
+// GTA2DX9_GRID_HEADROOM. FIX-PERF-8 (2): also on the pool's slope and at wantedHold+ stars
+// ([density] wanted_hold, GTA2DX9_WANTED_HOLD; 0 off), and the game's window back to its own size
+// while the pool is about to run dry.
+// At wantedHold+ stars the game's window is also brought down to wantedWindowPercent of the street views'
+// scale's base (100 = the game's own top-down window; [density] wanted_window_percent).
+void SetGridHeadroom(int mode, int wantedHold, int wantedWindowPercent);
+// The street views' scale of the game's window (gameViewScale) as the grid guard lets it stand now:
+// the scale itself, or less (down to 1, the game's own) while the guard sheds (FIX-PERF-8).
+float DensityGameViewScale(float scale);
 
 // 0 for any of these turns that part off (the game's own value is kept).
 void SetDensity(int trafficCap, int pedDensityScale, int pedCap);

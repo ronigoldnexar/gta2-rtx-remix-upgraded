@@ -32,12 +32,17 @@
 
 #include <windows.h>
 
+#include <algorithm>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
+#include "compat.h"
 #include "frame_limiter.h"
 #include "game_access.h"
 #include "log.h"
+#include "world_view.h"
 
 namespace gta2dx9 {
 namespace {
@@ -140,8 +145,49 @@ constexpr uintptr_t kGridColumnPoolPtr = 0x005E6688;
 constexpr int kGridCellNodes = 4096, kGridColumnNodes = 6000;
 constexpr int kGridCellLow = 240, kGridCellHigh = 400;   // idles at 450-700 free (perf6_buf20); at 6 stars it fell 45 below a hold at 160 (perf6_want6: 107)
 constexpr int kGridColumnLow = 400, kGridColumnHigh = 600;   // idles at ~3100 free
-bool g_gridWatch = true;
+int g_gridWatch = 2;   // 0 off, 1 FIX-PERF-6's static thresholds, 2 FIX-PERF-8 (below)
 int g_lastFreeCells = -1, g_lastFreeColumns = -1, g_minFreeCells = 1 << 30, g_minFreeColumns = 1 << 30;
+
+// FIX-PERF-8 (qaf91: first person, six stars, bil: the pool went 707 -> 671 -> 128 in 18 s with the
+// FIX-PERF-6 hold already engaged and the budget level at 0, then +0x47352). A hold that only stops the
+// raised budgets adding more cannot outrun a six-star army: what the hold leaves in place is the
+// street views' window, 2.6x the top-down one each way, inside which the game creates and keeps its
+// cars, people and police. So, in the street views only (classic is never touched):
+//   - the raised budgets are not raised at all at kWantedHold stars or more (the game sends its own
+//     police and army there), and they stand down on the pool's slope as well as its level: when the
+//     free count, carried kHoldHorizon seconds down its slope over the last ~3 s, would be under
+//     kHoldCells (or is), and come back only above kReleaseCells with a flat or rising slope after
+//     kMinHoldSeconds;
+//   - "shed": when the pool, carried kShedHorizon seconds down its slope, would be under kShedCells
+//     (or is), the game's window goes back to its own top-down size (DensityGameViewScale), so the
+//     game's recycler removes what lies beyond it exactly as in the classic game, and it widens again
+//     (kRegrowPerSecond) only once the pool is back above kUnshedCells, not falling, for
+//     kUnshedSeconds. That is the game's own population rule; if the pool still runs dry there, it is
+//     the game's.
+constexpr int kHoldCells = 360, kReleaseCells = 440;
+constexpr double kHoldHorizon = 8.0, kMinHoldSeconds = 6.0;
+constexpr int kShedCells = 200, kUnshedCells = 380;
+constexpr double kShedHorizon = 6.0, kUnshedSeconds = 8.0, kRegrowPerSecond = 0.2;
+constexpr int kDefaultWantedHold = 5;
+int g_wantedHold = kDefaultWantedHold;   // 0: the wanted level is not looked at
+// At wanted_hold+ stars the game's window is also brought down to this scale (1: its own top-down size, the
+// default): measured (FIX-PERF-8, qa_perf8_*), the street views' 2.6x window holds ~15 more cars and ~25 more people
+// than the classic one, ~80-100 of the pool's nodes, and the six-star blasts take 250-360 nodes in 2 s on top.
+float g_wantedScale = 1.0f;
+constexpr double kShrinkPerSecond = 0.5;
+int g_lastStars = -1;
+struct GridSample { double t; int cells; };
+GridSample g_gridRing[8] = {};
+int g_gridRingCount = 0, g_gridRingNext = 0;
+double g_gridLastSample = 0.0;
+double g_gridSlope = 0.0;   // free cells a second, over the ring (negative: filling)
+bool g_slopeHold = false;   // FIX-PERF-8's hold (level, slope, wanted)
+double g_slopeHoldSince = 0.0;
+bool g_shed = false;
+double g_shedSince = 0.0, g_unshedCalmSince = -1.0;
+float g_scaleCap = 4.0f;    // most the game's window may be scaled now (1: the game's own)
+double g_scaleLast = 0.0;
+int g_sheds = 0, g_holds = 0;
 
 // Free nodes on a grid pool's list (-1: cannot tell); every node must lie inside the pool's own block.
 int FreeGridNodes(uintptr_t holder, int nodes, size_t stride, size_t next) {
@@ -155,6 +201,45 @@ int FreeGridNodes(uintptr_t holder, int nodes, size_t stride, size_t next) {
         p = *reinterpret_cast<uint8_t**>(p + next);
     }
     return n;
+}
+
+// FIX-PERF-8 probe: what the 4096-node pool's used nodes hold, by the base (+0x30) of the object each
+// names (2 car, 3 person, 4/8 code objects, others the map's objects), as "base:nodes/objects". Census only.
+void GridKinds(char* out, size_t size) {
+    out[0] = 0;
+    static uint8_t freeMark[kGridCellNodes];
+    uint8_t* pool = *reinterpret_cast<uint8_t**>(kGridCellPoolPtr);
+    if (!game::PlausiblePointer(pool)) return;
+    uint8_t* lo = pool + 4;
+    memset(freeMark, 0, sizeof freeMark);
+    int n = 0;
+    for (uint8_t* p = *reinterpret_cast<uint8_t**>(pool); p; ++n) {
+        if (n > kGridCellNodes || p < lo || p >= lo + kGridCellNodes * 8 || (p - lo) % 8) return;
+        freeMark[(p - lo) / 8] = 1;
+        p = *reinterpret_cast<uint8_t**>(p + 4);
+    }
+    int nodes[12] = {}, objects[12] = {};
+    static const void* seen[kGridCellNodes];
+    int nseen = 0;
+    GTA2_TRY {
+        for (int i = 0; i < kGridCellNodes; ++i) {
+            if (freeMark[i]) continue;
+            const uint8_t* obj = *reinterpret_cast<uint8_t* const*>(lo + i * 8);
+            int k = 11;   // unreadable
+            if (game::PlausiblePointer(obj)) {
+                const int32_t base = *reinterpret_cast<const int32_t*>(obj + game::kSpriteObjectBase);
+                k = base >= 0 && base < 10 ? base : 10;
+            }
+            ++nodes[k];
+            bool dup = false;
+            for (int j = nseen - 1; j >= 0 && j >= nseen - 64; --j) if (seen[j] == obj) { dup = true; break; }
+            if (!dup) { seen[nseen++] = obj; ++objects[k]; }
+        }
+    } GTA2_EXCEPT {
+    }
+    size_t used = 0;
+    for (int k = 0; k < 12 && used + 24 < size; ++k)
+        if (nodes[k]) used += snprintf(out + used, size - used, "%s%d:%d/%d", used ? "," : "", k, nodes[k], objects[k]);
 }
 
 int FreeCars() {
@@ -308,7 +393,14 @@ void ApplyPlayerZone(bool on, bool playerValid, float px, float py) {
 // numbers in docs/performance.md come from.
 int g_frame = 0;
 void Census(bool ground, bool playerValid, float px, float py) {
-    if (++g_frame % 300 != 0) return;
+    // GTA2DX9_DENSITY_CENSUS=N: every N frames instead of 300 (FIX-PERF-8's pool traces).
+    static int every = -1;
+    if (every < 0) {
+        char e[8] = {};
+        every = GetEnvironmentVariableA("GTA2DX9_DENSITY_CENSUS", e, sizeof e) ? atoi(e) : 0;
+        if (every <= 0) every = 300;
+    }
+    if (++g_frame % every != 0) return;
     uint8_t* cm = CarManager();
     uint8_t* pm = PedManager();
     const int traffic = cm ? *reinterpret_cast<int32_t*>(cm + kCarManagerRecycled)
@@ -350,14 +442,19 @@ void Census(bool ground, bool playerValid, float px, float py) {
         zoneCar = *reinterpret_cast<const uint16_t*>(zone + 0x0);
         zonePed = *reinterpret_cast<const int16_t*>(zone + 0xA);
     }
+    char kinds[160] = "";
+    static int kindsOn = -1;
+    if (kindsOn < 0) { char e[4] = {}; kindsOn = GetEnvironmentVariableA("GTA2DX9_GRID_KINDS", e, sizeof e) && e[0] == '1'; }
+    if (kindsOn) GridKinds(kinds, sizeof kinds);
     Log("density: view=%s level=%d free_peds=%d zone_filled=%d zone_car=%d zone_ped=%d traffic=%d/%d pace=%d/%d block=%d dummies=%d/%d peds_in_window=%d ped_shift=%d free_cars=%d vehicles=%d "
-        "driven=%d driven_within8=%d driven_within16=%d grid_free=%d/%d grid_min=%d/%d",
+        "driven=%d driven_within8=%d driven_within16=%d grid_free=%d/%d grid_min=%d/%d stars=%d grid_slope=%.1f grid_hold=%d shed=%d scale_cap=%.2f%s%s",
         ground ? "street" : (g_headroomHold ? "held" : "classic"), g_level, g_lastFree, g_zoneWritten ? 1 : 0, zoneCar, zonePed, traffic,
         g_trafficSites[1].patched ? *reinterpret_cast<const uint8_t*>(g_trafficSites[1].at)
                                   : kStockTrafficCap,
         counter, threshold, block, dummies, dummyCap, inWindow, *reinterpret_cast<const uint8_t*>(g_pedShiftSite.at), g_lastFreeCars, live,
         driven, near8, near16, g_lastFreeCells, g_lastFreeColumns, g_minFreeCells == (1 << 30) ? -1 : g_minFreeCells,
-        g_minFreeColumns == (1 << 30) ? -1 : g_minFreeColumns);
+        g_minFreeColumns == (1 << 30) ? -1 : g_minFreeColumns, g_lastStars, g_gridSlope, g_slopeHold ? 1 : 0, g_shed ? 1 : 0,
+        g_scaleCap, kinds[0] ? " grid_kinds=" : "", kinds);
 }
 
 // Frame-time guard. More cars and people cost simulation and, above all, skinned
@@ -452,14 +549,99 @@ int LevelPedCap() {
     return 50 + (g_pedCap - 50) * g_level / (kLevels - 1);
 }
 
+// The player's wanted stars (his cop points, game::PedWantedStars), -1 unknown.
+int PlayerStars() {
+    const uint8_t* ped = static_cast<const uint8_t*>(ViewPlayer().ped);
+    if (!ViewPlayer().valid || !game::PlausiblePointer(ped)) return -1;
+    return game::PedWantedStars(ped);
+}
+
+// FIX-PERF-8's guard on the 4096-node grid pool (see kHoldCells): the hold on level, slope and wanted
+// stars, and the shed of the game's window back to its own size. Once a frame.
+void GridGuard(bool ground, int freeCells, int stars) {
+    const double now = NowSeconds();
+    if (freeCells < 0) return;
+    if (g_gridRingCount > 0 && now - g_gridLastSample > 2.0) g_gridRingCount = 0;   // a load, a paused container
+    if (g_gridRingCount == 0 || now - g_gridLastSample >= 0.5) {
+        g_gridRing[g_gridRingNext] = {now, freeCells};
+        g_gridRingNext = (g_gridRingNext + 1) % 8;
+        if (g_gridRingCount < 8) ++g_gridRingCount;
+        g_gridLastSample = now;
+        const GridSample& oldest = g_gridRing[(g_gridRingNext + 8 - g_gridRingCount) % 8];
+        const double span = now - oldest.t;
+        g_gridSlope = span >= 1.4 ? (freeCells - oldest.cells) / span : 0.0;
+    }
+    const double fall = g_gridSlope < 0.0 ? g_gridSlope : 0.0;
+    const bool wanted = g_wantedHold > 0 && stars >= g_wantedHold;
+    const bool holdNow = freeCells < kHoldCells || freeCells + fall * kHoldHorizon < kHoldCells || wanted;
+    if (!g_slopeHold && holdNow) {
+        g_slopeHold = true;
+        g_slopeHoldSince = now;
+        ++g_holds;
+        Log("density: grid hold: %d of %d cells free, %.1f a second, %d stars - the game's own budgets (FIX-PERF-8)", freeCells,
+            kGridCellNodes, g_gridSlope, stars);
+    } else if (g_slopeHold && !holdNow && now - g_slopeHoldSince >= kMinHoldSeconds && freeCells > kReleaseCells &&
+               g_gridSlope >= -1.0) {
+        g_slopeHold = false;
+        Log("density: grid hold off: %d cells free, %.1f a second, %d stars, held %.0f s", freeCells, g_gridSlope, stars,
+            now - g_slopeHoldSince);
+    }
+    const bool shedNow = freeCells < kShedCells || freeCells + fall * kShedHorizon < kShedCells;
+    if (!g_shed && shedNow && ground) {
+        g_shed = true;
+        g_shedSince = now;
+        g_unshedCalmSince = -1.0;
+        g_scaleCap = 1.0f;
+        ++g_sheds;
+        Log("density: grid shed: %d of %d cells free, %.1f a second, %d stars - the game's window back to its own size (FIX-PERF-8)",
+            freeCells, kGridCellNodes, g_gridSlope, stars);
+    } else if (g_shed) {
+        if (freeCells > kUnshedCells && g_gridSlope >= 0.0) {
+            if (g_unshedCalmSince < 0.0) g_unshedCalmSince = now;
+            if (now - g_unshedCalmSince >= kUnshedSeconds) {
+                g_shed = false;
+                Log("density: grid shed off: %d cells free, %.1f a second, shed %.0f s - the window widens again", freeCells,
+                    g_gridSlope, now - g_shedSince);
+            }
+        } else {
+            g_unshedCalmSince = -1.0;
+        }
+    }
+    const double dt = g_scaleLast > 0.0 && now - g_scaleLast < 1.0 ? now - g_scaleLast : 0.0;
+    g_scaleLast = now;
+    const float target = g_shed ? 1.0f : (wanted ? g_wantedScale : 4.0f);
+    if (g_scaleCap > target)
+        g_scaleCap = static_cast<float>((std::max)(static_cast<double>(target), g_scaleCap - kShrinkPerSecond * dt));
+    else if (g_scaleCap < target)
+        g_scaleCap = static_cast<float>((std::min)(static_cast<double>(target), g_scaleCap + kRegrowPerSecond * dt));
+}
+
 }  // namespace
 
-void SetGridHeadroom(bool on) {
+void SetGridHeadroom(int mode, int wantedHold, int wantedWindowPercent) {
+    char wenv[8] = {};
+    if (GetEnvironmentVariableA("GTA2DX9_WANTED_WINDOW", wenv, sizeof wenv) && wenv[0] >= '0' && wenv[0] <= '9')
+        wantedWindowPercent = atoi(wenv);
+    g_wantedScale = (wantedWindowPercent < 100 ? 100 : (wantedWindowPercent > 400 ? 400 : wantedWindowPercent)) / 100.0f;
     char env[8] = {};
-    if (GetEnvironmentVariableA("GTA2DX9_GRID_HEADROOM", env, sizeof env)) on = env[0] != '0';
-    g_gridWatch = on;
-    Log("density: grid_headroom=%d (object grid node pools watched: the raised budgets stand down under %d/%d free)", on ? 1 : 0,
-        kGridCellLow, kGridColumnLow);
+    if (GetEnvironmentVariableA("GTA2DX9_GRID_HEADROOM", env, sizeof env) && env[0] >= '0' && env[0] <= '9') mode = env[0] - '0';
+    if (GetEnvironmentVariableA("GTA2DX9_WANTED_HOLD", env, sizeof env) && env[0] >= '0' && env[0] <= '9') wantedHold = atoi(env);
+    g_gridWatch = mode < 0 ? 0 : (mode > 2 ? 2 : mode);
+    g_wantedHold = wantedHold < 0 ? 0 : wantedHold;
+    if (g_gridWatch == 2)
+        Log("density: grid_headroom=2 (FIX-PERF-8: the raised budgets stand down under %d free grid cells or %.0f s from them on the "
+            "pool's slope, at %d+ stars (wanted_hold; 0 off, the game's window then at most %.2fx); under %d or %.0f s from them the "
+            "game's window goes back to its own size)",
+            kHoldCells, kHoldHorizon, g_wantedHold, g_wantedScale, kShedCells, kShedHorizon);
+    else
+        Log("density: grid_headroom=%d (object grid node pools watched: the raised budgets stand down under %d/%d free)", g_gridWatch,
+            kGridCellLow, kGridColumnLow);
+}
+
+float DensityGameViewScale(float scale) {
+    if (g_gridWatch != 2) return scale;
+    const float cap = g_scaleCap < 1.0f ? 1.0f : g_scaleCap;
+    return scale < cap ? scale : cap;
 }
 
 void SetZoneCarDensity(int density) {
@@ -501,8 +683,15 @@ void DensityUpdate(bool ground, bool playerValid, float px, float py) {
     }
     g_lastFreeCells = freeCells;
     g_lastFreeColumns = freeColumns;
-    const bool gridLow = (freeCells >= 0 && freeCells < kGridCellLow) || (freeColumns >= 0 && freeColumns < kGridColumnLow);
-    const bool gridHigh = (freeCells < 0 || freeCells > kGridCellHigh) && (freeColumns < 0 || freeColumns > kGridColumnHigh);
+    bool gridLow = (freeCells >= 0 && freeCells < kGridCellLow) || (freeColumns >= 0 && freeColumns < kGridColumnLow);
+    bool gridHigh = (freeCells < 0 || freeCells > kGridCellHigh) && (freeColumns < 0 || freeColumns > kGridColumnHigh);
+    g_lastStars = PlayerStars();
+    if (g_gridWatch == 2) {
+        // FIX-PERF-8: the slope, the wanted stars and the shed; the column pool keeps FIX-PERF-6's levels.
+        GridGuard(ground, freeCells, g_lastStars);
+        gridLow = g_slopeHold || (freeColumns >= 0 && freeColumns < kGridColumnLow);
+        gridHigh = !g_slopeHold && (freeColumns < 0 || freeColumns > kGridColumnHigh);
+    }
     if (freePeds < 0 || freeCars < 0) {
         g_headroomHold = true;   // cannot tell: the game's own budgets
     } else if (!g_headroomHold && (freePeds < kPedHeadroomLow || freeCars < kCarHeadroomLow || gridLow)) {

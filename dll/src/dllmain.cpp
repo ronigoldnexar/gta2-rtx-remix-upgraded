@@ -345,7 +345,9 @@ void LoadConfig() {
             off ? 0 : GetPrivateProfileIntA("density", "ped_cap", gta2dx9::kDefaultPedCap, ini));
         gta2dx9::SetZoneCarDensity(
             off ? 0 : GetPrivateProfileIntA("density", "zone_car_density", gta2dx9::kDefaultZoneCarDensity, ini));
-        gta2dx9::SetGridHeadroom(GetPrivateProfileIntA("density", "grid_headroom", 1, ini) != 0);   // FIX-PERF-6
+        gta2dx9::SetGridHeadroom(GetPrivateProfileIntA("density", "grid_headroom", 2, ini),   // FIX-PERF-6/8
+                                 GetPrivateProfileIntA("density", "wanted_hold", 5, ini),
+                                 GetPrivateProfileIntA("density", "wanted_window_percent", 100, ini));
     }
 
     // Blood pools under bodies, which GTA2 keeps behind a debug flag.

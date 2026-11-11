@@ -1844,3 +1844,74 @@ the b89b95a goldens only in the new HUD, the window-glow lighting (yakuza1_stree
 (spawn_first). None of those are cars. Untested: night (lamp pools and glows of held cars: their logic runs, and
 their glows are on the hidden body), rain and wet roads, Remix (the cut is off under Remix; the Remix rig was not
 this seat's).
+
+## Six stars at Industrial: the object grid emptied by blasts, the street views' window brought back to the game's own (11 Nov 2026, FIX-PERF-8)
+
+QA pass 91 (qaf91) filed `gta2.exe+0x47352 reading 00000004` again: first person, bil, `force_wanted=6`, driving, with
+FIX-PERF-6's guard engaged and the budget level already at 0 (grid_free 707 -> 671 -> 128 in 18 s, then the fault).
+Everything below is bil at noon, GPU 5, private stages, `FPS` 15, the filer's script (`gamerun/qaf91_a.py` +
+`keys_qa_qaf91first6.sh`: scene car, V to first person, `set_player_health=1` + `force_wanted=6`, Up with a zig-zag)
+or `gamerun/perf8_six.py` (`keys_qa_perf8six.sh`; `P8_VIEW`, `P8_DRIVE=0` holds the car still, `P8_SECS`).
+
+### What fills the pool (new probe `GTA2DX9_GRID_KINDS=1`, census period `GTA2DX9_DENSITY_CENSUS=N` frames)
+
+The census line gains `stars=`, `grid_slope=` (free nodes a second over the last ~3 s), `grid_hold=`, `shed=`,
+`scale_cap=` and, with the probe, `grid_kinds=base:nodes/objects` over the 4096-node pool's used nodes, by the sprite
+base of the object each names (1 the map's objects, 2 cars, 3 people, 4 and 8 code objects, 8 being the particles):
+
+| | base 1 (map objects) | base 4 | cars (base 2) | people (base 3) | particles (base 8) | free |
+|---|---|---|---|---|---|---|
+| classic, 0-6 stars, quiet (`perf8_cls6a`) | 2 210 / 591 objects | ~770 | ~420-440 (~90 cars, ~4.6 nodes each) | 10-50 | 0-5 | 650-700 |
+| third / first, 0 stars, raised budgets (`perf8_pre_f3`) | 2 211 | ~767 | ~460-478 | 40-100 | ~15 | 520-600 |
+| a car blast (`perf8_pre_f3` death, `perf8_cls_f1`) | +2-7 | +80-130 | | | **250-375 inside 2 s** | 166-226 |
+
+~2 980 of the 4 096 nodes are the map's own and never move. What is left is ~650 in the classic view and ~550 in the street
+views, and one car blast takes 250-375 particle nodes plus 80-130 of debris in a second or two. So the pool's level is
+not what to guard; its headroom when the blast comes is. The street views' share of the 2.6x window shows plainly at the
+hospital after a six-star death: third person (`perf8_pre_t4`) kept **200-310 particle nodes for two minutes** (far
+fires' smoke inside the wide window; the pool at 255-375), classic at the same spot (`perf8_cls6a`) 1-5.
+
+### Before: 2 of 4 street-view runs fault
+
+| run (FIX-PERF-6's guard) | view | FAULT | grid_free before the fault / lowest |
+|---|---|---|---|
+| `perf8_pre_f1` (live-stage DLLs) | first | yes, 55 s into six stars | 563, 532 (-11 s), 239 (-5 s, guard holds), 150 (-3 s), dry; wedged beside a fire |
+| `perf8_pre_f2` | first | yes, 20 s in | 558 (-13 s) ... 438, 392, 307, 235 (-1.5 s), dry; vehicles 85 -> 92 |
+| `perf8_pre_f3` | first | no, the car blew up at 41 s | 226 at that blast, 267 at one 20 s earlier |
+| `perf8_pre_t4` | third, car still | no (pulled out, died, the hospital) | 193; 255-375 for two minutes |
+
+### The guard (`[density] grid_headroom=2`, `wanted_hold=5`, `wanted_window_percent=100`)
+
+- At `wanted_hold` (5) stars or more the raised traffic and people budgets are not used, and the game's window
+  (`[camera] GameViewScale`, 2.6x) is brought down to `wanted_window_percent` of the game's own top-down size (100: the
+  classic game's own) at 0.5x a second, so the game removes what lies beyond it exactly as in the classic view. It
+  widens again at 0.2x a second once the stars are gone.
+- The raised budgets also stand down when the pool, carried 8 s down its slope, would be under 360 free (or is), and come
+  back above 440 with the fall stopped, after at least 6 s.
+- Shed: under 200 free, or 6 s from it on the slope, the window goes to the game's own size whatever the stars, and
+  widens again only after the pool has stayed above 380 and not fallen for 8 s.
+- The column pool keeps FIX-PERF-6's levels. `grid_headroom=1` is FIX-PERF-6's guard alone, 0 none;
+  `GTA2DX9_GRID_HEADROOM`, `GTA2DX9_WANTED_HOLD`, `GTA2DX9_WANTED_WINDOW` override for a run. Log lines
+  `density: grid hold` / `grid hold off` / `grid shed` / `grid shed off`.
+- The classic view is never touched: its window is computed without the guard and every density byte goes back.
+
+### After: the same 3 + 1 runs
+
+| run (FIX-PERF-8) | view | FAULT | six stars for | lowest grid_free | what took it there |
+|---|---|---|---|---|---|
+| `perf8_fix_f1` | first | no | ~12 s (died) | 453 | |
+| `perf8_fix_f2` | first | no | ~105 s (most of it on foot at the hospital) | 279 | a blast: particles 281 |
+| `perf8_fix_f3` | first | no | ~80 s | 166 | his own car's blast, window already 1.0x, traffic 15/16: particles 375, base 4 +80 |
+| `perf8_fix_t4` | third, car still | no | ~130 s | 248 | blasts: particles ~200; between them 1-20 particle nodes at the hospital (before: 200-310) |
+| `perf8_cls_f1` (classic, the game as shipped) | classic | no | ~7 s (died) | **172** | his own car's blast: particles 346, base 4 +127 |
+
+With the window at the game's own size the street view at six stars idles at 600-660 free, as classic does. The dips
+left are the blasts, and **the classic game makes the same dip** (`perf8_cls_f1`: 172 at one car blast; `perf8_fix_f3`:
+166). That part is the game's own: two blasts inside the same two seconds would empty the pool in the classic view too.
+The renderer's share (the raised budgets, ~30-60 nodes, and the wide window, ~80-100 nodes plus the far fires'
+particles) is gone at 5-6 stars. The game's pool and allocator are not patched. FIX-PERF-6's target of "never under
+300" is not reachable from the renderer's side at six stars: the game alone goes to ~170.
+
+What the player sees: at 5-6 stars the far streets of the third- and first-person views are as empty as the classic
+game's window (cars and people further out than the top-down window are removed), and they fill again within ~8 s of
+the stars going.

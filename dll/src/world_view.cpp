@@ -727,7 +727,7 @@ void WorldView::MatchGameViewToFrame() {
     // half-width scale alone since the aspect multiplies it into the height.
     float scale = 1.0f;
     const bool ground = g_viewActive && CurrentViewMode() != ViewMode::Classic;
-    if (ground) scale = (std::min)((std::max)(ViewModes().gameViewScale, 1.0f), 4.0f);
+    if (ground) scale = DensityGameViewScale((std::min)((std::max)(ViewModes().gameViewScale, 1.0f), 4.0f));   // FIX-PERF-8
     g_viewHalfScale = static_cast<int32_t>(game::kViewHalfScaleStock * widen * scale + 0.5f);
     // From the ground the camera looks along either axis, so the window is made
     // square: with the stock 16:9 shape traffic was created six blocks ahead
