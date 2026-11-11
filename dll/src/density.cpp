@@ -39,6 +39,7 @@
 #include <cstring>
 
 #include "compat.h"
+#include "exe_guards.h"
 #include "frame_limiter.h"
 #include "game_access.h"
 #include "log.h"
@@ -190,15 +191,18 @@ float g_scaleAsked = 4.0f;  // the street views' scale as last asked (DensityGam
 double g_scaleLast = 0.0;
 int g_sheds = 0, g_holds = 0;
 
-// Free nodes on a grid pool's list (-1: cannot tell); every node must lie inside the pool's own block.
-int FreeGridNodes(uintptr_t holder, int nodes, size_t stride, size_t next) {
+// Free nodes on a grid pool's list (-1: cannot tell); every node must lie inside the pool's own block or in a
+// block the empty-list guard added (exe_guards.cpp, FIX-PERF-9; `which` 0 the cell pool, 1 the column pool).
+int FreeGridNodes(uintptr_t holder, int nodes, size_t stride, size_t next, int which) {
     uint8_t* pool = *reinterpret_cast<uint8_t**>(holder);
     if (!game::PlausiblePointer(pool)) return -1;
     const uint8_t* lo = pool + 4;
     const uint8_t* hi = lo + static_cast<size_t>(nodes) * stride;
+    const int most = nodes + ExeGuardsGridPoolGrown(which) * 1024;
     int n = 0;
     for (uint8_t* p = *reinterpret_cast<uint8_t**>(pool); p; ++n) {
-        if (n > nodes || p < lo || p >= hi || (static_cast<size_t>(p - lo) % stride) != 0) return -1;
+        const bool own = p >= lo && p < hi && (static_cast<size_t>(p - lo) % stride) == 0;
+        if (n > most || (!own && !ExeGuardsGridNode(p, which))) return -1;
         p = *reinterpret_cast<uint8_t**>(p + next);
     }
     return n;
@@ -214,9 +218,11 @@ void GridKinds(char* out, size_t size) {
     uint8_t* lo = pool + 4;
     memset(freeMark, 0, sizeof freeMark);
     int n = 0;
+    const int most = kGridCellNodes + ExeGuardsGridPoolGrown(0) * 1024;
     for (uint8_t* p = *reinterpret_cast<uint8_t**>(pool); p; ++n) {
-        if (n > kGridCellNodes || p < lo || p >= lo + kGridCellNodes * 8 || (p - lo) % 8) return;
-        freeMark[(p - lo) / 8] = 1;
+        if (n > most) return;
+        if (p >= lo && p < lo + kGridCellNodes * 8 && (p - lo) % 8 == 0) freeMark[(p - lo) / 8] = 1;
+        else if (!ExeGuardsGridNode(p, 0)) return;   // FIX-PERF-9: a node of a block the guard added (not counted by kind)
         p = *reinterpret_cast<uint8_t**>(p + 4);
     }
     int nodes[12] = {}, objects[12] = {};
@@ -447,15 +453,27 @@ void Census(bool ground, bool playerValid, float px, float py) {
     static int kindsOn = -1;
     if (kindsOn < 0) { char e[4] = {}; kindsOn = GetEnvironmentVariableA("GTA2DX9_GRID_KINDS", e, sizeof e) && e[0] == '1'; }
     if (kindsOn) GridKinds(kinds, sizeof kinds);
+    // FIX-PERF-9 (ORDER 2 of 00y5): the game's own view rectangle in blocks (camera +0x78..+0x84, FUN_0041E7A0: from
+    // its position, zoom and the window patches), so the classic and street views' windows can be compared by number.
+    if (kindsOn) {
+        if (const uint8_t* cam = game::CameraStruct()) {
+            if (game::PlausiblePointer(cam)) {
+                const float w = (*reinterpret_cast<const int32_t*>(cam + game::kViewMaxXOffset) - *reinterpret_cast<const int32_t*>(cam + game::kViewMinXOffset)) * game::kFixedScale;
+                const float h = (*reinterpret_cast<const int32_t*>(cam + game::kViewMaxYOffset) - *reinterpret_cast<const int32_t*>(cam + game::kViewMinYOffset)) * game::kFixedScale;
+                const size_t used = strlen(kinds);
+                if (used + 32 < sizeof kinds) snprintf(kinds + used, sizeof kinds - used, " game_view=%.2fx%.2f", w, h);
+            }
+        }
+    }
     Log("density: view=%s level=%d free_peds=%d zone_filled=%d zone_car=%d zone_ped=%d traffic=%d/%d pace=%d/%d block=%d dummies=%d/%d peds_in_window=%d ped_shift=%d free_cars=%d vehicles=%d "
-        "driven=%d driven_within8=%d driven_within16=%d grid_free=%d/%d grid_min=%d/%d stars=%d grid_slope=%.1f grid_hold=%d shed=%d scale_cap=%.2f%s%s",
+        "driven=%d driven_within8=%d driven_within16=%d grid_free=%d/%d grid_min=%d/%d stars=%d grid_slope=%.1f grid_hold=%d shed=%d scale_cap=%.2f grid_grown=%d/%d%s%s",
         ground ? "street" : (g_headroomHold ? "held" : "classic"), g_level, g_lastFree, g_zoneWritten ? 1 : 0, zoneCar, zonePed, traffic,
         g_trafficSites[1].patched ? *reinterpret_cast<const uint8_t*>(g_trafficSites[1].at)
                                   : kStockTrafficCap,
         counter, threshold, block, dummies, dummyCap, inWindow, *reinterpret_cast<const uint8_t*>(g_pedShiftSite.at), g_lastFreeCars, live,
         driven, near8, near16, g_lastFreeCells, g_lastFreeColumns, g_minFreeCells == (1 << 30) ? -1 : g_minFreeCells,
         g_minFreeColumns == (1 << 30) ? -1 : g_minFreeColumns, g_lastStars, g_gridSlope, g_slopeHold ? 1 : 0, g_shed ? 1 : 0,
-        g_scaleCap, kinds[0] ? " grid_kinds=" : "", kinds);
+        g_scaleCap, ExeGuardsGridPoolGrown(0), ExeGuardsGridPoolGrown(1), kinds[0] ? " grid_kinds=" : "", kinds);
 }
 
 // Frame-time guard. More cars and people cost simulation and, above all, skinned
@@ -681,8 +699,29 @@ void DensityUpdate(bool ground, bool playerValid, float px, float py) {
     // FIX-PERF-6: the object grid's two node pools (above); unwatched (or unreadable) counts as plenty.
     int freeCells = -1, freeColumns = -1;
     if (g_gridWatch) {
-        freeCells = FreeGridNodes(kGridCellPoolPtr, kGridCellNodes, 8, 4);
-        freeColumns = FreeGridNodes(kGridColumnPoolPtr, kGridColumnNodes, 12, 8);
+        {
+            // FIX-PERF-9 test probe: GTA2DX9_GRID_POOL_DRAIN=N takes free cell nodes off the game's list (kept, never given
+            // back; the pool is freed whole at the level's end) until N are left, once per pool, so the empty-list guard
+            // (exe_guards.cpp) can be exercised in seconds. Never set in play.
+            static int drainTo = -2;
+            static const void* drained = nullptr;
+            if (drainTo == -2) { char e[16] = {}; drainTo = GetEnvironmentVariableA("GTA2DX9_GRID_POOL_DRAIN", e, sizeof e) ? atoi(e) : -1; }
+            uint8_t* pool = *reinterpret_cast<uint8_t**>(kGridCellPoolPtr);
+            if (drainTo >= 0 && game::PlausiblePointer(pool) && pool != drained) {
+                const int before = FreeGridNodes(kGridCellPoolPtr, kGridCellNodes, 8, 4, 0);
+                int taken = 0;
+                for (int left = before; left > drainTo; --left) {
+                    uint8_t* head = *reinterpret_cast<uint8_t**>(pool);
+                    if (!head) break;
+                    *reinterpret_cast<uint8_t**>(pool) = *reinterpret_cast<uint8_t**>(head + 4);
+                    ++taken;
+                }
+                drained = pool;
+                Log("density: GTA2DX9_GRID_POOL_DRAIN: %d of %d free cell nodes taken off the game's list, %d left (test probe)", taken, before, before - taken);
+            }
+        }
+        freeCells = FreeGridNodes(kGridCellPoolPtr, kGridCellNodes, 8, 4, 0);
+        freeColumns = FreeGridNodes(kGridColumnPoolPtr, kGridColumnNodes, 12, 8, 1);
         if (freeCells >= 0 && freeCells < g_minFreeCells) g_minFreeCells = freeCells;
         if (freeColumns >= 0 && freeColumns < g_minFreeColumns) g_minFreeColumns = freeColumns;
     }

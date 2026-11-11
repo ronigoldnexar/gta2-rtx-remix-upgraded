@@ -19,6 +19,7 @@
 #include <windows.h>
 
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 
 #include "log.h"
@@ -69,6 +70,133 @@ __asm__(
     );
 #endif
 
+// The object grid's two free lists (FIX-PERF-9, 00y5 qaf91: C0000005 at gta2.exe+0x47352 reading 4).
+// gta2.exe keeps every object linked into each map block it covers through two pools built per level at
+// 0x4471B0: [0x5E6684] 4 096 nodes of 8 bytes {object, next} and [0x5E6688] 6 000 of 12 bytes {level, list,
+// next}, each a singly linked free list headed at the pool's first dword. Their pops (0x447350, next at +4;
+// 0x447370, next at +8) never test for an empty list: at six stars in Industrial a car blast or the army's
+// fire takes the 8-byte pool from ~650 free to 0 (the classic view as shipped too, ~170 at one blast) and the
+// pop reads [0+4]. Every other use is a pointer push (0x447360/0x447380) and the pool is freed as a whole at
+// the level's end, so a node from elsewhere is as good as one of the array's. The detour pops exactly as the
+// game does and, only when the list is empty, first links a fresh block of 1 024 nodes (ours, never freed:
+// 8 KB / 12 KB) in front; until that moment nothing differs. At most 16 blocks a process; past that, or with
+// [density] grid_pool_grow=0 (GTA2DX9_GRID_POOL_GROW=0), the game's own fault as before.
+extern "C" {
+volatile long g_gridPoolGrowOn = 1;
+volatile long g_gridPoolGrown[2] = {0, 0};   // blocks added to the 8-byte / 12-byte pool
+void __cdecl GridPoolGrow(uint8_t* pool, int which);
+}
+
+#ifdef _MSC_VER
+static __declspec(naked) void GridPopCellThunk() {
+    __asm {
+        mov eax, dword ptr [ecx]
+        test eax, eax
+        jz grow
+        mov edx, dword ptr [eax + 4]
+        mov dword ptr [ecx], edx
+        ret
+    grow:
+        push ecx
+        push 0
+        push ecx
+        call GridPoolGrow
+        add esp, 8
+        pop ecx
+        mov eax, dword ptr [ecx]
+        mov edx, dword ptr [eax + 4]
+        mov dword ptr [ecx], edx
+        ret
+    }
+}
+static __declspec(naked) void GridPopColumnThunk() {
+    __asm {
+        mov eax, dword ptr [ecx]
+        test eax, eax
+        jz grow
+        mov edx, dword ptr [eax + 8]
+        mov dword ptr [ecx], edx
+        ret
+    grow:
+        push ecx
+        push 1
+        push ecx
+        call GridPoolGrow
+        add esp, 8
+        pop ecx
+        mov eax, dword ptr [ecx]
+        mov edx, dword ptr [eax + 8]
+        mov dword ptr [ecx], edx
+        ret
+    }
+}
+#else
+extern "C" void GridPopCellThunk();
+extern "C" void GridPopColumnThunk();
+__asm__(
+    ".text\n"
+    ".intel_syntax noprefix\n"
+    "_GridPopCellThunk:\n"
+    "    mov eax, dword ptr [ecx]\n"
+    "    test eax, eax\n"
+    "    jz 1f\n"
+    "    mov edx, dword ptr [eax + 4]\n"
+    "    mov dword ptr [ecx], edx\n"
+    "    ret\n"
+    "1:\n"
+    "    push ecx\n"
+    "    push 0\n"
+    "    push ecx\n"
+    "    call _GridPoolGrow\n"
+    "    add esp, 8\n"
+    "    pop ecx\n"
+    "    mov eax, dword ptr [ecx]\n"
+    "    mov edx, dword ptr [eax + 4]\n"   // still empty: the game's own fault (reading 4), as before
+    "    mov dword ptr [ecx], edx\n"
+    "    ret\n"
+    "_GridPopColumnThunk:\n"
+    "    mov eax, dword ptr [ecx]\n"
+    "    test eax, eax\n"
+    "    jz 2f\n"
+    "    mov edx, dword ptr [eax + 8]\n"
+    "    mov dword ptr [ecx], edx\n"
+    "    ret\n"
+    "2:\n"
+    "    push ecx\n"
+    "    push 1\n"
+    "    push ecx\n"
+    "    call _GridPoolGrow\n"
+    "    add esp, 8\n"
+    "    pop ecx\n"
+    "    mov eax, dword ptr [ecx]\n"
+    "    mov edx, dword ptr [eax + 8]\n"
+    "    mov dword ptr [ecx], edx\n"
+    "    ret\n"
+    ".att_syntax prefix\n"
+    );
+#endif
+
+namespace {
+struct GridBlock { uint8_t* lo; uint8_t* hi; };
+GridBlock g_gridBlocks[2][16];
+}
+
+extern "C" void __cdecl GridPoolGrow(uint8_t* pool, int which) {
+    if (!pool || !g_gridPoolGrowOn || which < 0 || which > 1) return;
+    const long have = g_gridPoolGrown[which];
+    if (have >= 16) return;
+    const size_t stride = which ? 12 : 8, next = which ? 8 : 4, nodes = 1024;
+    uint8_t* block = static_cast<uint8_t*>(VirtualAlloc(nullptr, nodes * stride, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
+    if (!block) return;
+    for (size_t i = 0; i < nodes; ++i) {
+        uint8_t* nd = block + i * stride;
+        *reinterpret_cast<uint8_t**>(nd + next) = i + 1 < nodes ? block + (i + 1) * stride : *reinterpret_cast<uint8_t**>(pool);
+    }
+    *reinterpret_cast<uint8_t**>(pool) = block;
+    g_gridBlocks[which][have] = {block, block + nodes * stride};
+    g_gridPoolGrown[which] = have + 1;   // the game thread only: no other writer
+}
+
 namespace {
 
 using gta2dx9::Log;
@@ -111,9 +239,45 @@ void ExeGuardsInstall() {
                                        0x3D, 0x59, 0xFA, 0xFF, 0xE9, 0x1B, 0x01, 0x00, 0x00};
     Detour(0x004902D6, kFlame, sizeof(kFlame), 13, reinterpret_cast<const void*>(&FlameOwnerThunk),
            "flame emitter owner guard (ped object null while boarding)");
+    // FIX-PERF-9: the object grid's two pops (8 bytes each: mov eax,[ecx]; mov edx,[eax+4|8]; mov [ecx],edx; ret).
+    {
+        char v[8] = {};
+        if (GetEnvironmentVariableA("GTA2DX9_GRID_POOL_GROW", v, sizeof v)) g_gridPoolGrowOn = atoi(v) != 0;
+        if (!g_gridPoolGrowOn) {   // [density] grid_pool_grow=0: gta2.exe's pops left exactly as shipped
+            Log("patch: object grid pool pops left as shipped (grid_pool_grow=0)");
+            return;
+        }
+        static const uint8_t kCellPop[8] = {0x8B, 0x01, 0x8B, 0x50, 0x04, 0x89, 0x11, 0xC3};
+        static const uint8_t kColumnPop[8] = {0x8B, 0x01, 0x8B, 0x50, 0x08, 0x89, 0x11, 0xC3};
+        Detour(0x00447350, kCellPop, sizeof(kCellPop), 8, reinterpret_cast<const void*>(&GridPopCellThunk),
+               "object grid cell pool pop (an empty list grows by 1024 nodes instead of faulting)");
+        Detour(0x00447370, kColumnPop, sizeof(kColumnPop), 8, reinterpret_cast<const void*>(&GridPopColumnThunk),
+               "object grid column pool pop (an empty list grows by 1024 nodes instead of faulting)");
+    }
+}
+
+void ExeGuardsSetGridPoolGrow(bool on) { g_gridPoolGrowOn = on ? 1 : 0; }
+int ExeGuardsGridPoolGrown(int which) { return which == 0 || which == 1 ? static_cast<int>(g_gridPoolGrown[which]) : 0; }
+bool ExeGuardsGridNode(const void* p, int which) {
+    if (which < 0 || which > 1) return false;
+    const uint8_t* q = static_cast<const uint8_t*>(p);
+    const long n = g_gridPoolGrown[which];
+    const size_t stride = which ? 12 : 8;
+    for (long i = 0; i < n; ++i)
+        if (q >= g_gridBlocks[which][i].lo && q < g_gridBlocks[which][i].hi && (static_cast<size_t>(q - g_gridBlocks[which][i].lo) % stride) == 0) return true;
+    return false;
 }
 
 void ExeGuardsUpdate() {
+    static long gridLogged[2] = {0, 0};
+    for (int w = 0; w < 2; ++w) {
+        const long grown = g_gridPoolGrown[w];
+        if (grown != gridLogged[w]) {
+            Log("guard: the object grid's %s pool ran empty and grew by 1024 nodes instead of faulting at gta2.exe+0x%X (%ld blocks so far, FIX-PERF-9)",
+                w ? "12-byte column" : "8-byte cell", w ? 0x47372u : 0x47352u, grown);
+            gridLogged[w] = grown;
+        }
+    }
     const long hits = g_flameGuardHits;
     if (hits != g_flameLogged) {
         Log("guard: flame emitter whose ped has no object (boarding) ended instead of crashing (%ld so far)",

@@ -2059,3 +2059,37 @@ frames at 12-20 blocks; not done here.
 Untested: night (the window-glow and window-sky stages are per batch and set after the test, so a batch out of view
 skips them too), rain and wet roads, Remix (the cut is off there), Downtown and Residential drives (the fixed poses
 were at wil), a loaded host.
+
+### gta2.exe+0x47352 at six stars (00y5 qaf91): the empty grid list grows instead of faulting (`[density] grid_pool_grow`)
+
+DEFECT-TRIAGE pass 237 re-ran the filer's line on the fork tip (FIX-PERF-8's guard, the game-shaped window): 1 of 2 runs
+faulted at gta2.exe+0x47352 with the 4 096-node pool at ~220 free four seconds before. FIX-PERF-8 had measured the classic
+view as shipped dipping to ~170 at one car blast: the budgets can only lower the odds. The fault itself is the pop at
+0x447350 (`mov eax,[ecx]; mov edx,[eax+4]; mov [ecx],edx; ret`) on an empty free list; its twin 0x447370 pops the
+6 000-node, 12-byte column pool the same way. Both are called only from the link functions 0x4479D0 / 0x447A60; every
+other use of the pools is a pointer push (0x447360 / 0x447380), and the pool objects (built at 0x4471B0) are deleted
+whole at the level's end, so a node that lives elsewhere serves exactly like one of the array's.
+
+`exe_guards.cpp` (beside FIX-CRASH-2's flame guard) now detours both pops to a thunk that pops as the game does and,
+only when the list is empty, first links a fresh block of 1 024 nodes of ours (VirtualAlloc, 8 KB / 12 KB, never freed)
+in front of it. Until the moment the game would have crashed nothing differs, in any view, classic included (no draw
+is touched). At most 16 blocks a process. The density census counts the added nodes (`grid_free` includes them;
+`grid_grown=<cell blocks>/<column blocks>`), so the budget guard sees the real headroom; the log says
+`guard: the object grid's 8-byte cell pool ran empty and grew by 1024 nodes ...` each time. `grid_pool_grow=0`
+(or `GTA2DX9_GRID_POOL_GROW=0`) installs nothing: gta2.exe's pops exactly as shipped.
+
+**The test** (a probe, never in play: `GTA2DX9_GRID_POOL_DRAIN=N` takes free cell nodes off the game's list once per
+level until N are left, so the empty list comes in seconds instead of at a lucky blast). bil, on foot at the level start,
+`perf8_six.py` first person, six stars (`force_wanted`), drained to 30 free:
+
+| run | grid_pool_grow | what happened |
+|---|---|---|
+| `perf9_g1` | 1 | drained 728 of 758 at 07:45:33; the list ran empty 6 s later, **one block added**, then 100 s at six stars in first person: grid_free 736-834, 0 FAULT, the game alive to the end |
+| `perf9_g0` | 1's thunk, growth off (first build) | FAULT 7 s after the drain, in the classic view before the six stars (the thunk's fall-through: reading 4) |
+| `perf9_g0b` | 0 (no detour, the final build) | **the filed fault exactly**: `C0000005 at 00447352 (gta2.exe+0x47352), reading 00000004`, eax 0, 7 s after the drain, classic view |
+
+**PERF-8's other residual, measured:** the game's own window (camera +0x78..+0x84, new census field `game_view=WxH`
+under `GTA2DX9_GRID_KINDS=1`) was 12.02 x 6.76 blocks in the classic view at the level start and 12.02 x 6.76 in first
+person at six stars (the guard holding the window at the game's own size and shape): the game's camera height in the
+street views is not what keeps more particles. The ~80 extra particle nodes of one run each at the fire spot are within
+what the army's fire varies by run; with the pool now able to grow, they no longer decide whether the game lives.

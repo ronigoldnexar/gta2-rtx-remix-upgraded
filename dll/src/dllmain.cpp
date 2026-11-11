@@ -379,6 +379,8 @@ void LoadConfig() {
                                  GetPrivateProfileIntA("density", "wanted_hold", 5, ini),
                                  GetPrivateProfileIntA("density", "wanted_window_percent", 100, ini));
     }
+    // FIX-PERF-9: the object grid's pools grow by 1024 nodes when empty instead of gta2.exe faulting (exe_guards.cpp).
+    gta2dx9::ExeGuardsSetGridPoolGrow(GetPrivateProfileIntA("density", "grid_pool_grow", 1, ini) != 0);
 
     // Blood pools under bodies, which GTA2 keeps behind a debug flag.
     gta2dx9::SetBlood(
