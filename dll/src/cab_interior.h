@@ -48,6 +48,7 @@ struct CabInteriorParams {
     bool hands = true;                           // the driver's hands on the wheel (FIX-FP-2)
     bool warm = false;                           // FIX-SEAT-ENTRY-2: an unseen draw ahead of the seat view (no state kept)
     bool dashcam = false;                        // FIX-COCKPIT-BODY: the dashcam view: no wheel, column or hands
+    bool dashcamCowl = false;                    // FIX-COCKPIT-CAB-7 (qaexp77): the seat bonnet runs to the eye: no dash top
     float doorOpen = 0.0f;                       // FIX-FP-EXIT-1: the driver's door swung open (its card left out)
 };
 

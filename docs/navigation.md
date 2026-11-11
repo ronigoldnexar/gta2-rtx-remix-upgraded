@@ -1882,3 +1882,48 @@ other shops (wil, ste), other models, a respray while a ped is at the door.
   smear, for ~0.7 s, and the splash as a white burst with debris); the 3D splash is soft cyan puffs (FX routing) and
   the car body is not drawn sinking (car bodies). The third-person beat eye sits low over the water (h ~0.25 above it).
   Untested: other quays, night, Remix, a slow drive in.
+
+## The dashcam cowl: qaexp77 (FIX-COCKPIT-CAB-7/CAB-8, 11 Nov 2026)
+
+Two causes, both fixed behind `[camera] dashcam_cowl` (1 default; 0 = before, live per run):
+
+- The dashcam never left the driver's eye relative to the car. `CarBodiesDraw` gets the camera's position (the
+  dashcam's, 0.035 ahead, 0.012 up, 60 % toward the middle), and the seat lock (FIX-INCAR-1) moves the drawn car so its
+  learned seat sits at that eye: the whole cab followed the dashcam and the offset was cancelled, so the dashcam framed the
+  dash top exactly where the cockpit view has it (a 95-ahead A/B moved nothing relative to the cab). `view_modes.cpp`
+  now keeps the dashcam's world shift (`DashcamEyeShift()`) and the lock takes it off the camera eye: the drawn seat
+  stays at the driver's eye, the dashcam really sits ahead of it.
+- What fills the frame under the bonnet in the dashcam was the cab's dashboard top (`cab_interior.cpp` section 1, in the
+  car's paint, flat-lit, its front edge straight across the whole width). In the dashcam (a camera on the glass, over
+  the dash) it is left out, and the seat bonnet (`DrawBonnet`) gets its cowl row at the eye instead of at its cut a hand
+  ahead, so it runs back under the camera with the bonnet's own paint and light (the headlamps' pools reach it); the cowl
+  row is shaded to 0.35 (the scuttle in the windscreen's shadow), a gradient into the bonnet rather than one lit plane.
+  A body with no seat bonnet (a bus) keeps the dash.
+
+  The cowl row is taken from the first bonnet row the usual cut keeps (a surface that starts behind the eye, 013 and
+  001 "from -0.11", would otherwise bring its windscreen-base samples, near black, into the frame).
+
+Frames (gamerun/cab7_dash.py: seated, first person, C, stopped and rolling frames at 23:00 then 12:00). The scene cars at
+the filer's spots differ per run (004, 016, 018, 036, 044, 064, 070 seen) and `force_own_car_model` does not force the
+seat bonnet, so before and after are judged per body:
+
+| spot | dashcam_cowl=0 (before) | dashcam_cowl=1 (after) |
+|---|---|---|
+| ste 180.5,60.5, 004 bank van (the filer's), night | flat band from y 592 (18 %), mean 19, cutting the headlamp pool (cab7_force_ste4_0) | road, kerb and the headlamp pool to the frame's bottom edge (cab7_final_ste) |
+| same, noon | flat grey band from y 600-606 (16-17 %) | road and verge to the bottom edge |
+| wil 150.5,40.5, 036 Schmidt / 070 Z-Type, night | bonnet, then a flat dark band with a straight top edge (cab7_final_wil_off) | the 070's bonnet to the bottom edge, no band (cab7_final_wil) |
+| same, noon | bonnet, then a flat textured band (~17 %) | the bonnet to the bottom edge, the scuttle shade at the bottom |
+
+Still short: a long bonnet (070 Z-Type, from +0.13) fills about a third of the dashcam frame, and the 070's near-black
+paint (36,41,38) makes that a dark third (it is the car's own colour, but a shipping dashcam would show the sky's
+reflection on it); `dashcam_up` 30 did not reduce the share.
+Untested: Remix, a bus (dash kept), the dashcam during the 0.4 s switch (the cab pops at blend 0.5 as before).
+
+FIX-COCKPIT-CAB-8 re-take on the landed build (stage at 193732f3 + this diff, gamerun/cab8_dash.py = cab7_dash with a
+re-seat check and a state line per shot; the first cab8 run was void, the van threw him out and the frames were on-foot
+fists): cab8_ste_0 (dashcam_cowl=0, 044 at ste 177,63) shows the green bonnet, then the flat brown dash band at both
+hours (noon: 102 flat rows from y 500 across x 300-1100); cab8_ste_1c (dashcam_cowl=1, 070 Z-Type at the same spot)
+shows the bonnet down to the frame's edge with its curved silhouette and the scuttle shade (noon: 0 flat rows); at night
+the 070's near-black paint makes the lower 40 % dark, with the headlamp pool over the bonnet's edge (the residual above).
+The cockpit frames of both runs (C off) draw the dash, wheel and hands as before: the cowl and the lock shift are
+gated on the dashcam (`DashcamHidesCockpit()`, `DashcamEyeShift()` zero at blend 0).

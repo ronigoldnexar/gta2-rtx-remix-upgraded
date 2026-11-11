@@ -29,5 +29,7 @@ bool DashcamHidesCockpit();
 void DashcamOffsets(float* up, float* ahead, float* centre);
 // [camera] fp_driver_body (default 1): the driver's body in the cockpit view.
 bool DriverBodyEnabled();
+// FIX-COCKPIT-CAB-7 (qaexp77): [camera] dashcam_cowl (1: the seat bonnet runs to the eye in the dashcam, no dash top)
+bool DashcamCowl();
 
 }  // namespace gta2dx9

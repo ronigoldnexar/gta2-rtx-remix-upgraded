@@ -606,6 +606,9 @@ private:
 // camera adds the answer next frame. On a kerb the body tilts 25 degrees about its wheels; the eye stayed
 // level and dropped through the dashboard (the arms then hung over a black slab).
 bool FirstPersonSeatEyeRaw(gta2::Vec3* eye);
+// FIX-COCKPIT-CAB-7 (qaexp77): this frame's dashcam shift of the first-person eye (world, zero out of the dashcam):
+// car_bodies' seat lock takes it off the camera eye so the drawn seat stays at the driver's eye, not the dashcam's.
+gta2::Vec3 DashcamEyeShift();
 void SetFirstPersonSeatCorrection(const gta2::Vec3& delta);
 
 // FIX-FP-ENTRY: whether the first-person eye rides the boarding plan into and out of a car

@@ -64,6 +64,7 @@ double Now() {
 // FIX-FP-ENTRY (pfeel32): the seat eye's raw position and car_bodies' answer (view_modes.h).
 struct FpSeat { bool valid = false; gta2::Vec3 raw{}; gta2::Vec3 delta{}; double rawAt = 0.0, deltaAt = 0.0; };
 FpSeat g_fpSeat;
+gta2::Vec3 g_dashcamShift{0.0f, 0.0f, 0.0f};   // FIX-COCKPIT-CAB-7: DashcamEyeShift()
 // FIX-COCKPIT-CAB-6 (pfl79): a car footprint's frame: its middle, the unit direction of its first edge and that
 // edge's normal (any consistent pair: the exit glide stores its start in it and reads it back the same way).
 bool CarFrameOf(const CameraCar& c, float* cx, float* cz, float* ex, float* ez, float* nx, float* nz) {
@@ -4027,13 +4028,18 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         // toward the car's middle than the driver's eye (after the seat lock, which holds the driver's eye), eased
         // over the switch (cockpit_mode.h); no head lean and no body roll in it (a level horizon).
         const float dashcam = inVehicle ? DashcamBlend() : 0.0f;
+        g_dashcamShift = {0.0f, 0.0f, 0.0f};
         if (dashcam > 0.0f) {
             float dUp = 0.0f, dAhead = 0.0f, dCentre = 0.0f;
             DashcamOffsets(&dUp, &dAhead, &dCentre);
             // (-hz, hx) is the car's left, where `seat` put the eye: back toward the middle by dCentre of it
-            eye.x += (hx * dAhead + hz * seat * dCentre) * dashcam;
-            eye.z += (hz * dAhead - hx * seat * dCentre) * dashcam;
-            eye.y += dUp * dashcam;
+            // FIX-COCKPIT-CAB-7 (qaexp77): kept, so car_bodies' seat lock holds the DRIVER's eye at the seat and the
+            // dashcam really sits ahead of it (before, the lock moved the drawn car onto the dashcam eye: the offset
+            // was cancelled and the dashcam framed the dash top like the cockpit).
+            g_dashcamShift = {(hx * dAhead + hz * seat * dCentre) * dashcam, dUp * dashcam, (hz * dAhead - hx * seat * dCentre) * dashcam};
+            eye.x += g_dashcamShift.x;
+            eye.z += g_dashcamShift.z;
+            eye.y += g_dashcamShift.y;
             if (s.fpBodyRide > 0.0f) roll += carRoll_ * (std::min)(s.fpBodyRide, 1.0f) * dashcam;   // the body's roll out
         }
         if (inVehicle && s.fpLean > 0.0f) {
@@ -6989,6 +6995,8 @@ void ViewModePushRemixOptions(bool viewActive) {
         Log("view: Remix motion blur %s", want ? "on" : "off");
     }
 }
+
+gta2::Vec3 DashcamEyeShift() { return g_dashcamShift; }
 
 bool FirstPersonSeatEyeRaw(gta2::Vec3* eye) {
     if (!g_fpSeat.valid || Now() - g_fpSeat.rawAt > 0.2) return false;

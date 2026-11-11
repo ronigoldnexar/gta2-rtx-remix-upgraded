@@ -16,6 +16,7 @@ namespace {
 int g_key = 'C';
 bool g_chosen = false;
 bool g_body = true;
+bool g_cowl = true;   // FIX-COCKPIT-CAB-7: [camera] dashcam_cowl
 float g_up = 0.012f, g_ahead = 0.035f, g_centre = 0.6f;
 bool g_keyWasDown = false;
 bool g_atWheelFirst = false;
@@ -55,12 +56,13 @@ void CockpitModeLoad(const char* ini) {
     if (g_key <= 0 || g_key >= 256) g_key = 'C';
     g_chosen = GetPrivateProfileIntA("camera", "dashcam", 0, ini) != 0;
     g_body = GetPrivateProfileIntA("camera", "fp_driver_body", 1, ini) != 0;
+    g_cowl = GetPrivateProfileIntA("camera", "dashcam_cowl", 1, ini) != 0;
     g_up = static_cast<float>(GetPrivateProfileIntA("camera", "dashcam_up", 12, ini)) / 1000.0f;
     g_ahead = static_cast<float>(GetPrivateProfileIntA("camera", "dashcam_ahead", 35, ini)) / 1000.0f;
     const int c = GetPrivateProfileIntA("camera", "dashcam_centre", 60, ini);
     g_centre = static_cast<float>(c < 0 ? 0 : (c > 100 ? 100 : c)) / 100.0f;
-    Log("cockpit: dashcam key 0x%02X, start %s, eye +%.3f up +%.3f ahead %.0f%% to the middle; driver body %s", g_key,
-        g_chosen ? "dashcam" : "cockpit", g_up, g_ahead, g_centre * 100.0f, g_body ? "on" : "off");
+    Log("cockpit: dashcam key 0x%02X, start %s, eye +%.3f up +%.3f ahead %.0f%% to the middle; driver body %s; dashcam cowl %s", g_key,
+        g_chosen ? "dashcam" : "cockpit", g_up, g_ahead, g_centre * 100.0f, g_body ? "on" : "off", g_cowl ? "on" : "off");
 }
 
 void CockpitModePoll(bool allowed, bool atWheelFirst) {
@@ -91,5 +93,6 @@ void DashcamOffsets(float* up, float* ahead, float* centre) {
     if (centre) *centre = g_centre;
 }
 bool DriverBodyEnabled() { return g_body; }
+bool DashcamCowl() { return g_cowl; }
 
 }  // namespace gta2dx9

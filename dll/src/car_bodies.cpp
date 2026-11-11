@@ -1631,9 +1631,10 @@ IDirect3DTexture9* BonnetTexture(IDirect3DDevice9* device, const BonnetSurface& 
 }
 
 void DrawBonnet(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, const BonnetSurface& s, float zCut, float cowlTop, float maxY,
-                const float tint[3], float dull, const D3DMATERIAL9& body, const D3DMATERIAL9& restore, bool remix = false, float paintLift = 1.0f) {
+                const float tint[3], float dull, const D3DMATERIAL9& body, const D3DMATERIAL9& restore, bool remix = false, float paintLift = 1.0f,
+                float cowlShade = 1.0f, float cowlAt = -1e9f) {
     struct V { float x, y, z, nx, ny, nz; DWORD c; };
-    struct L { float x, y, z, nx, ny, nz; int q; };   // q: the sample whose colour it takes
+    struct L { float x, y, z, nx, ny, nz; int q; float shade = 1.0f; };   // q: the sample whose colour it takes
     static const bool gainOldEnv = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_FP_BONNET_GAIN_OLD", b, sizeof b) && b[0] == '1'; }();
     const bool gainOld = gainOldEnv || remix;
     const int C = s.cols;
@@ -1642,9 +1643,16 @@ void DrawBonnet(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, const Bo
     // rows, with the cowl row prepended when the cut lies behind the first row
     std::vector<float> rz, rl, rr, rh;
     std::vector<int> rsrc;   // the surface row each drawn row takes its colours from
-    if (zCut < s.z[0] - 0.005f) {
-        rz.push_back(zCut - 0.01f); rl.push_back(s.xl[0]); rr.push_back(s.xr[0]); rsrc.push_back(0);
-        for (int c = 0; c < C; ++c) rh.push_back((std::min)(s.h[static_cast<size_t>(c)], cowlTop));
+    // FIX-COCKPIT-CAB-7 (qaexp77): cowlAt (the dashcam) puts the cowl row there, from the first row kept by the cut: a
+    // surface that starts behind the eye (013, 001: from -0.11) keeps its windscreen-base samples out of the frame.
+    int first = 0;
+    while (first < s.rows && s.z[static_cast<size_t>(first)] < zCut - 0.01f) ++first;
+    const bool at = cowlAt > -1e8f && first < s.rows;
+    const bool cowl = at ? cowlAt < s.z[static_cast<size_t>(first)] - 0.005f : zCut < s.z[0] - 0.005f;
+    if (cowl) {
+        const int r0 = at ? first : 0;
+        rz.push_back(at ? cowlAt : zCut - 0.01f); rl.push_back(s.xl[static_cast<size_t>(r0)]); rr.push_back(s.xr[static_cast<size_t>(r0)]); rsrc.push_back(r0);
+        for (int c = 0; c < C; ++c) rh.push_back((std::min)(s.h[static_cast<size_t>(r0 * C + c)], cowlTop));
     }
     for (int r = 0; r < s.rows; ++r) {
         if (s.z[static_cast<size_t>(r)] < zCut - 0.01f) continue;
@@ -1663,7 +1671,10 @@ void DrawBonnet(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, const Bo
             gta2::Vec3 n = gta2::Cross(dv, du);
             if (n.y < 0.0f) n = n * -1.0f;
             n = gta2::Normalize(n);
-            local.push_back({X(r, c), H(r, c), rz[static_cast<size_t>(r)], n.x, n.y, n.z, rsrc[static_cast<size_t>(r)] * C + c});
+            // FIX-COCKPIT-CAB-7 (qaexp77): the dashcam's cowl row (prepended at the eye) in the windscreen's shadow, so the strip
+            // under the camera reads as the scuttle falling into shade, not one flat lit plane (cowlShade 1: as before)
+            const float shade = (cowl && r == 0) ? cowlShade : 1.0f;
+            local.push_back({X(r, c), H(r, c), rz[static_cast<size_t>(r)], n.x, n.y, n.z, rsrc[static_cast<size_t>(r)] * C + c, shade});
         }
     for (int r = 0; r + 1 < R; ++r)
         for (int c = 0; c + 1 < C; ++c) {
@@ -1701,7 +1712,7 @@ void DrawBonnet(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, const Bo
         for (int k = 0; k < 3; ++k) {
             const float tk = gainOld ? tint[k] : (std::min)(2.0f, tint[k]);
             const float t = s.rgb[q * 3 + static_cast<size_t>(k)] * (1.0f + s.cov[q] * (paintLift - 1.0f)) * (1.0f + s.cov[q] * (tk - 1.0f)) * dull *
-                            (gainOld ? 1.0f : 0.5f);
+                            (gainOld ? 1.0f : 0.5f) * l.shade;
             col |= static_cast<DWORD>((std::max)(0.0f, (std::min)(1.0f, t)) * 255.0f + 0.5f) << (16 - 8 * k);
         }
         world[i] = {p.x, p.y, p.z, nl > 1e-6f ? nx / nl : 0.0f, nl > 1e-6f ? ny / nl : 1.0f, nl > 1e-6f ? nz / nl : 0.0f, col};
@@ -5561,7 +5572,11 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                                         }
                                     }
                                 }
-                                gta2::Vec3 rs{eye.x - seat.x, eye.y - seat.y, eye.z - seat.z};
+                                // FIX-COCKPIT-CAB-7 (qaexp77): the driver's eye, not the dashcam's (the camera eye less the dashcam's
+                                // shift): the lock used to carry the car onto the dashcam eye and cancel the dashcam's offset.
+                                // [camera] dashcam_cowl=0: as before.
+                                const gta2::Vec3 dsh = DashcamCowl() ? DashcamEyeShift() : gta2::Vec3{0.0f, 0.0f, 0.0f};
+                                gta2::Vec3 rs{eye.x - dsh.x - seat.x, eye.y - dsh.y - seat.y, eye.z - dsh.z - seat.z};
                                 const float rl2 = std::sqrt(rs.x * rs.x + rs.y * rs.y + rs.z * rs.z);
                                 // FIX-COCKPIT-CAB-4 (qar7 O2i: the cab seen from under its dash for two frames at a wall impact): in the
                                 // impact frame the game moves the car up to ~0.65 block from the eased eye (cab3_dgh_hands 15:53:19.35,
@@ -6024,6 +6039,10 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                 const bool flatCab = hood && g_cabInterior && !WreckModelNumber(modelNumber) &&
                                      CabClassFor(modelNumber, g_cabins[use.object].flat) == CabClass::Bus;
                 // FIX-FP: the seat's bonnet (seatBonnet, found with the hood above).
+                // FIX-COCKPIT-CAB-7 (qaexp77): in the dashcam the bonnet is cut at the eye, not a hand ahead of it: its cowl
+                // row (DrawBonnet) runs back under the camera with the bonnet's paint, shading and the headlamps' light,
+                // and the cab leaves its flat dash top out (cp.dashcamCowl). [camera] dashcam_cowl=0: as before.
+                const bool dashcamCowl = seatBonnet && !flatCab && DashcamHidesCockpit() && DashcamCowl();
                 if (seatBonnet && !flatCab) {
                     const float dull = (1.0f - 0.06f * static_cast<float>(dentStep)) * (fireStage >= 4 ? 0.45f : fireStage >= 3 ? 0.70f : 1.0f);
                     const float one[3] = {1.0f, 1.0f, 1.0f};
@@ -6060,7 +6079,8 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                             }
                         }
                         DrawBonnet(device, posed, *seatBonnet, eyeLocalZ + 0.10f, (std::min)(cowl, eyeLocalY - 0.045f), eyeLocalY - 0.04f,
-                                   keepOwnPaint ? one : tint, dull, carMaterial, material, RemixApiAvailable(), lift);
+                                   keepOwnPaint ? one : tint, dull, carMaterial, material, RemixApiAvailable(), lift, dashcamCowl ? 0.35f : 1.0f,
+                                   dashcamCowl ? eyeLocalZ + 0.01f : -1e9f);
                     }
                     if (IdentityProbeOn()) {
                         // FIX-CAR-IDENTITY-2: the seat's bonnet as the player's car in first person for the parity
@@ -6144,6 +6164,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                         cp.openTop = CabOpenTop(modelNumber);
                         cp.taxi = modelNumber == 51 || modelNumber == 56;   // Taxi Xpress, Taxi
                         cp.dashcam = DashcamHidesCockpit();   // FIX-COCKPIT-BODY: the dashcam: no wheel, no hands
+                        cp.dashcamCowl = dashcamCowl;          // FIX-COCKPIT-CAB-7: the bonnet runs to the eye
                         cp.doorOpen = fpExit && haveSplit ? ds.open : 0.0f;   // FIX-FP-EXIT-1: the real door is drawn swung
                         static int cabLogged = -1;
                         if (cabLogged != modelNumber) {

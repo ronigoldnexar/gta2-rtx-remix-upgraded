@@ -603,30 +603,35 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
 
     // 1. The dashboard: from the windscreen's foot up to a crest, back to a rolled
     // edge toward the driver, then down (out of view under the wheel).
+    // FIX-COCKPIT-CAB-7 (qaexp77): in the dashcam the seat bonnet (car_bodies DrawBonnet) runs back to the eye, so the
+    // dashboard's top, one flat colour from the windscreen's foot to the frame's bottom (a ruler edge across the whole
+    // width, the headlamp pool cut by it at night), is left out: the camera sits on the glass over it.
     const float dCrest = dc - 0.018f, dRear = dc - 0.036f;
     const float hCrest = p.cls == CabClass::Car ? 0.004f : 0.006f;
-    b.Quad(kDash, P(x0, dc + 0.004f, 0.0f), P(x1, dc + 0.004f, 0.0f), P(x1, dCrest, hCrest), P(x0, dCrest, hCrest));
-    b.Quad(kDash, P(x0, dCrest, hCrest), P(x1, dCrest, hCrest), P(x1, dRear, 0.002f), P(x0, dRear, 0.002f));
-    b.Quad(kLower, P(x0, dRear, 0.002f), P(x1, dRear, 0.002f), P(x1, dRear - 0.006f, -0.012f), P(x0, dRear - 0.006f, -0.012f));
-    // FIX-FP-2 (pm30): the face toward the driver, down past the bottom of the view: a trim seam
-    // under the rolled edge, the lower dash in the dash's own colour (the centre stack's plane),
-    // then the knee panel sloping away under it (kept ahead of the near plane, 0.05).
-    // Before, one near-black face ended 0.08 under the dash line: a black band, and in a tall
-    // cab the frame's bottom edge under it (pm30 garbage truck).
-    b.Quad(kTrim, P(x0, dRear - 0.0062f, -0.012f), P(x1, dRear - 0.0062f, -0.012f), P(x1, dRear - 0.0065f, -0.0155f), P(x0, dRear - 0.0065f, -0.0155f));
-    b.Quad(kLower, P(x0, dRear - 0.006f, -0.015f), P(x1, dRear - 0.006f, -0.015f), P(x1, dRear - 0.008f, -0.08f), P(x0, dRear - 0.008f, -0.08f));
-    b.Quad(kLower, P(x0, dRear - 0.008f, -0.08f), P(x1, dRear - 0.008f, -0.08f), P(x1, dRear + 0.014f, -0.28f), P(x0, dRear + 0.014f, -0.28f));
-    // The knee panel's upper edge: a darker roll across, so the two faces read as a padded edge.
-    b.Quad(kDashDark, P(x0, dRear - 0.0083f, -0.076f), P(x1, dRear - 0.0083f, -0.076f), P(x1, dRear - 0.0080f, -0.088f), P(x0, dRear - 0.0080f, -0.088f));
-    // The defroster vents along the windscreen: dark slots on the slope.
-    if (!tank) {
-        const float va = dc - 0.003f, vb = dc - 0.009f;
-        auto onSlope = [&](float d) { return 0.0008f + hCrest * (dc + 0.004f - d) / (dc + 0.004f - dCrest); };
-        const int slots = p.cls == CabClass::Car ? 2 : 3;
-        const float span = (x1 - x0) - 0.08f;
-        for (int i = 0; i < slots; ++i) {
-            const float a = x0 + 0.04f + span * (i + 0.08f) / slots, c = x0 + 0.04f + span * (i + 0.92f) / slots;
-            b.Quad(kDashDark, P(a, va, onSlope(va)), P(c, va, onSlope(va)), P(c, vb, onSlope(vb)), P(a, vb, onSlope(vb)));
+    if (!p.dashcamCowl) {
+        b.Quad(kDash, P(x0, dc + 0.004f, 0.0f), P(x1, dc + 0.004f, 0.0f), P(x1, dCrest, hCrest), P(x0, dCrest, hCrest));
+        b.Quad(kDash, P(x0, dCrest, hCrest), P(x1, dCrest, hCrest), P(x1, dRear, 0.002f), P(x0, dRear, 0.002f));
+        b.Quad(kLower, P(x0, dRear, 0.002f), P(x1, dRear, 0.002f), P(x1, dRear - 0.006f, -0.012f), P(x0, dRear - 0.006f, -0.012f));
+        // FIX-FP-2 (pm30): the face toward the driver, down past the bottom of the view: a trim seam
+        // under the rolled edge, the lower dash in the dash's own colour (the centre stack's plane),
+        // then the knee panel sloping away under it (kept ahead of the near plane, 0.05).
+        // Before, one near-black face ended 0.08 under the dash line: a black band, and in a tall
+        // cab the frame's bottom edge under it (pm30 garbage truck).
+        b.Quad(kTrim, P(x0, dRear - 0.0062f, -0.012f), P(x1, dRear - 0.0062f, -0.012f), P(x1, dRear - 0.0065f, -0.0155f), P(x0, dRear - 0.0065f, -0.0155f));
+        b.Quad(kLower, P(x0, dRear - 0.006f, -0.015f), P(x1, dRear - 0.006f, -0.015f), P(x1, dRear - 0.008f, -0.08f), P(x0, dRear - 0.008f, -0.08f));
+        b.Quad(kLower, P(x0, dRear - 0.008f, -0.08f), P(x1, dRear - 0.008f, -0.08f), P(x1, dRear + 0.014f, -0.28f), P(x0, dRear + 0.014f, -0.28f));
+        // The knee panel's upper edge: a darker roll across, so the two faces read as a padded edge.
+        b.Quad(kDashDark, P(x0, dRear - 0.0083f, -0.076f), P(x1, dRear - 0.0083f, -0.076f), P(x1, dRear - 0.0080f, -0.088f), P(x0, dRear - 0.0080f, -0.088f));
+        // The defroster vents along the windscreen: dark slots on the slope.
+        if (!tank) {
+            const float va = dc - 0.003f, vb = dc - 0.009f;
+            auto onSlope = [&](float d) { return 0.0008f + hCrest * (dc + 0.004f - d) / (dc + 0.004f - dCrest); };
+            const int slots = p.cls == CabClass::Car ? 2 : 3;
+            const float span = (x1 - x0) - 0.08f;
+            for (int i = 0; i < slots; ++i) {
+                const float a = x0 + 0.04f + span * (i + 0.08f) / slots, c = x0 + 0.04f + span * (i + 0.92f) / slots;
+                b.Quad(kDashDark, P(a, va, onSlope(va)), P(c, va, onSlope(va)), P(c, vb, onSlope(vb)), P(a, vb, onSlope(vb)));
+            }
         }
     }
     // 2. The binnacle in front of the driver: a cowl over the gauges. (FIX-COCKPIT-BODY: not in the dashcam
