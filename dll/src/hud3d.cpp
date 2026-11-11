@@ -304,13 +304,24 @@ struct Values {
     bool inVehicle = false;
     int money = -1, mult = -1, lives = -1, health = -1, wanted = 0;
     int weapon = 0, ammo = 0;
+    int carWeapon = -1;           // FIX-HUD-6 (qaf2): the car's own weapon the game puts in his hands in a car (type 11+)
     int carDamage = -1;
     int timerTicks = -1;          // the first running clock
     int counter = -1;             // the first counter's value
+    int counterSlot = -1, clockSlot = -1;
     std::string messageKey;
     std::vector<Arrow> arrows;
     float x = 0, y = 0, dirX = 0, dirY = 1;
 };
+
+// The car weapons (the game's types 11..27, a car's slots of the inventory). Only the tank's is
+// verified (qaf2 / FIX-HUD-6, the wil dock frenzy tank); the others read as the car's gun.
+const char* CarWeaponName(int raw) {
+    switch (raw) {
+        case 19: return "TANK CANNON";
+        default: return "CAR GUN";
+    }
+}
 
 Values ReadValues() {
     Values v;
@@ -335,6 +346,10 @@ Values ReadValues() {
         raw = game::PedWeaponRaw(ped, &ammo);
         v.weapon = game::PedWeaponOf(ped, nullptr);
         v.ammo = raw >= 0 ? ammo : 0;
+        // FIX-HUD-6 (qaf2): in a car with a weapon (the kill frenzy tank's cannon, a gun car) the game's
+        // weapon object in his hands is the car's, type 11 or more, which PedWeaponOf calls bare hands;
+        // the game's part 1 draws its icon and ammunition (K.F. in a frenzy) all the same.
+        if (p.inVehicle && raw >= 11 && raw < game::kInventorySlotCount) v.carWeapon = raw;
         if (p.inVehicle && p.vehicle) v.carDamage = *reinterpret_cast<const int16_t*>(static_cast<const uint8_t*>(p.vehicle) + 0x74);
         const char* buf = reinterpret_cast<const char*>(kMessageKey);
         for (int n = 0; n < 8 && buf[n] > 0x20 && buf[n] < 0x7F; ++n) v.messageKey.push_back(buf[n]);
@@ -344,11 +359,29 @@ Values ReadValues() {
                 const uint8_t* slot = reinterpret_cast<const uint8_t*>(hud + kHudCounters + i * 12);
                 const int32_t ticks = *reinterpret_cast<const int32_t*>(slot);
                 const int32_t* value = *reinterpret_cast<const int32_t* const*>(slot + 4);
-                if (ticks >= 0 && v.timerTicks < 0) v.timerTicks = ticks;
-                else if (ticks < 0 && value && game::PlausiblePointer(value) && v.counter < 0) v.counter = *value;
+                if (ticks >= 0 && v.timerTicks < 0) { v.timerTicks = ticks; v.clockSlot = i; }
+                // FIX-HUD-6 (qaf2): a slot can hold a clock AND a counter (a kill frenzy: the kills still
+                // needed over the time left, one box in classic); the counter was read only from a
+                // slot without a clock, so the frenzy's read counter=-1 all the way.
+                if (value && game::PlausiblePointer(value) && v.counter < 0) { v.counter = *value; v.counterSlot = i; }
             }
-            const uint8_t* arrows = reinterpret_cast<const uint8_t*>(hud + kHudArrows);
-            (void)arrows;
+            // The four slots raw, logged on a change of which slots are in use (FIX-HUD-6 probe).
+            static std::string s_slots;
+            std::string slots;
+            for (int i = 0; i < 4; ++i) {
+                const uint8_t* slot = reinterpret_cast<const uint8_t*>(hud + kHudCounters + i * 12);
+                const int32_t ticks = *reinterpret_cast<const int32_t*>(slot);
+                const uintptr_t ptr = *reinterpret_cast<const uintptr_t*>(slot + 4);
+                char t[64];
+                snprintf(t, sizeof t, " %d:%s/%s/%08X", i, ticks >= 0 ? "clock" : "-", ptr ? "ptr" : "-",
+                         *reinterpret_cast<const uint32_t*>(slot + 8));
+                slots += t;
+            }
+            if (slots != s_slots) {
+                s_slots = slots;
+                Log("hud3d: counter slots%s (clock slot %d, counter slot %d = %d)", slots.c_str(), v.clockSlot, v.counterSlot, v.counter);
+            }
+            (void)kHudArrows;
         }
         const uintptr_t pool = *reinterpret_cast<const uintptr_t*>(kGangPool);
         if (pool > 0x10000) {
@@ -2463,12 +2496,14 @@ void Draw(ImDrawList* dl, IDirect3DDevice9* device, const Values& v, float W, fl
     // The weapon: the game's own icon, its ammunition and name, right-aligned under the lives
     // in the same shadowed type as the money and lives, with no card behind it (a glass card
     // here read as a dirty patch on the facade behind, pm9-third-ammo-panel-translucent-box-bleeds-into-scene).
-    if (v.weapon > 0) {
+    // FIX-HUD-6 (qaf2): in a car with a gun (the kill frenzy's tank) the car's weapon, as classic's part 1.
+    if (v.weapon > 0 || v.carWeapon >= 0) {
         const float h = 54.0f * u;
         char ammo[24];
-        if (v.ammo < 0) snprintf(ammo, sizeof ammo, "INF");
+        // -1 is a kill frenzy's weapon (the game sets its slot's ammunition to -1): classic writes K.F.
+        if (v.ammo < 0) snprintf(ammo, sizeof ammo, "K.F.");
         else snprintf(ammo, sizeof ammo, "%d", (v.ammo + 9) / 10);
-        std::string name = WeaponName(v.weapon);
+        std::string name = v.carWeapon >= 0 ? CarWeaponName(v.carWeapon) : WeaponName(v.weapon);
         for (char& c : name) c = c == '_' ? ' ' : static_cast<char>(toupper(static_cast<unsigned char>(c)));
         ImVec2 as, ns;
         if (GlyphsOn()) {
@@ -3327,10 +3362,10 @@ void Hud3dRender(IDirect3DDevice9* device, int width, int height, const gta2::Ma
     // The values once every two seconds, for reading a run back against the game's own line.
     if (want && g_frame - g_lastLog >= 60) {
         g_lastLog = g_frame;
-        Log("hud3d: money=%d shown=%.0f mult=%d lives=%d health=%d wanted=%d weapon=%s(%d) ammo=%d car=%d timer=%d counter=%d "
+        Log("hud3d: money=%d shown=%.0f mult=%d lives=%d health=%d wanted=%d weapon=%s(%d) ammo=%d car=%d timer=%d counter=%d cargun=%d "
             "msg=%s brief=%d(%s) portrait=%.0fx%.0f icon=%.0fx%.0f arrows=%zu parts=%s%s%s%s%s",
             v.money, an.money, v.mult, v.lives, v.health, v.wanted, WeaponName(v.weapon), v.weapon, v.ammo, v.carDamage,
-            v.timerTicks, v.counter, v.messageKey.c_str(), g_briefResolved ? 1 : 0, g_briefKey.c_str(),
+            v.timerTicks, v.counter, v.carWeapon, v.messageKey.c_str(), g_briefResolved ? 1 : 0, g_briefKey.c_str(),
             g_portrait.maxX - g_portrait.minX, g_portrait.maxY - g_portrait.minY,
             g_weaponIcon.maxX - g_weaponIcon.minX, g_weaponIcon.maxY - g_weaponIcon.minY, v.arrows.size(),
             g_partSeen[1] + 1 >= g_frame ? "1" : "", g_partSeen[4] + 1 >= g_frame ? ",4" : "", g_partSeen[6] + 1 >= g_frame ? ",6" : "",

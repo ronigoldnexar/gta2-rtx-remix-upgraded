@@ -212,7 +212,7 @@ the modern one right, 1.4 s apart (the `[hud] modern` switch is re-read once a s
   boulevard with a median (wanted, on foot).
 - 0 FAULT lines in either run.
 
-Not covered: a counter (`+4` of a counter slot; no job with an on-screen counter was played),
+Not covered: a counter without a clock (`+4` of a counter slot; the kill frenzy's clock-and-counter slot is, see FIX-HUD-6 below),
 armour (no field known), Remix (drawn after the UI composite, like the F4 menu; not seen under
 the path tracer), resolutions other than 720p (the fonts re-bake on a height change; untested
 on screen).
@@ -502,3 +502,34 @@ Verified (FIX-HUD-5, 10 Nov 2026, frames opened; L4 host, plain GL unless said):
   the HUD's regions only.
 - Probe: `GTA2DX9_HUD_LOG_GLYPHS=1` logs each distinct textured quad of HUD parts 1, 6 and 11 (texture size,
   physical palette, texel rect, quad, colour) in any view: how the table above was measured.
+
+## FIX-HUD-6: the kill frenzy (qaf2, 11 Nov 2026)
+
+Defect qaf2-wil-third-first-kill-frenzy-has-no-kill-counter-no-weapon-icon-and-no-FRENZY-FAILED-message-when-the-timer-runs-out:
+in the tank frenzy at the wil dock (225,238.5, "Use the Tank to kill 35 people in 60 seconds!") the street views
+showed only the clock chip, where classic shows the kills still needed over the timer and the tank's gun with "K.F.".
+
+- **The counter.** A kill frenzy puts its clock and its counter in ONE slot of `[0x672F40]+0x7E8` (slot 0: `+0` the
+  ticks, `+4` a pointer to the kills still needed, 35 at the start; classic draws them as one box). `ReadValues` read a
+  counter only from a slot without a clock, so the frenzy read `counter=-1` all the way. Now any slot with a value
+  pointer gives the counter; it is drawn as before, the yellow-edged COUNT chip under the clock. Log on every change
+  of the slots in use: `hud3d: counter slots 0:clock/ptr/<+8> 1:-/-/... (clock slot n, counter slot n = value)`.
+  The frenzy's end clears the whole slot (both gone at once); a job's clock alone (`test_clock`) was not re-checked
+  for a stray `+4` pointer (it would show a COUNT chip: watch the `counter slots` line).
+- **The car's gun.** In a car with a weapon the game's weapon object in his hands (`ped+0x170`) is the car's, type 11
+  or more (the tank's cannon is 19), which `PedWeaponOf` maps to bare hands, so the weapon block was not drawn though
+  the game's own icon (part 1, 89x24) was captured. Now `carWeapon` (the type, `cargun=` on the `hud3d:` line) draws
+  the block in a car: the game's icon, the ammunition shown /10 (the tank keeps 200 = 20 after the frenzy), and its
+  name (`CarWeaponName`: 19 TANK CANNON, verified; any other car weapon "CAR GUN", no type of theirs verified yet).
+- **K.F.** The ammunition -1 (the game's mark of a kill frenzy's weapon) reads "K.F." as classic writes it, on foot
+  too (it read "INF").
+- **FRENZY FAILED!** was never swallowed: it is the game's big message (part 15), which the street views keep unless
+  a WASTED/BUSTED/JOB COMPLETE beat holds the screen (docs/beats.md). The qaf2 montage's third-person frames fell
+  just after its three seconds; its own run shows it in first person (frame 40). No beat is started for it.
+
+Verified (run fixhud6_a, the defect's own repro `qaf2_d`, 1280x720): third person at 0:43 (clock, COUNT 35, the
+tank's icon with K.F. and TANK CANNON under the hearts), first person in the tank at 0:15 (the same), first person at
+the timer's end (the game's FRENZY FAILED! over the cab, the gun now 20), third person after it (clock and counter
+gone, TANK CANNON 20). Not verified: a frenzy with kills (the scripted tank stays against the dock wall, so the counter
+never dropped below 35 in the run), an on-foot frenzy's K.F., other car weapons' names, Remix.
+
