@@ -566,3 +566,62 @@ filer's log shows a pedestrian killed (+$20) just before the frame. One rerun of
 `GTA2DX9_LOG_SPRITE_KINDS=1` (out/qa_fw17k) ended BUSTED and showed no streak in 36 frames, so the sprite is not
 identified. The likely cause, not proven, is a blood or gore effect quad straddling the first-person near plane.
 The notes and next step are on the work order.
+
+## 17. Lit windows that tore, fire escapes, the footbridge corner (FIX-WORLD-18, 11 Nov 2026)
+
+**qav76, bil's "broken pane" stamps at night.** The tile is bil 488, an arched window behind bars (491 and 484 do the
+same on a smaller scale). Same-build A/B at the filer's two fixed cameras (bil 50,60.5, noon and 22:30) names the
+source as the glow box (`MakeWindowGlow`, src/renderer.cpp): with `GTA2DX9_GLOW_FILL=0` the old mask brings the
+torn beige stamp back exactly; nothing else paints it. The filer's own window_glow 0/-1 pair proved nothing: their
+DLL (5a69c460) predates the `[devtools] window_glow` key (a6e46e58) and the log has no `devtools: window_glow` line.
+Why it tore: the glass rule keeps dark texels only if they are neutral or blue (`b >= r - 4`) and in runs at least 6
+wide and 4 tall. 488's interior is near-black but slightly warm (b - r = -8 to -17) and crossed by bars, so about
+half the opening failed and stayed at the night wall's dark, with hard 64-texel steps (black holes beside lit
+blobs). By day the same mask tore the sky reflection, which is what read as "cracked glass with grey shards".
+Now, in a box the old rule already lights (12 or more glass texels, so no window that was dark starts to glow),
+each texel of the box that is dark (luma < 100) and not brick-coloured (`b >= r - 24`, `b >= g - 20`) takes the
+glow weighted by darkness (`0.8 * clamp((60 - luma) / 45) + 0.2`: the room behind the glass full, a bar or crack a
+darker line, the frame and brick none). A texel with 5 or more such neighbours (a pinhole) takes 0.6 of their mean,
+the weight is softened by half a 3x3 blur, and the level is 1.12 at the window's top falling to 0.80 at its foot
+(the ceiling light). The day sky reflection takes the same weight. `GTA2DX9_GLOW_FILL=0` restores the old mask.
+Unboxed styles and the colour-run detector are unchanged. The glow textures are generated at load from the 64 px
+tile; no HD tile or photo DDS changed.
+- Verified (frames opened): qa_fw18a (new) vs qa_fw18b (same build, `GLOW_FILL=0`) at both cameras and both hours.
+  At 22:30 the 488 windows are a warm pane with the bars as darker lines; 491/484 have no notches. At noon the panes
+  reflect the sky evenly. Post-rebase re-run qa_fw18k is the same. vreg `spawn_classic` PASS, 0 tiles changed.
+- Not verified: other districts' boxed windows frame by frame (an offline simulation of the rule on 26 bil tiles,
+  old vs new, showed no new window lighting and no box filling over a shutter); Remix (the glow is a fixed-function
+  stage the Remix path does not use).
+
+**qav5, fire escapes.** GTA2 builds a fire escape as a stack of 45-degree slope blocks (types 41-44) in one cell,
+alternating direction floor by floor (ste 97,103 levels 3-6: 43, 44, 43, 44). Each has a see-through flat lid that
+pictures the flight from above in a band along the wall: ste 888 (steps and stringers on the 37 % of the tile next to
+the wall), wil 758 (the same in red), bil 545. The landings are small lone lids in the cells at either end (ste 887).
+The street views drew the lid as a tilted ribbon of texels on the facade, and left the landings out as overhead
+decals (lone wall-mounted lids), so the result was a zigzag ladder strip with no rail or landing, ending in mid-air.
+`FireFlight` / `AddFireFlight` (src/world_mesh.cpp) find a flight: a 41-44 block with a see-through flat lid, no
+sides, and a block above or below in the same cell with the opposite direction and the same lid tile. Its lid's
+opaque band is measured across the flight (16 bins from the lid quad's UVs; one run, a fifth to two thirds wide,
+against one edge, which is the wall side). The street views leave the lid out and build the flight in that band:
+two stringers, nine treads, a handrail on three posts on the open side, a landing (the band's width square) with
+rails at each end (one per spot: the top of one flight is the foot of the next), a brace under each landing to the
+wall, and from the lowest landing a ladder to the ground (to 0.35 above it when the drop is over 1.2 blocks). All of
+it is closed boxes in the street-only group, textured with one opaque texel of the lid tile (the median-bright texel
+with six or more opaque neighbours), so the steel keeps the district's colour and reads from both sides and in first
+person. The classic view draws the lid as before. Log: `fire escapes (street views, FIX-WORLD-18 qav5): N flight(s),
+N landing(s), N ladder(s)`; ste 347 / 444 / 82, wil 44 / 58 / 14, bil 2 / 3 / 1 (offline mesh build).
+`GTA2DX9_FIRE_ESCAPES=0` restores the old ribbon.
+- Verified (frames opened): ste fixed cameras at 97,103 (3 blocks, 12 blocks, oblique; noon and 22:30) in qa_fw18g
+  vs qa_fw18h (same build, off). wil 170,191 (3 blocks and oblique) in qa_fw18i vs qa_fw18j. The filer's wil
+  first-person repro is qa_fw18l: the red stair at about 15 blocks has flights, landings and rails. Frame times at
+  the ste cameras: world pass 2.50 ms average with fire escapes vs 2.21 ms without (8 windows each); the wait
+  headroom is about 19-20 ms in both.
+- Not verified: Remix; first person beside a fire escape (closer than 3 blocks); the ste filer repro (qa_fw18m) at
+  the filer's exact facing (the walk wanders); bil's two flights not framed. The steel is one flat colour per
+  district. There are no grating textures on the treads.
+
+**qav31, the wil footbridge corner (released, not fixed).** Rays from the filer's eye (mesh 116.5, 2.5, 80.5,
+`tools/world_raycast.cpp fan`) land on tile 300, the south face of the girder end 115,174 (level 3, a slope-54
+partial block), and on wil 579, the striped awning art, the lid of a lone slope-42 block at 114,174 level 3. The map
+has no block above level 3 in x 112-117, y 174-175. The "wall above" is absent from the map data, not culled. A fix
+would be a street-only end plate for the girder and an awning solid for 579; both need frames at the filer's poses.
