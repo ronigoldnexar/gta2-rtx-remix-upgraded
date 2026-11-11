@@ -34,7 +34,11 @@ cp "$W/vid/build/gta2dx9_vid.dll" "$C/gta2dx9_vid.dll"; cp "$W/vid/build/gta2dx9
 # A stage value equal to the package default of the commit the stage was built from (the 'staged from' line of the live
 # restage log) is a moved default, not an override: pass that commit's package ini so the merge retires it (shift 79, 10 Nov:
 # remix_puff_mode=2, traffic_cap=36 and follow_clock=0 had kept three owner fixes off the play page).
-PREV_STG=$(grep -m1 -oE "staged from [0-9a-f]+" /mnt/gta2/restage-current.log 2>/dev/null | awk '{print $3}')
+# COORDINATOR shift 103, 11 Nov: the chained restage jobs re-point restage-current.log at their own (still empty) log
+# BEFORE running this script, so the live log carried no 'staged from' line and the merge kept a moved default again
+# (grid_headroom=1 at 05:56 after FIX-PERF-8 moved it to 2): read the running stage's commit from stage/.stage_commit first.
+PREV_STG=$(cat stage/.stage_commit 2>/dev/null | tr -d '[:space:]')
+[ -n "$PREV_STG" ] || PREV_STG=$(grep -m1 -oE "staged from [0-9a-f]+" /mnt/gta2/restage-current.log 2>/dev/null | awk '{print $3}')
 PREV_INI=""
 if [ -n "$PREV_STG" ] && git -C "$W" show "$PREV_STG:package/gta2dx9.ini" > "$C/.prev_package.ini" 2>/dev/null; then PREV_INI="$C/.prev_package.ini"; else rm -f "$C/.prev_package.ini"; fi
 python3 "$W/tools/merge_stage_ini.py" "$W/package/gta2dx9.ini" "stage/gta2dx9.ini" "$C/gta2dx9.ini" $PREV_INI

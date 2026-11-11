@@ -21,7 +21,10 @@ RETIRED = {("camera", "switch_dissolve_percent"): {"45"},
            # day-night follow_clock f46ec882):
            ("devtools", "remix_puff_mode"): {"1", "2"},
            ("density", "traffic_cap"): {"36"},
-           ("sky", "follow_clock"): {"0"}}
+           ("sky", "follow_clock"): {"0"},
+           # COORDINATOR shift 103, 11 Nov: FIX-PERF-8 c50a42f7 moved grid_headroom 1 -> 2; the 05:56 restage kept the old
+           # 1 as an "override" because the chain job had re-pointed the live log before restage.sh read it:
+           ("density", "grid_headroom"): {"1"}}
 
 def parse(path):
     """-> {(section, key): value} using the first occurrence of each section and key."""
