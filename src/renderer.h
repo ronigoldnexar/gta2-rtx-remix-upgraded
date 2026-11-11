@@ -149,6 +149,12 @@ public:
     // as a flat black slab down the frame edge. 0 (the default, every other view): no clip.
     // FIX-CAMERA-20: lids too (the third-person lens: a truss's lattice deck between it and him); first person leaves them
     void SetSeeThroughNearClip(float ahead, bool lids = false) { seeThroughClip_ = ahead > 0.0f ? ahead : 0.0f; seeThroughClipLids_ = lids; }
+    // FIX-PERF-9 (14p3): the street views leave out the world's tile batches (and the ends of a batch's
+    // index range) whose triangles lie wholly outside the view frustum. Exact: a triangle outside a
+    // frustum plane rasterises nothing. Never in the classic view, never under Remix (its draws are
+    // hashed by their ranges and it sees off-screen geometry). [renderer] world_view_cull.
+    void SetWorldViewCull(bool on) { worldViewCull_ = on; }
+    bool WorldViewCull() const { return worldViewCull_; }
     // The clock the street-level water effect scrolls by (seconds); any
     // monotonic clock, the sky's is used.
     void SetWaterClock(double seconds) { waterClock_ = seconds; }
@@ -342,6 +348,15 @@ private:
     double waterClock_ = 0.0;
     IDirect3DTexture9* LoadHdTileTexture(int tile);
     std::vector<TileBatch> batches_;
+    // FIX-PERF-9: runs of 64 consecutive triangles of each batch's index range with their box (world space),
+    // [0] for the classic range, [1] for the street range (TileBatch::streetIndices); per batch its first
+    // chunk and chunk count in cullChunks_. Built once in UploadWorld.
+    struct CullChunk { float cx, cy, cz, ex, ey, ez; uint32_t start, count; };
+    std::vector<CullChunk> cullChunks_;
+    std::vector<std::pair<uint32_t, uint32_t>> batchChunks_[2];
+    bool worldViewCull_ = true;
+    int worldCullLogEvery_ = -1;
+    uint32_t worldCullFrames_ = 0;
 
     int width_ = 0;
     int height_ = 0;

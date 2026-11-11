@@ -3960,6 +3960,24 @@ void WorldView::RenderFrame() {
                 }
             }
         }
+        {
+            // FIX-PERF-9: [renderer] world_view_cull (default 1; GTA2DX9_WORLD_VIEW_CULL=0|1 overrides it), live
+            // [devtools] world_view_cull=0|1 (-1: the ini's) for a same-pose A/B; re-read once a second.
+            static int iniCull = -2, devCull = -1;
+            static uint32_t cullPolls = 0;
+            if (iniCull == -2) {
+                char b[8] = {};
+                iniCull = GetEnvironmentVariableA("GTA2DX9_WORLD_VIEW_CULL", b, sizeof b) ? atoi(b)
+                          : CarBodiesDevIni()[0] ? GetPrivateProfileIntA("renderer", "world_view_cull", 1, CarBodiesDevIni()) : 1;
+                Log("world view cull: %s (FIX-PERF-9)", iniCull ? "on" : "off");
+            }
+            if (CarBodiesDevIni()[0] && (cullPolls++ % 30u) == 0) {
+                const int v = GetPrivateProfileIntA("devtools", "world_view_cull", -1, CarBodiesDevIni());
+                if (v != devCull) Log("devtools: world_view_cull %d", v);
+                devCull = v;
+            }
+            renderer_.SetWorldViewCull(devCull >= 0 ? devCull != 0 : iniCull != 0);
+        }
         renderer_.DrawWorld(camera_);
         // FIX-OCCLUSION: should the eye still be in a block, the block is closed round it
         // (back sides of the faces near the eye, depth-hidden from outside). Street views only,

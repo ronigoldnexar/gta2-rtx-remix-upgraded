@@ -911,6 +911,40 @@ bool Renderer::UploadWorld(const WorldMesh& mesh, const Style& style, std::strin
     memcpy(dest, mesh.indices.data(), indexBytes);
     indexBuffer_->Unlock();
 
+    // FIX-PERF-9: each batch's ranges cut into runs of 64 triangles with their boxes, for the street
+    // views' frustum test in DrawWorld (the order of the triangles is never changed).
+    cullChunks_.clear();
+    for (int set = 0; set < 2; ++set) batchChunks_[set].assign(batches_.size(), {0u, 0u});
+    for (size_t b = 0; b < batches_.size(); ++b) {
+        const TileBatch& batch = batches_[b];
+        for (int set = 0; set < 2; ++set) {
+            if (set == 1 && !batch.streetIndices) continue;
+            const uint32_t first = set ? batch.streetIndexStart : batch.indexStart;
+            const uint32_t count = (set ? batch.streetIndexCount : batch.indexCount) / 3u * 3u;
+            batchChunks_[set][b].first = static_cast<uint32_t>(cullChunks_.size());
+            for (uint32_t at = 0; at < count; at += 192u) {
+                const uint32_t n = (std::min)(192u, count - at);
+                float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
+                for (uint32_t i = 0; i < n; ++i) {
+                    const uint32_t vi = mesh.indices[first + at + i];
+                    if (vi >= mesh.vertices.size()) continue;
+                    const Vertex& v = mesh.vertices[vi];
+                    lo[0] = (std::min)(lo[0], v.x); lo[1] = (std::min)(lo[1], v.y); lo[2] = (std::min)(lo[2], v.z);
+                    hi[0] = (std::max)(hi[0], v.x); hi[1] = (std::max)(hi[1], v.y); hi[2] = (std::max)(hi[2], v.z);
+                }
+                if (lo[0] > hi[0]) { lo[0] = lo[1] = lo[2] = 0.0f; hi[0] = hi[1] = hi[2] = 1e6f; }   // never culled
+                CullChunk c;
+                c.cx = 0.5f * (lo[0] + hi[0]); c.cy = 0.5f * (lo[1] + hi[1]); c.cz = 0.5f * (lo[2] + hi[2]);
+                c.ex = 0.5f * (hi[0] - lo[0]) + 0.01f; c.ey = 0.5f * (hi[1] - lo[1]) + 0.01f; c.ez = 0.5f * (hi[2] - lo[2]) + 0.01f;
+                c.start = first + at;
+                c.count = n;
+                cullChunks_.push_back(c);
+            }
+            batchChunks_[set][b].second = static_cast<uint32_t>(cullChunks_.size()) - batchChunks_[set][b].first;
+        }
+    }
+    Trace("world view cull: %zu batches, %zu chunks of up to 64 triangles (FIX-PERF-9)", batches_.size(), cullChunks_.size());
+
     // One texture per tile keeps Remix's texture hashes stable and per-tile
     // replaceable, instead of hiding every surface behind one atlas hash. Two
     // slots past the end for the seal under the world and the riverbed, which
@@ -1762,7 +1796,67 @@ void Renderer::DrawWorld(const Camera& camera) {
         const float plane[4] = {fx, fy, fz, -(fx * eye.x + fy * eye.y + fz * eye.z) - seeThroughClip_};
         device_->SetClipPlane(0, plane);
     }
+    // FIX-PERF-9 (14p3): the street views' frustum test of the world's batches. The six planes of
+    // view x projection (row vectors: clip = p * VP); a chunk whose box lies wholly on the outer side
+    // of one plane rasterises nothing, so leaving it out changes no pixel. Per batch only the span
+    // from its first to its last chunk in view is drawn (one draw, never more than before; the
+    // triangles keep their order), and a batch with none in view is not drawn at all.
+    const bool viewCull = worldViewCull_ && streetView_ && !remixDevice_ && !cullChunks_.empty() &&
+                          batchChunks_[0].size() == batches_.size();
+    float planes[6][4] = {};
+    int cullBatches = 0, cullDrawn = 0;
+    long long cullTris = 0, cullTrisAll = 0;
+    if (viewCull) {
+        const Mat4 v = camera.ViewMatrix();
+        const Mat4 p = camera.ProjectionMatrix(static_cast<float>(width_) / static_cast<float>(height_));
+        float vp[4][4];
+        for (int r = 0; r < 4; ++r)
+            for (int c = 0; c < 4; ++c) {
+                float acc = 0.0f;
+                for (int k = 0; k < 4; ++k) acc += v.m[r][k] * p.m[k][c];
+                vp[r][c] = acc;
+            }
+        auto col = [&](int c, int r) { return vp[r][c]; };
+        for (int r = 0; r < 4; ++r) {
+            planes[0][r] = col(3, r) + col(0, r);   // left
+            planes[1][r] = col(3, r) - col(0, r);   // right
+            planes[2][r] = col(3, r) + col(1, r);   // bottom
+            planes[3][r] = col(3, r) - col(1, r);   // top
+            planes[4][r] = col(2, r);               // near (D3D: 0 <= z)
+            planes[5][r] = col(3, r) - col(2, r);   // far
+        }
+    }
+    auto chunkVisible = [&](const CullChunk& c) {
+        for (const float* pl : planes) {
+            const float d = pl[0] * c.cx + pl[1] * c.cy + pl[2] * c.cz + pl[3];
+            const float rad = std::fabs(pl[0]) * c.ex + std::fabs(pl[1]) * c.ey + std::fabs(pl[2]) * c.ez;
+            if (d < -rad) return false;
+        }
+        return true;
+    };
     for (const TileBatch& batch : batches_) {
+        // FIX-PERF-9: the batch's span in view (street views), before any of its state is set.
+        uint32_t spanFirst = 0, spanCount = 0;
+        bool spanSet = false;
+        if (viewCull && !(batch.streetOnly && !streetView_)) {
+            const size_t bi = static_cast<size_t>(&batch - batches_.data());
+            const bool streetSet = batch.streetIndices;
+            const std::pair<uint32_t, uint32_t> range = batchChunks_[streetSet ? 1 : 0][bi];
+            ++cullBatches;
+            cullTrisAll += (streetSet ? batch.streetIndexCount : batch.indexCount) / 3;
+            uint32_t a = 0;
+            while (a < range.second && !chunkVisible(cullChunks_[range.first + a])) ++a;
+            if (a == range.second) continue;   // nothing of it in view
+            uint32_t z = range.second - 1;
+            while (z > a && !chunkVisible(cullChunks_[range.first + z])) --z;
+            const CullChunk& c0 = cullChunks_[range.first + a];
+            const CullChunk& c1 = cullChunks_[range.first + z];
+            spanFirst = c0.start;
+            spanCount = c1.start + c1.count - c0.start;
+            spanSet = true;
+            ++cullDrawn;
+            cullTris += spanCount / 3;
+        }
         if (latticeClip) {
             const bool want = batch.needsAlphaTest && batch.tile >= 0 && batch.tile < static_cast<int>(sparseLattice_.size()) &&
                               sparseLattice_[static_cast<size_t>(batch.tile)] && (!batch.lidFaces || seeThroughClipLids_);
@@ -1922,10 +2016,14 @@ void Renderer::DrawWorld(const Camera& camera) {
         }
         // The street views leave the overhead decals out (world_mesh.h, TileBatch::streetIndices).
         const bool streetRange = streetView_ && batch.streetIndices;
-        const uint32_t first = streetRange ? batch.streetIndexStart : batch.indexStart;
-        const uint32_t count = streetRange ? batch.streetIndexCount : batch.indexCount;
+        const uint32_t fullFirst = streetRange ? batch.streetIndexStart : batch.indexStart;
+        const uint32_t fullCount = streetRange ? batch.streetIndexCount : batch.indexCount;
         const size_t batchIndex = static_cast<size_t>(&batch - batches_.data());
-        if (anyPoleFaded_ && batchIndex < polesOfBatch_.size() && !polesOfBatch_[batchIndex].empty()) {
+        const bool polePath = anyPoleFaded_ && batchIndex < polesOfBatch_.size() && !polesOfBatch_[batchIndex].empty();
+        // FIX-PERF-9: the span in view; the faded-pole path keeps the whole range (its pole ranges index into it).
+        const uint32_t first = spanSet && !polePath ? spanFirst : fullFirst;
+        const uint32_t count = spanSet && !polePath ? spanCount : fullCount;
+        if (polePath) {
             // FIX-TRANSITION-ART: around the street lights that are fading or gone (UpdatePoleFades).
             uint32_t at = first;
             const uint32_t end = first + count;
@@ -1979,6 +2077,9 @@ void Renderer::DrawWorld(const Camera& camera) {
     }
     if (latticeClipOn) device_->SetRenderState(D3DRS_CLIPPLANEENABLE, 0);
     if (doubleSided) device_->SetRenderState(D3DRS_CULLMODE, cullMode_);
+    if (worldCullLogEvery_ < 0) { const char* e = getenv("GTA2DX9_WORLD_CULL_LOG"); worldCullLogEvery_ = e ? (std::max)(0, atoi(e)) : 0; }
+    if (viewCull && worldCullLogEvery_ > 0 && (++worldCullFrames_ % static_cast<uint32_t>(worldCullLogEvery_)) == 0)
+        Trace("world view cull: %d of %d batches drawn, %lld of %lld triangles (FIX-PERF-9)", cullDrawn, cullBatches, cullTris, cullTrisAll);
     if (!fadedPoles.empty()) {
         // The fading street lights, blended over what is behind them (texture x the factor's alpha),
         // without depth writes, last of the opaque world.

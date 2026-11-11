@@ -1963,3 +1963,99 @@ with the renderer's share (budgets, window size and shape) gone. The classic gam
 (`perf8_cls_f1`), but at the fire spot the street view still holds ~80 particle nodes more than classic in a run each
 (cause not found: the game's camera height in the street views is the next suspect). Untested: night, rain, Remix, and
 a long rampage that earns six stars by play rather than `force_wanted`.
+
+## The street views' world drawn only where the view is (11 Nov 2026, FIX-PERF-9)
+
+Order 14p3 (2.1 M triangles / 2 900 draws a street-view frame against classic's 0.5 M / 1 200). What a third-person
+frame on QA-STRESS pass 3's Industrial drive submits (median of the frame log, cull off): **2 607 draws, of them the
+world 1 376 (628 k triangles)**, the shadow pass 749, props 240, cars 130 (FIX-PERF-7's car cull already holds the
+unseen cars), people 66. The world is one draw per tile texture (`TileBatch`, world_mesh.h) over the WHOLE map, every
+frame, whatever the camera faces: classic draws the same batches, but from straight above, where nothing else is wanted.
+
+### The cut (`[renderer] world_view_cull`, default 1)
+
+At upload each batch's index range (its street range too, `TileBatch::streetIndices`) is cut into runs of 64
+consecutive triangles with their boxes (`Renderer::cullChunks_`, ~8 900 runs at wil). Each street-view frame the six
+planes of view x projection are tested against those boxes: a batch draws only the span from its first run in view to
+its last (one draw, never more than before, the triangles in their order), and a batch with no run in view is not drawn
+at all. A triangle wholly outside a frustum plane rasterises nothing, so **no pixel can change**; the depth buffer,
+the AO and the shadow mask read only what is on screen. Never in the classic view (`streetView_` false: its draws are
+byte-for-byte what they were), never under RTX Remix (its draws are hashed by their ranges and the path tracer sees
+off-screen geometry). A batch with a street light fading (FIX-TRANSITION-ART's pole path) keeps its whole range; a
+water batch is left out only when none of it is in view. CPU: the test stops at the first visible run from each end.
+A/B: `[renderer] world_view_cull=0`, `GTA2DX9_WORLD_VIEW_CULL=0|1`, live `world_view_cull=0|1` in the devtools
+section; `GTA2DX9_WORLD_CULL_LOG=N` logs `world view cull: <drawn> of <batches> batches, <triangles> of <all>` every N frames.
+
+### Fixed camera, same session, cull off / on / off / on (`perf9_ab2`, wil, noon held, 15 s holds)
+
+`gamerun/keys_perf7_wedge.sh` with `P7_TOGGLE=devtools.world_view_cull=0,1,0,1` at FIX-PERF-7's four poses (wedge third,
+wedge first, the parked car beside the church, the street past the church). GPU 5 was shared with QA-STRESS pass 25's
+soak (16-100 %), host load 13-20:
+
+| pose | world draws off / on | world triangles off / on | all draws a frame (off, on, off, on) | frames over 50 ms (off, on, off, on) |
+|---|---|---|---|---|
+| wedge third | 1 262 / 795 | 512 k / 352 k | 2 058 / 1 669 / 2 217 / 1 628 | 2.5 / 0.5 / 0.3 / 0.3 % |
+| wedge first | 1 262 / 790 | 512 k / 357 k | 2 135 / 1 754 / 2 250 / 1 560 | 0.3 / 0.8 / 0.8 / 0.0 % |
+| parked car | 1 262 / 780 | 512 k / 346 k | 2 158 / 1 727 / 2 219 / 1 719 | 1.0 / 0.5 / 0.0 / 0.0 % |
+| the street (cars in view) | 1 262 / 932 | 512 k / 383 k | 3 216 / 3 113 / 3 452 / 3 490 | 1.4 / 0.8 / 0.3 / 44.6 % |
+
+The world loses a quarter to 38 % of its draws and of its triangles at every pose. The quiet poses hold the 33.3 ms cap
+either way; the street pose's last hold ran while GPU 5 sat at 100 % for the other soak (the sky phase, which waits for
+the GPU, at 19.7 ms against 4.4): host noise, not the cut.
+
+**Frames, opened** (`t_p7_<pose>_world_view_cull<0|1>_*.png`, HUD bands masked, pixels differing by more than 24):
+first person, both off/on pairs: **0 pixels**. Wedge third: the cull-on shot differs from both cull-off shots by 4-5
+pixels (a moving speck), the last shot of the pose by 0.8 % where a pedestrian walks in (it differs from its own
+state's other shot the same way). Parked car: one pair 0 pixels, the other 1 % where traffic moves (same-state shots
+differ by 0.4-0.6 % there too). The street: the differences are the far traffic and people (same-state pairs differ
+0.6-0.9 %); the church, the trees, the plaza and the far buildings are the same in the opened pair.
+
+### The filer's drive, the cull flipped every 30 s in one session (`perf9_soak1`, bil, third person)
+
+`gamerun/keys_perf9_soak.sh` = QA-STRESS pass 3's laps (`qa_stress3_third.py`, `SOAK_SECONDS=400`) with
+`perf9_toggle.py` flipping the live key every 30 s, so both halves share the host's load. GPU 5 idle but for this run
+(0 % in the five minutes before it, 7-57 % during), host load 26-84 on 96 CPUs, plain GL, noon clock, 30 fps cap.
+The 2 s after each flip are left out; 0 FAULT.
+
+| cull | third frames | avg ms | p99 | over 50 ms | over 100 ms | draws | world draws / triangles | shadow pass draws |
+|---|---|---|---|---|---|---|---|---|
+| off | 6 000 | 34.7 | 66.6 | 1.40 % | 29 | 2 607 | 1 376 / 628 k | 749 |
+| on | 5 759 | 34.0 | 51.2 | 1.06 % | 14 | 1 820 | 768 / 345 k | 612 |
+| off, after the first 90 s | 4 977 | 33.9 | 47.1 | 0.76 % | | | | |
+| on, after the first 90 s | 5 372 | 33.5 | 44.5 | 0.74 % | | | | |
+| off / on, the first 90 s | 1 523 / 884 | 37.1 / 37.7 | 127 / 123 | 4.1 / 4.9 % | | | | |
+
+The cull takes ~790 draws a frame off this drive (30 % of the frame's calls through wined3d's command thread) and the
+world's triangles nearly halve. On an idle GPU, once the session has settled, the drive is under 1 % over 50 ms with
+p99 under 45 ms with the cull, and only just over 45 ms without it: FIX-PERF-7's car cull already removed the
+draw-bound class FIX-PERF-6 measured (19 %). The cut is headroom for a loaded host and for the play page's shared CPUs.
+
+**What the slow frames are now.** Of the 86 frames over 50 ms whose `cars` phase passed 15 ms, the cars phase is 35-185 ms
+(2.5 ms in a normal frame); 35 of them create vertex/index buffers (a car model's or a derived copy's first use), 51
+create nothing (a buffer lock waiting for wined3d's command thread is the likely cost). They are single hitches of
+60-240 ms, five times as frequent in the first 90 s (first sight of each model, texture and pose) as after. That is
+FIX-PERF-3's class (first use), not the submission volume; a warm-up of the district's car models before the first V
+is the next thing to try.
+
+### Tried and not shipped: a view test on the cars' shadow casters
+
+The shadow atlas is read only by the screen's mask, each cascade inside its own slice of view depth, so a caster whose
+shadow (its centre swept away from the sun, with its reach) lies wholly outside the visible slice changes nothing. The
+census (`shadow census ... left out by the view test`) counted **0** such casters at the street pose and the wedge:
+FIX-PERF-7's car cull already holds every car whose body and ground shadow are out of view, so the casters left are cars
+that are seen. Removed again; nothing of it is in the commit.
+
+### What a seen car costs, and the next cut
+
+At the street pose the census (`GTA2DX9_CAR_CENSUS=30`) sees 7-9 cars 13-20 blocks away (parked beyond the plaza, a few
+dozen pixels each) at **35-53 draws apiece** (e.g. models 12, 18, 50, 1: 53, 45, 43, 45 draws): a draw per material
+mesh (a kit car carries ~24 textures: paint panels, chrome, lamps, interior, seat, underbody, underpan, plate, seal,
+tyres), the clear-coat's second pass over every non-matte, non-chrome body mesh (each with ~20 state changes), wheels and
+rings, then their shadow casters in two cascades. A distance level of detail for cars (interior, underpan and seat
+meshes and the coat left out past ~12 blocks, where they are a few pixels; wheels merged) is the next submission cut.
+It changes pixels and lives in car_bodies.cpp / model_store.cpp / car_coat.cpp, so it needs those owners and same-pose
+frames at 12-20 blocks; not done here.
+
+Untested: night (the window-glow and window-sky stages are per batch and set after the test, so a batch out of view
+skips them too), rain and wet roads, Remix (the cut is off there), Downtown and Residential drives (the fixed poses
+were at wil), a loaded host.
