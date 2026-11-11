@@ -36,6 +36,7 @@ R_TYRE, W_TYRE = 0.44, 0.28
 R_REAR, W_REAR = 0.46, 0.44
 X_WHEEL, X_REAR = 1.15, 1.25
 R_ARCH = 0.54
+R_ARCH_R = R_REAR + 0.10              # the box's rear arches (VEHICLE-ART-28)
 ZC = 0.90                          # cab back (inside the box's front wall)
 ZBF = 1.00                         # box front wall
 BOX_HW = 1.66
@@ -143,6 +144,11 @@ def build():
     car.revolve([(0.22, -0.012), (0.22, 0.012)], (-0.52, 1.62, 1.50), (0, 0.6, -1), 18, default="interior_dark", uv_mode="disc")
 
     # ---- the box: a rounded cream box, a serving hatch with a counter and a striped awning each side, a tan belt band
+    def rear_arch(z):
+        dz = np.abs(np.asarray(z, float) - ZR)
+        return np.where(dz < R_ARCH_R, R_REAR + np.sqrt(np.clip(R_ARCH_R ** 2 - np.minimum(dz, R_ARCH_R) ** 2, 0, None)), 0.0)
+    za0 = ZR - math.sqrt(R_ARCH_R ** 2 - (BOX_BOT - R_REAR) ** 2)   # where the arch meets the floor
+    za1 = 2 * ZR - za0
     def box_body(u, v, inset=0.0):
         z = np.asarray(u, float); v = np.asarray(v, float)
         rr = 0.14                                           # corner radius (section)
@@ -157,6 +163,11 @@ def build():
         y = np.where(v <= 0.16, lo + 0 * v, np.where(v < 0.84, lo + rr + (hi - lo - 2 * rr) * np.clip((v - 0.24) / 0.52, 0, 1), hi + 0 * v))
         x = np.where(cb, hw - rr + rr * np.sin(ab), x); y = np.where(cb, lo + rr - rr * np.cos(ab), y)
         x = np.where(ct, hw - rr + rr * np.cos(at), x); y = np.where(ct, hi - rr + rr * np.sin(at), y)
+        # VEHICLE-ART-28 qav108: a rear wheel arch in the box. The floor (0.82) sat 0.10 inside the rear tyres' circle
+        # (top 0.92): the renderer's wheel split took 136 box faces and spun them with the wheels (body-coloured shards
+        # over and under the tyre). The floor and the wall's bottom are lifted round the tyre (radius + 0.10); the wall
+        # above keeps its heights (the hatch and the band are drawn in v)
+        y = np.maximum(y, rear_arch(z) + inset)
         return x, y, z
     # v -> height on the side: y = lo + rr + (hi - lo - 2rr) (v - 0.24) / 0.52
     vy = lambda y: 0.24 + 0.52 * (y - BOX_BOT - 0.14) / (BOX_TOP - BOX_BOT - 0.28)
@@ -164,17 +175,17 @@ def build():
     hatch = lambda u, v: np.maximum(np.maximum(HZ0 - np.asarray(u), np.asarray(u) - HZ1), np.maximum(vy(HY0) - np.asarray(v), np.asarray(v) - vy(HY1)))
     hatch_frame = lambda u, v: hatch(u, v) - 0.04
     band = lambda u, v: np.abs(np.asarray(v) - vy(1.20)) - 0.035
-    car.surface(box_body, zt, ZBF, 0.0, 1.0, 50, 40, mirror=True,
-                regions=[("glass_hatch", hatch), ("chrome", hatch_frame)],
+    car.surface(box_body, zt, ZBF, 0.0, 1.0, 96, 40, mirror=True,
+                regions=[("glass_hatch", hatch), ("chrome", hatch_frame), ("underbody", lambda u, v: np.asarray(v) - 0.155 + 0 * np.asarray(u))],
                 default="paint_box", uvfn=lambda u, v: ((u - zt) / (ZBF - zt), v),
-                ukeys=[HZ0, HZ1, HZ0 - 0.04, HZ1 + 0.04], vkeys=[vy(HY0), vy(HY1), vy(HY0 - 0.04), vy(HY1 + 0.04), 0.16, 0.24, 0.76, 0.84,
+                ukeys=[HZ0, HZ1, HZ0 - 0.04, HZ1 + 0.04, za0, za1] + list(ZR + R_ARCH_R * np.sin(np.linspace(-1.2, 1.2, 25))), vkeys=[vy(HY0), vy(HY1), vy(HY0 - 0.04), vy(HY1 + 0.04), 0.16, 0.24, 0.76, 0.84,
                                                                 vy(1.20) - 0.035, vy(1.20) + 0.035])
     car.cap(box_body, zt, 0.0, 1.0, 30, "paint_box")
     car.cap(box_body, ZBF, 0.0, 1.0, 30, "paint_box")
     # behind the hatch glass: a lit cream interior wall and a counter
     for s_ in (1, -1):
         x0, x1 = sorted((s_ * (BOX_HW - 0.45), s_ * (BOX_HW - 0.42)))
-        car.box("paint_box", (x0, HY0 - 0.05, HZ0), (x1, HY1, HZ1))
+        car.box("hatch_wall", (x0, HY0 - 0.05, HZ0), (x1, HY1, HZ1))
         x0, x1 = sorted((s_ * (BOX_HW - 0.40), s_ * (BOX_HW + 0.12)))
         car.box("chrome", (x0, HY0 - 0.06, HZ0 + 0.05), (x1, HY0 - 0.01, HZ1 - 0.05))
         # awning: a striped canopy sloping out over the hatch, held by two struts
@@ -193,19 +204,26 @@ def build():
         # ICE CREAM board above the awning (a box face: reads unmirrored from outside on both sides)
         x0, x1 = sorted((s_ * BOX_HW, s_ * (BOX_HW + 0.025)))
         car.box("sign", (x0, 2.16, -1.55), (x1, 2.48, 0.25), uv_rect=(0.0, 0.0, 0.5, 1.0) if s_ > 0 else (0.5, 0.0, 1.0, 1.0))
-        # a dark skirt over the rear wheels
-        car.box("interior_dark", (min(s_ * (BOX_HW - 0.05), s_ * (BOX_HW + 0.03)), BOX_BOT - 0.10, ZR - 0.60),
-                (max(s_ * (BOX_HW - 0.05), s_ * (BOX_HW + 0.03)), BOX_BOT + 0.02, ZR + 0.60))
     # rear: double doors (dark shut lines in the texture), lamps, bumper, plate
     for s_ in (1, -1):
         car.revolve([(0.06, -0.02), (0.06, 0.02), (0.0, 0.03)], (s_ * 1.40, 1.05, zt - 0.01), (0, 0, -1), 12, default="lamp_tail", uv_mode="disc")
         car.box("chrome", (s_ * 0.14 - 0.012, 1.45, zt - 0.03), (s_ * 0.14 + 0.012, 1.60, zt))
     car.sweep(lambda u: np.stack([(u - 0.5) * 2.9, 0.66 + 0 * u, zt - 0.06 + 0 * u], 1), 0.07, 20, 8, "chrome", squash=(0.5, 1.0))
     car.box("paint_box", (-0.20, 0.80, zt - 0.02), (0.20, 0.94, zt))
-    # chassis under the box
+    # chassis under the box (VEHICLE-ART-28 qav108: the rails reach the floor and the rear bumper, axles on springs
+    # under them, a fuel tank on the right rail; the shared floor pan is not hung under the vans: underpan.SKIP. Its
+    # parts hung under the rails as a floating box between the axles. Nothing outboard of |x| 0.68 inside a tyre's circle)
     for s_ in (1, -1):
-        car.box("interior_dark", (s_ * 0.55 - 0.07, 0.58, zt + 0.10), (s_ * 0.55 + 0.07, 0.80, 2.9))
-    car.box("underbody", (-1.6, 0.74, zt + 0.10), (1.6, BOX_BOT + 0.01, ZBF))
+        car.box("underbody", (s_ * 0.55 - 0.07, 0.58, zt - 0.04), (s_ * 0.55 + 0.07, BOX_BOT + 0.005, 2.9))
+        for zc, r in ((ZF, R_TYRE), (ZR, R_REAR)):          # leaf springs from the axle up to the rail
+            car.box("underbody", (s_ * 0.55 - 0.06, r + 0.02, zc - 0.42), (s_ * 0.55 + 0.06, 0.60, zc + 0.42))
+    car.sweep(lambda u: np.stack([(u - 0.5) * 1.32, R_REAR + 0 * u, ZR + 0 * u], 1), 0.055, 6, 10, "underbody", up=(0, 0, 1))
+    car.box("underbody", (-0.20, R_REAR - 0.13, ZR - 0.16), (0.20, R_REAR + 0.13, ZR + 0.14))     # the differential
+    car.box("underbody", (-0.60, R_TYRE - 0.04, ZF - 0.05), (0.60, R_TYRE + 0.06, ZF + 0.05))      # the front beam
+    car.sweep(lambda u: np.stack([0 * u, 0.50 + 0 * u, ZR + 0.14 + (ZF - 0.60 - ZR - 0.14) * u], 1), 0.04, 6, 8, "underbody",
+              up=(0, 1, 0))                                                                        # the propshaft
+    car.sweep(lambda u: np.stack([0.84 + 0 * u, 0.66 + 0 * u, -0.95 + 0.80 * u], 1), 0.17, 6, 14, "underbody",
+              up=(0, 1, 0), squash=(1.3, 0.9))                                                     # the fuel tank
 
     # ---- the hot dog: two bun halves either side of the sausage, lying along the roof from the box's tail over the
     # cab's roof (the sprite's 3-65 px), a mustard zigzag down the sausage's top
@@ -258,6 +276,7 @@ def build():
     pb[r0:r1] = (pb[r0:r1].astype(float) / np.array(CREAM, float) * np.array(ORANGE, float)).clip(0, 255).astype(np.uint8)
     car.materials["paint_box"] = Image.fromarray(pb)
     car.materials["paint_wheel"] = tex_flat((226, 222, 210), 16)
+    car.materials["hatch_wall"] = tex_hatch_wall()
     car.materials["awning"] = tex_stripes(64)
     # a box's x face maps image columns to height and rows to length (row 0 at the tail): the +x board reads
     # front to tail (rows falling), up = columns rising; the -x board is that turned half round
@@ -320,6 +339,27 @@ def tex_sausage(size=64):
     yy, xx = np.mgrid[0:size, 0:size] / float(size)
     band = 0.88 + 0.12 * (np.abs(((yy * 7) % 1.0) - 0.5) > 0.08)
     rgb = np.array(SAUSAGE, float)[None, None] * (band * (0.96 + 0.08 * noise(size, size, 6, 85)))[..., None]
+    return Image.fromarray(rgb.clip(0, 255).astype(np.uint8))
+
+
+
+def tex_hatch_wall(size=256):
+    """VEHICLE-ART-28: the wall behind the serving hatch, seen through the glass: a cream tiled wall, a steel
+    splashback with a shelf, a dark serving slot. A box's x face maps rows to length and columns to height."""
+    yy, xx = np.mgrid[0:size, 0:size] / float(size)      # yy along the box (rows), xx up the wall (columns)
+    rgb = np.empty((size, size, 3)); rgb[:] = (226, 214, 188)
+    tile = ((np.abs((xx * 10) % 1 - 0.5) > 0.47) | (np.abs((yy * 18) % 1 - 0.5) > 0.47))
+    rgb[tile] = (182, 170, 150)
+    steel = xx < 0.38
+    rgb[steel] = (150, 156, 160)
+    rgb[steel & (np.abs((yy * 6) % 1 - 0.5) > 0.48)] = (110, 114, 118)
+    rgb[np.abs(xx - 0.38) < 0.012] = (70, 72, 74)
+    shelf = np.abs(xx - 0.70) < 0.018
+    rgb[shelf] = (120, 92, 60)
+    for k in range(5):                                  # jars on the shelf
+        c = (k + 0.5) / 5
+        jar = (np.abs(yy - c) < 0.035) & (xx > 0.718) & (xx < 0.80)
+        rgb[jar] = ((200, 60, 40), (240, 190, 40), (120, 150, 60), (200, 60, 40), (240, 190, 40))[k]
     return Image.fromarray(rgb.clip(0, 255).astype(np.uint8))
 
 
