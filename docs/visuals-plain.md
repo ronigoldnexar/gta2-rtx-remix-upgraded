@@ -140,6 +140,36 @@ teal sign brightens skin without turning it green. Log: `view model: night light
 `GTA2DX9_VM_LIGHT_OLD=1`: the hands under the light pass as before. Verified out/qa_fig16h0 (HEAD, olive) vs
 out/qa_fig16h1 (skin) with `gamerun/keys_qa_fig16h.sh` (fig16_hands.py: FH_SPOTS, FH_TOG live ini A/B).
 
+## Street lamps on posts at night (qav101, FIX-WORLD-20, 11 Nov 2026)
+
+At wil 60.5,60.5 (the player walked to about 60.75,196.55) at 23:00, rain 80 fog 20 wet 1, the two pale facades
+across the street were washed one flat olive-lime from lamp height to the roof line (mean RGB 79,83,33). The
+filer read it as first person only; at the same facing third person shows the same wash (out/qa_fw20a), the
+filer's third frame had looked another way. `[visuals] lights=0` removed it (40,41,23 -> 19,19,23 on the filer's
+patch); `window_glow` (renderer and devtools) and `wet_roads` did not change it.
+
+The light probe (`GTA2DX9_LOG_LAMPS=1`, post_fx.cpp: every 60 street frames the lights within 14 blocks of the
+eye, and `lamps: kept N of M lights in view`) named it: each lamp post at x 56.92 sent three lights of the map
+colour (0.89,0.89,0.33) = #E3E354, and one of them, the lantern copy at the head (y 3.54), at this pass's full
+1.00 over the full 6-block reach. `FitLampsToPosts` (remix_lights.cpp) fits a map lamp to its drawn post for Remix
+and raises the lantern's and the dish pool's intensity by (reference / emitter)^2, Remix radiance per emitter
+area (10-40x); visuals.cpp read that raised value, so every lantern clamped to the maximum and one omni at the
+head lit both facades evenly. Yellow with no red lead times a pale grey wall reads lime (blue 40 % of green).
+
+`ProvideLights` (dll/src/visuals.cpp) now, for a fitted game lamp in the street views: takes the emitter gain back
+out (the game's own strength), gives the lantern 1.8x of that over a 3-block reach (a warm patch round the head
+that fades out a storey up), leaves the Remix dish spot to Remix (each lamp took three of the frame's 32 lights
+at medium and the cap was always full at night, 32 of 63-145 in view, so third person lost the far lamps), and
+raises the pool a block under the head to 0.5 x strength; and any street-class map light (red leads, blue
+trails) takes 90 % sodium (255,190,110) at its own luminance. `[devtools] lamp_plain` = 1 (default), 0 as
+before, 2 the strength part only, 4 the hue part only; re-read live. The classic view and Remix are untouched.
+
+Verified (plain GL, 23:00 rain, the filer's walk, `gamerun/keys_qa_fw20c.sh`-style A/B on one build): out/qa_fw20f
+first and third agree: the right-hand lamp lays a warm pool on the corner wall (97,79,60, G/R 0.81 B/R 0.62)
+that is dark 100 px up the wall (20,21,26), where lamp_plain=0 washes it (130,128,33). Noon frames at the pose
+are identical with 0 and 1 (mean of the filer's patch equal in both views). Not verified: dusk, clear-night
+frames other than wil, Remix (not touched by this code).
+
 ## Smooth car panels under the AO (coord82, FIX-CAR-SHADING-2, 11 Nov 2026)
 
 With the AO on, a pale car's flank, bonnet and boot carried grey clouds 10-30 cm across: a hammered-metal mottle

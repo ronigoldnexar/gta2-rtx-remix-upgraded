@@ -1106,6 +1106,30 @@ void PostFx::Resolve() {
             if (std::fabs(v.x) > v.z * tanX + r * 1.5f || std::fabs(v.y) > v.z * tanY + r * 1.5f) continue;
             picks.push_back({v.x * v.x + v.y * v.y + v.z * v.z, static_cast<int>(i)});
         }
+        {   // FIX-WORLD-20 (qav101) probe, GTA2DX9_LOG_LAMPS=1: every 60 street frames the lights within 14 blocks
+            // of the eye, nearest first (offset from the eye, colour, strength, reach, picked for the frame or not).
+            static const bool logLamps = [] { const char* e = getenv("GTA2DX9_LOG_LAMPS"); return e && e[0] == '1'; }();
+            if (logLamps && (frames_ % 60u) == 0u) {
+                std::vector<std::pair<float, int>> lampsNear;
+                for (size_t i = 0; i < lights_.size(); ++i) {
+                    const VisualLight& l = lights_[i];
+                    const float dx = l.pos[0] - eye_.x, dy = l.pos[1] - eye_.y, dz = l.pos[2] - eye_.z;
+                    const float d = std::sqrt(dx * dx + dy * dy + dz * dz);
+                    if (d < 14.0f) lampsNear.push_back({d, static_cast<int>(i)});
+                }
+                std::sort(lampsNear.begin(), lampsNear.end());
+                RendererTrace("lamps: eye %.2f %.2f %.2f night %.2f, %d lights, %d within 14", eye_.x, eye_.y, eye_.z, night,
+                              static_cast<int>(lights_.size()), static_cast<int>(lampsNear.size()));
+                for (size_t n = 0; n < lampsNear.size() && n < 14; ++n) {
+                    const VisualLight& l = lights_[static_cast<size_t>(lampsNear[n].second)];
+                    bool picked = false;
+                    for (const Pick& p : picks) picked = picked || p.i == lampsNear[n].second;
+                    RendererTrace("lamps:  d %.2f at %.2f %.2f %.2f rgb %.2f %.2f %.2f i %.2f r %.2f day %.2f spot %d %s", lampsNear[n].first,
+                                  l.pos[0], l.pos[1], l.pos[2], l.rgb[0], l.rgb[1], l.rgb[2], l.intensity, l.radius, l.day,
+                                  l.spot ? 1 : 0, picked ? "drawn" : "culled");
+                }
+            }
+        }
         {   // FIX-FIGURE-16 (qav19): the same sum at the eye (ps_light's falloff, half-wrapped facing), bounded as ps_light_apply does.
             float L[3] = {0.0f, 0.0f, 0.0f};
             for (const VisualLight& l : lights_) {
@@ -1124,9 +1148,14 @@ void PostFx::Resolve() {
             for (int c = 0; c < 3; ++c) g_lightAtEye[c] = m > 1e-4f ? L[c] / m * mb : 0.0f;
         }
         const size_t cap = q == 0 ? 16 : (q == 1 ? 32 : 64);
+        const size_t inView = picks.size();
         if (picks.size() > cap) {
             std::nth_element(picks.begin(), picks.begin() + static_cast<long>(cap), picks.end(), [](const Pick& a, const Pick& b) { return a.d2 < b.d2; });
             picks.resize(cap);
+        }
+        {   // FIX-WORLD-20 probe (GTA2DX9_LOG_LAMPS=1): how many lights the frame keeps of how many in view.
+            static const bool logLamps = [] { const char* e = getenv("GTA2DX9_LOG_LAMPS"); return e && e[0] == '1'; }();
+            if (logLamps && (frames_ % 60u) == 0u) RendererTrace("lamps: kept %d of %d lights in view (cap %d)", static_cast<int>(picks.size()), static_cast<int>(inView), static_cast<int>(cap));
         }
         std::vector<LightVertex> verts;
         verts.reserve(picks.size() * 6);

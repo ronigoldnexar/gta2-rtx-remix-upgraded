@@ -33,6 +33,7 @@ namespace {
 
 char g_ini[MAX_PATH] = "";
 unsigned g_polls = 0;
+int g_lampPlain = 1;   // FIX-WORLD-20 (qav101): [devtools] lamp_plain, see ProvideLights
 
 int ReadInt(const char* key, int def) { return GetPrivateProfileIntA("visuals", key, def, g_ini); }
 
@@ -59,6 +60,11 @@ void ReadSettings(bool first) {
     // FIX-CAR-SHADING-2 (coord82): the AO's noise integrated (4x4 stratified rotations, 4x4 blur); 0 = the old
     // pass (per-pixel hash, 3x3 blur: grey clouds over pale car panels). A/B key, so it lives in devtools.
     v.aoDenoise = GetPrivateProfileIntA("devtools", "ao_denoise", 1, g_ini) != 0;
+    {
+        const int lp = static_cast<int>(GetPrivateProfileIntA("devtools", "lamp_plain", 1, g_ini));
+        if (lp != g_lampPlain || first) Log("visuals: lamp_plain %d", lp);
+        g_lampPlain = lp;
+    }
     v.bloomStrength = ReadInt("bloom_strength_percent", 55) / 100.0f;
     v.bloomThreshold = ReadInt("bloom_threshold_percent", 80) / 100.0f;
     v.exposure = ReadInt("exposure_percent", 100) / 100.0f;
@@ -187,6 +193,38 @@ void ProvideLights(std::vector<gta2::VisualLight>* out) {
         if (d.source == kLightSourceBullet || d.source == kLightSourceSpark || d.source == kLightSourceCigarette) continue;
         gta2::VisualLight l = {};
         for (int i = 0; i < 3; ++i) { l.pos[i] = d.pos[i]; l.rgb[i] = d.rgb[i]; l.dir[i] = d.dir[i]; }
+        // FIX-WORLD-20 (qav101 wil night rain: two pale facades washed one flat olive-lime from lamp height to the roof).
+        // (1) A map lamp fitted to its drawn post (remix_lights.cpp FitLampsToPosts) carries a Remix radiance: its
+        // intensity is raised by (reference / emitter)^2 for the small sphere in the glass (and the pool under the dish
+        // too), 10-40x the game's value. Here that clamped every lamp-post lantern to this pass's full 1.0 at the full
+        // 6-block reach: one omni at lamp-head height lit both facades evenly to the roof line. The emitter gain is taken
+        // back out, and the lantern's own light keeps a short reach (it lights the head of the post and the wall beside
+        // it; the pool under it, below, does the paving and the foot of the walls), so the light falls off up the wall.
+        // (2) A street-class map light (red leads, blue trails: #FFFF00, #E3E354, #FF8000 ...) is a sodium lamp: in the
+        // street views its hue is pulled 90 % of the way to sodium (255,190,110) at its own luminance. The yellow
+        // #E3E354 of the wil lamps times a pale grey facade read lime (blue 40 % of green).
+        // [devtools] lamp_plain=0: both as before (live A/B); bit 2 (=2): only (1); bit 4 (=4): only (2).
+        bool fittedLamp = false;
+        float di = d.intensity;
+        if (g_lampPlain != 0 && d.source == kLightSourceGame && !t.moving && StreetPresentation()) {
+            const bool fit = g_lampPlain == 1 || (g_lampPlain & 2);
+            const bool hue = g_lampPlain == 1 || (g_lampPlain & 4);
+            if (fit && d.emitterRadius > 0.0f) {
+                const float ref = LightsSettings().emitterRadius > 0.0f ? LightsSettings().emitterRadius : 0.15f;
+                if (d.emitterRadius < ref) { di *= (d.emitterRadius / ref) * (d.emitterRadius / ref); fittedLamp = true; }
+                // The Remix pool under the dish (a downward spot) does here what this pass's own pool under the lamp
+                // head does (below), and each lamp then took three of the frame's 16/32/64 lights: in third person
+                // the frame's cap (always full at night, 80-145 lights in view at wil 60.5,196.5) dropped the far
+                // lamps altogether. The spot is left to Remix; the pool below takes its share.
+                if (d.spot) continue;
+            }
+            if (hue && ClassifyGameLight(d, false) == kGameLightStreet) {
+                static const float kSodium[3] = {1.0f, 0.745f, 0.431f};
+                const float lum = 0.2126f * d.rgb[0] + 0.7152f * d.rgb[1] + 0.0722f * d.rgb[2];
+                const float sl = 0.2126f * kSodium[0] + 0.7152f * kSodium[1] + 0.0722f * kSodium[2];
+                for (int i = 0; i < 3; ++i) l.rgb[i] = 0.1f * d.rgb[i] + 0.9f * kSodium[i] * lum / sl;
+            }
+        }
         // FIX-REMIX-NIGHT-8 (qav1 ste lime flood): a wide (radius >= 3) saturated sign light of the map (the neon
         // class: greens, cyans, blues, magentas; never the sodium lamps) flooded the whole street in its colour, a
         // #80FF00 radius-4 light at ste 99.5,96.5 turning the pavement and the people lime from dusk to dawn. In the
@@ -209,7 +247,7 @@ void ProvideLights(std::vector<gta2::VisualLight>* out) {
         l.radius = r;
         // Bounded per light (FIX-FX): siren and head-lamp lights carry Remix radiances (~10), which
         // made a point light of 2.6 that flooded a wall pure red or blue.
-        l.intensity = 0.12f + 0.25f * (d.intensity < 3.5f ? d.intensity : 3.5f);
+        l.intensity = 0.12f + 0.25f * (di < 3.5f ? di : 3.5f);
         l.spot = d.spot && d.coneAngleDeg > 1.0f;
         l.coneDeg = d.coneAngleDeg;
         // Headlamp beams reach down the road, softer: at x0.6 a beam read as a blown yellow-white
@@ -217,7 +255,7 @@ void ProvideLights(std::vector<gta2::VisualLight>* out) {
         // Head lamps and sirens carry Remix radiances (10, synthetic_lights.cpp): 0.12 + 0.25 * 10
         // times 0.3 still left two overlapping beams a blown white-yellow pool across the road at
         // night (QB-35, out/qb35_look1 t_w_third_night_clear). A beam is now 0.22 at most.
-        if (l.spot) { l.radius = r < 6.0f ? 6.0f : r; l.intensity = 0.22f * (d.intensity < 4.0f ? d.intensity / 4.0f : 1.0f); }
+        if (l.spot) { l.radius = r < 6.0f ? 6.0f : r; l.intensity = 0.22f * (di < 4.0f ? di / 4.0f : 1.0f); }
         // FIX-FIGURE-6 pfeel50: a muzzle flash pulses on the walls by day too (half its night
         // strength), a short warm reach round the shooter.
         if (d.source == kLightSourceMuzzle) { l.day = 0.5f; l.radius = 2.6f; l.intensity = 0.20f + 0.35f * (d.intensity < 1.0f ? d.intensity : 1.0f); }
@@ -227,6 +265,10 @@ void ProvideLights(std::vector<gta2::VisualLight>* out) {
         // FIX-FIGURE-13 (pfl51): the rocket's launch flash light sits at the shooter's hips (the game fires it
         // from his feet): a third of it, half its reach, so it does not light his own legs.
         if (d.source == kLightSourceMuzzle && RocketLaunchNear(d.pos)) { l.intensity *= 0.33f; l.radius *= 0.5f; }
+        // (A fitted lantern at the game's own strength alone read as an unlit post across a 6-block street
+        // (FIX-WORLD-20 probe lp1): 1.8x at a 3-block reach puts a warm patch on the wall round the head that fades out
+        // a storey above it.)
+        if (fittedLamp && !l.spot) { l.radius = l.radius < 3.0f ? l.radius : 3.0f; l.intensity *= 1.8f; }
         out->push_back(l);
         // A pool under each of the map's lamps (QB-35): a GTA2 lamp sits 1.5-3 blocks over the
         // street, and with the soft falloff above only ~3 % of it reached the pavement, so the
@@ -236,7 +278,7 @@ void ProvideLights(std::vector<gta2::VisualLight>* out) {
             gta2::VisualLight pool = l;
             pool.pos[1] -= 1.0f;
             pool.radius = 3.6f;
-            pool.intensity = 0.30f * (d.intensity < 1.5f ? d.intensity : 1.5f);
+            pool.intensity = (fittedLamp ? 0.50f : 0.30f) * (di < 1.5f ? di : 1.5f);
             out->push_back(pool);
         }
     }
