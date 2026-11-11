@@ -79,6 +79,8 @@ SEATS = {
     "052_swat_van": ((0.55, 1.26, 0.66), 5.0),    # VEHICLE-ART-23: the 004 cab bench (top 1.26, back 0.42..0.54)
     "016_panto": ((0.48, 0.70, 0.03), 5.0),       # VEHICLE-ART-25: buckets x +-0.48, top 0.70, back -0.22..-0.09
     "083_furore_gt": ((0.42, 0.60, -0.50), 5.0),  # VEHICLE-ART-25: buckets x +-0.42, top 0.60, back -0.76..-0.62
+    "047_meteor": ((0.40, 0.56, -0.24), 5.0),     # VEHICLE-ART-25: buckets x +-0.40, top 0.56, back -0.50..-0.36
+    "048_meteor": ((0.40, 0.56, -0.24), 5.0),     # VEHICLE-ART-25: 047's cabin
 }
 
 

@@ -103,7 +103,7 @@ Rank = traffic frequency from the table above (D = Downtown samples).
 | 010 Bulwark | parked | acceptable | 1950s Buick | flat planes across the bonnet, mustard blotches on cream paint | card_010 |
 | 013 Minx | 3 | acceptable | boxy 1960s saloon | mild facets on the bonnet; windows opaque; otherwise the cleanest common car | z_door_013, S 013 |
 | 014 Eddy | R/I | acceptable | 1957 Fairlane two-tone | the roof is the sprite's yellow on a red body (roof-colour defect) | card_014 |
-| 016 Panto | R/I | acceptable (VEHICLE-ART-24: the round-8 Mini ships) | round-8 Mini shell | forced untinted: near-black flanks under a pale roof (out/va24_r8) | out/va24_r8 |
+| 016 Panto | R/I | good (VEHICLE-ART-25) | the sprite's 1960 Mini, authored kit body: one paint incl. the roof | estate-like side view (the sprite's 4.4 m footprint); dark kit glass | out/va25_a2 |
 | 018 Shark | 11 | **bad** | 1930s pontoon-fender sedan; the sprite is a 1950s finned sedan | headlamps are grey melted blobs on the wings, grille a smudge; from the seat the blobs fill the view | card_018, S 018 |
 | 035 Benson | I | good | Mercedes Ponton, grey over black | - | card_035 |
 | 036 Schmidt | 4 | acceptable | bubble car | canopy carries the sprite's black strokes (reads cracked), lamps are blobs on stalks | z_door_036 |
@@ -128,13 +128,13 @@ Rank = traffic frequency from the table above (D = Downtown samples).
 | 044 Arachnid | R/I | good | Giulietta Spider, red | - | card_044 |
 | 045 Spritzer | I | good | Austin-Healey, tan, interior visible | - | card_045 |
 | 046 Stinger | R | acceptable | Corvette Stingray, near-black | baked white highlight smear on the bonnet; tan sprite roof panel | card_046 |
-| 047 Meteor | parked | acceptable (VEHICLE-ART-24: the round-8 body ships) | late-1950s racer shell | forced untinted: dark flanks, pale top (out/va24_r8) | out/va24_r8 |
-| 048 Meteor | parked | acceptable (VEHICLE-ART-24: the round-8 body ships) | late-1950s racer shell (bonnet vents) | forced untinted: dark flanks, pale top (out/va24_r8) | out/va24_r8 |
+| 047 Meteor | parked | good (VEHICLE-ART-25) | late-1950s sports-racing coupe, authored kit body: one paint, painted bubble roof, twin bonnet intakes | plainer than the shell's sculpted pontoons; dark kit glass | out/va25_a3 |
+| 048 Meteor | parked | good (VEHICLE-ART-25) | 047's body with the sprite's open engine bay and bonnet blower | engine detail coarse up close | out/va25_a3 |
 | 053 Michelli Roadster | 17 | good | 250 California style, cream, red interior | - | card_053 |
 | 062 Trance-Am | I | acceptable | gold Firebird | tan sprite roof on a gold body; windows baked dark | card_062 |
 | 071 Rumbler | R | good | red muscle car, twin stripes | - | card_071 |
 | 082 Jagular XK | R | good | dark green XK120 | - | card_082 |
-| 083 Furore GT | I | acceptable (VEHICLE-ART-24: the round-8 body ships) | 1950s GT shell | forced untinted: dark flanks, pale top (out/va24_r8) | out/va24_r8 |
+| 083 Furore GT | I | good (VEHICLE-ART-25) | 275 GTB-idiom berlinetta, authored kit body: one paint, the sprite's white centre stripe as its own decal | dark kit glass; large oval mouth | out/va25_a2 |
 
 ### Vans, pickups and trucks
 
@@ -1328,3 +1328,46 @@ on a fenced pavement, out/va24_tr1 shows only railings).
 - Model files: `001_wellard*`, `005_beamer*`, `028_dementia_limousine*`, `007_box_truck*` in repo/assets/models
   (shells backed up in `/mnt/gta2/gta2-linux/backup_va24/repo_models_0NN`). 001 and 005 are in the 01:37 stage
   (f649a0af); 028 and 007 NEED A RESTAGE.
+
+## VEHICLE-ART-25 (11 Nov 2026): 016 Panto, 083 Furore GT, 047 / 048 Meteor authored
+
+ART-24's painted A/B (out/va24_r8p, force_car_paint 133,65,65) showed the round-8 shells of these four breaking the
+one-paint rule: 016's roof kept the sprite's tan, 083's roof carried a white patch, 047 / 048 / 083 drew near-black
+flanks under bright tops. Each is now an authored kit body from the sprite's proportions with the paint mask over
+every painted panel (same probes as ART-24: `gamerun/va24_show.py`, `va24_tcam.py`, `keys_paint_parity.sh`).
+
+- **016 Panto (`tools/vehicle_art2/car_016.py`).** The sprite's 1960 Mini on 013's blunt-ended recipe: the roof over
+  34 of the 56 px, an upright screen (rows 40-42), a short sloping bonnet, an upright back light over a short boot,
+  door glass and rear quarter light split at the B pillar (the sprite's dark columns), small wheels at the corners,
+  the Mini's external welded seams (drip rails, front/rear quarter flanges, sill seam), external hinges, round lamps in
+  chrome bezels in the wing fronts, a moustache grille with horizontal bars, tall corner tail lamps, blade bumpers
+  with over-riders, silver steel wheels. The flat ends are caps in their own unbaked paint turned to face out (the
+  ART-23 lessons). Every remap recolours the whole sprite, so the roof is paint.
+- **083 Furore GT (`car_083.py`).** A 275 GTB-idiom berlinetta: front and rear haunches (32 px) round a narrow cabin
+  (the roof 16 of 28 px), a long bonnet, covered lamps at the wing tips, the oval mouth as the nose cap (egg-crate
+  grille, chrome lip), a raked screen, a steep fastback, a cut-off Kamm tail with twin round lamps, three-slot vents,
+  quarter bumpers, quad pipes, alloy wheels with spinner ears. The sprite's centre stripe (8 px) stays white under
+  every remap, so it is its own untinted `stripe` region (boot, roof, bonnet, broken by the screens), not paint.
+- **047 / 048 Meteor (`car_047.py`, `car_048.py` = 047 with `variant=1`).** A late-1950s sports-racing coupe from
+  083's recipe re-proportioned to the sprite: pontoon wings over both axles, a narrow bubble cabin whose roof is the
+  sprite's painted oval, a wraparound screen, a roll bar behind the cabin, a small back light, the long rear engine
+  deck (the rear axle 13 px behind the centre), a dark grey lip across the tail (trim in every remap), twin bonnet
+  intakes on 047; 048 has the sprite's open engine bay cut into the deck (cam covers, twelve stacks) and a rounded
+  chrome blower through the bonnet.
+- `underpan.FOLLOW` gains 083 / 047 / 048 (pinched nose and tail); seats measured (`seat_anchor.py` entries) and
+  written to the manifest entries.
+- Offline: hole scan max 016 6.6 %, 083 7.2 %, 047 7.6 %, 048 7.5 % (sill undersides, arch liners, the dark seal
+  strips on the pillars; no panel holes). 20-23 textures, 3.4 MB each.
+- Verified (frames opened, private stage): out/va25_a1 (016, default paint), out/va25_a2 (016 + 083 at the round-8
+  A/B paint, ssao 1 and 0: the same bodies), out/va25_a3 (047 + 048, same paint), out/va25_tc1 (016 / 083 moving
+  through the wil junction at their default paints). Paint parity out/va25_pp1 0 FAIL (016 / 083 hue 0-6 deg,
+  lightness +18..+20 %, the kit band; 050 control in the run). Classic vreg (out/va25): spawn_classic PASS, 0 tiles;
+  the 3D FAILs are HUD tiles against the older goldens.
+- Not verified: Remix (no prims, no layer bundle), night, first person (no cockpit entries), the door split, other
+  remaps in natural traffic.
+- Still short of a shipping-AAA frame: the kit glass is dark (cabins hardly read by day); 016's side view reads
+  estate-like at the sprite's long footprint; 083 / 047's oval mouths are large; 047 / 048 are plainer than the
+  round-8 shells' sculpted pontoons; 048's engine is coarse up close.
+- Model files: `016_panto*`, `083_furore_gt*` in repo/assets/models since 02:30 (staged by the 02:41 restage,
+  240e3d2b); `047_meteor*`, `048_meteor*` see the batch order's READY lines. Shells backed up in
+  `/mnt/gta2/gta2-linux/backup_va25/repo_models_0NN`.
