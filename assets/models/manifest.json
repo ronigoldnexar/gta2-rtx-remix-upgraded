@@ -1105,15 +1105,44 @@
   },
   {
    "name": "011_bus",
-   "glb": "cars/models3d/011_bus.glb",
+   "glb": "cars/vehicle_art2/011_bus.glb",
    "scale": 1.0,
    "paint_rgb": [
-    146.2,
-    128.3,
-    140.0
+    232.0,
+    222.0,
+    212.0
    ],
    "texture_max": 512,
-   "paint_split": true
+   "material_textures": {
+    "seal": "cars/vehicle_art2/011_bus/seal.png",
+    "chrome": "cars/vehicle_art2/011_bus/chrome.png",
+    "paint_stripe": "cars/vehicle_art2/011_bus/paint_stripe.png",
+    "underbody": "cars/vehicle_art2/011_bus/underbody.png",
+    "paint_body": "cars/vehicle_art2/011_bus/paint_body.png",
+    "dest": "cars/vehicle_art2/011_bus/dest.png",
+    "paint_face": "cars/vehicle_art2/011_bus/paint_face.png",
+    "interior_dark": "cars/vehicle_art2/011_bus/interior_dark.png",
+    "seat": "cars/vehicle_art2/011_bus/seat.png",
+    "trim_dark": "cars/vehicle_art2/011_bus/trim_dark.png",
+    "chrome_disc": "cars/vehicle_art2/011_bus/chrome_disc.png",
+    "lamp_head": "cars/vehicle_art2/011_bus/lamp_head.png",
+    "lamp_amber": "cars/vehicle_art2/011_bus/lamp_amber.png",
+    "grille": "cars/vehicle_art2/011_bus/grille.png",
+    "plate": "cars/vehicle_art2/011_bus/plate.png",
+    "lamp_tail": "cars/vehicle_art2/011_bus/lamp_tail.png",
+    "hatch": "cars/vehicle_art2/011_bus/hatch.png",
+    "hatch_lid": "cars/vehicle_art2/011_bus/hatch_lid.png",
+    "tyre_side": "cars/vehicle_art2/011_bus/tyre_side.png",
+    "tyre_tread": "cars/vehicle_art2/011_bus/tyre_tread.png",
+    "glass": "cars/vehicle_art2/011_bus/glass.png"
+   },
+   "generator": "tools/vehicle_art2/car_011.py",
+   "driver_seat": [
+    0.16,
+    0.296,
+    0.692,
+    0.639
+   ]
   },
   {
    "name": "012_cop_car",
@@ -1265,15 +1294,49 @@
   },
   {
    "name": "017_fire_truck",
-   "glb": "cars/models3d/017_fire_truck.glb",
+   "glb": "cars/vehicle_art2/017_fire_truck.glb",
    "scale": 1.0,
    "paint_rgb": [
-    118.8,
-    67.2,
-    61.0
+    150.0,
+    28.0,
+    22.0
    ],
    "texture_max": 512,
-   "paint_split": true
+   "material_textures": {
+    "seal": "cars/vehicle_art2/017_fire_truck/seal.png",
+    "underbody": "cars/vehicle_art2/017_fire_truck/underbody.png",
+    "roof_pale": "cars/vehicle_art2/017_fire_truck/roof_pale.png",
+    "paint_body": "cars/vehicle_art2/017_fire_truck/paint_body.png",
+    "interior_dark": "cars/vehicle_art2/017_fire_truck/interior_dark.png",
+    "grille": "cars/vehicle_art2/017_fire_truck/grille.png",
+    "chrome": "cars/vehicle_art2/017_fire_truck/chrome.png",
+    "chrome_disc": "cars/vehicle_art2/017_fire_truck/chrome_disc.png",
+    "lamp_head": "cars/vehicle_art2/017_fire_truck/lamp_head.png",
+    "lamp_amber": "cars/vehicle_art2/017_fire_truck/lamp_amber.png",
+    "lamp_beacon": "cars/vehicle_art2/017_fire_truck/lamp_beacon.png",
+    "trim_dark": "cars/vehicle_art2/017_fire_truck/trim_dark.png",
+    "seat": "cars/vehicle_art2/017_fire_truck/seat.png",
+    "paint_red": "cars/vehicle_art2/017_fire_truck/paint_red.png",
+    "gauge": "cars/vehicle_art2/017_fire_truck/gauge.png",
+    "tread": "cars/vehicle_art2/017_fire_truck/tread.png",
+    "hose": "cars/vehicle_art2/017_fire_truck/hose.png",
+    "lamp_clear": "cars/vehicle_art2/017_fire_truck/lamp_clear.png",
+    "paint_locker": "cars/vehicle_art2/017_fire_truck/paint_locker.png",
+    "lamp_tail": "cars/vehicle_art2/017_fire_truck/lamp_tail.png",
+    "hose_canvas": "cars/vehicle_art2/017_fire_truck/hose_canvas.png",
+    "ladder": "cars/vehicle_art2/017_fire_truck/ladder.png",
+    "plate": "cars/vehicle_art2/017_fire_truck/plate.png",
+    "tyre_side": "cars/vehicle_art2/017_fire_truck/tyre_side.png",
+    "tyre_tread": "cars/vehicle_art2/017_fire_truck/tyre_tread.png",
+    "glass": "cars/vehicle_art2/017_fire_truck/glass.png"
+   },
+   "generator": "tools/vehicle_art2/car_017.py",
+   "driver_seat": [
+    0.1,
+    0.24,
+    0.416,
+    0.467
+   ]
   },
   {
    "name": "018_shark",
@@ -2142,15 +2205,48 @@
   },
   {
    "name": "052_swat_van",
-   "glb": "cars/models3d/052_swat_van.glb",
+   "glb": "cars/vehicle_art2/052_swat_van.glb",
    "scale": 1.0,
    "paint_rgb": [
-    119.1,
-    132.7,
-    155.2
+    196.0,
+    208.0,
+    210.0
    ],
    "texture_max": 512,
-   "paint_split": true
+   "material_textures": {
+    "slit": "cars/vehicle_art2/052_swat_van/slit.png",
+    "underbody": "cars/vehicle_art2/052_swat_van/underbody.png",
+    "paint_navy": "cars/vehicle_art2/052_swat_van/paint_navy.png",
+    "paint_box": "cars/vehicle_art2/052_swat_van/paint_box.png",
+    "paint_rib": "cars/vehicle_art2/052_swat_van/paint_rib.png",
+    "lamp_clear": "cars/vehicle_art2/052_swat_van/lamp_clear.png",
+    "trim_dark": "cars/vehicle_art2/052_swat_van/trim_dark.png",
+    "grille": "cars/vehicle_art2/052_swat_van/grille.png",
+    "lamp_blue": "cars/vehicle_art2/052_swat_van/lamp_blue.png",
+    "lamp_red": "cars/vehicle_art2/052_swat_van/lamp_red.png",
+    "chrome": "cars/vehicle_art2/052_swat_van/chrome.png",
+    "lamp_tail": "cars/vehicle_art2/052_swat_van/lamp_tail.png",
+    "lamp_amber": "cars/vehicle_art2/052_swat_van/lamp_amber.png",
+    "plate": "cars/vehicle_art2/052_swat_van/plate.png",
+    "seal": "cars/vehicle_art2/052_swat_van/seal.png",
+    "roof_panel": "cars/vehicle_art2/052_swat_van/roof_panel.png",
+    "paint_body": "cars/vehicle_art2/052_swat_van/paint_body.png",
+    "interior_dark": "cars/vehicle_art2/052_swat_van/interior_dark.png",
+    "chrome_disc": "cars/vehicle_art2/052_swat_van/chrome_disc.png",
+    "lamp_head": "cars/vehicle_art2/052_swat_van/lamp_head.png",
+    "seat": "cars/vehicle_art2/052_swat_van/seat.png",
+    "tyre_side": "cars/vehicle_art2/052_swat_van/tyre_side.png",
+    "tyre_tread": "cars/vehicle_art2/052_swat_van/tyre_tread.png",
+    "paint_wheel": "cars/vehicle_art2/052_swat_van/paint_wheel.png",
+    "glass": "cars/vehicle_art2/052_swat_van/glass.png"
+   },
+   "generator": "tools/vehicle_art2/car_052.py",
+   "driver_seat": [
+    0.11,
+    0.252,
+    0.132,
+    0.515
+   ]
   },
   {
    "name": "053_michelli_roadster",

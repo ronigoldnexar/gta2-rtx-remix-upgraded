@@ -70,6 +70,9 @@ SEATS = {
     "035_benson": ((0.44, 0.70, -0.14), 5.0),     # VEHICLE-ART-22: front bench x +-0.92, top 0.70, back -0.40..-0.26
     "030_land_roamer": ((0.49, 0.76, -0.58), 5.0),  # VEHICLE-ART-22: driver seat x 0.12..0.86, top 0.76, back -0.80..-0.70
     "029_dementia": ((0.36, 0.66, -0.16), 5.0),   # VEHICLE-ART-22: bench x +-0.74, top 0.66, back -0.40..-0.28
+    "011_bus": ((0.80, 1.48, 3.46), 5.0),        # VEHICLE-ART-23: driver seat x 0.45..1.15, top 1.48, back 3.22..3.34
+    "017_fire_truck": ((0.50, 1.20, 2.08), 5.0),  # VEHICLE-ART-23: the 058 cab bench mapped (top 1.20, back 1.83..1.93)
+    "052_swat_van": ((0.55, 1.26, 0.66), 5.0),    # VEHICLE-ART-23: the 004 cab bench (top 1.26, back 0.42..0.54)
 }
 
 
