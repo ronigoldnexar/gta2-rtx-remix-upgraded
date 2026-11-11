@@ -34,6 +34,10 @@ NODE = "underpan"
 WHEELS = json.load(open(os.path.join(HERE, "underpan_wheels.json")))
 # not road cars: the tank (tracks), rail stock and trailers (bogies / chassis of their own: rail_kit.py), the wrecks
 # (a burnt-out shell's underside is black by design); 063 Truck Cab has an authored ladder chassis with its tanks
+# VEHICLE-ART-24: kit bodies whose floor narrows to an egg at the ends (028): their pan follows the body's own outline
+# at floor level like the shell bodies' does, not the kit's fixed 0.80 rectangle (that stood ~0.3 m out past 028's tail
+# as a hard-edged dark slab, out/va24_a4 rear34). 029 has the same shape but is not rebuilt here.
+FOLLOW = {"028"}
 SKIP = {"063", "006", "054", "055", "059", "060", "061", "065", "066"} | {f"{n:03d}" for n in range(72, 82)}
 
 # ------------------------------------------------------------------------------------------------------------------
@@ -274,6 +278,7 @@ def measure(m, name=""):
     ok = ~np.isnan(ob)
     ob = np.interp(np.arange(nb), np.flatnonzero(ok), ob[ok]) if ok.any() else np.full(nb, 0.8 * halfw)
     return dict(halfw=float(halfw), floor=floor, zf=zf, zr=zr, z0=max(z0, zmin + 0.02), z1=min(z1, zmax - 0.02),
+                follow=name[:3] in FOLLOW,
                 wheels=wheels, marker=bool(marks), lo=lo, hi=hi,
                 outline=(0.5 * (zb[1:] + zb[:-1]), ob))
 
@@ -289,6 +294,8 @@ def build(meas):
     # lowered with a 6 mm pan met them as combs (out/va14_up_a4 004 rear axle); their cover skips floor-level faces.
     y = max(meas["floor"] - (0.003 if meas["marker"] else 0.006), 0.030)
     z0, z1 = meas["z0"], meas["z1"]
+    if meas.get("follow"):
+        z0, z1 = z0 + 0.03, z1 - 0.03   # the egg ends: the body's own underside closes them (VEHICLE-ART-24)
     # scale: a part's size in model units per metre (the body's width is ~2.1 m on every car)
     k = (2 * hw) / 2.1
 
@@ -308,7 +315,9 @@ def build(meas):
     nz = 64; nx = 12
     zs = np.linspace(z0, z1, nz + 1)
     wides = np.clip(0.96 * np.interp(zs, oz, ob), wide, 0.95 * hw)
-    if meas["marker"]:
+    if meas["marker"] and meas.get("follow"):
+        wides = np.clip(0.92 * np.interp(zs, oz, ob), narrow, wide)
+    elif meas["marker"]:
         # the kit bodies keep ART-13's pan (0.80, curled lip): wider, it met their floor structure as sawteeth
         # (out/va14_up_a5..a9 004); their own sills are authored paint, not projected texels
         wides = np.full_like(zs, wide)

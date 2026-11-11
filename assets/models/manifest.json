@@ -1582,15 +1582,37 @@
   },
   {
    "name": "028_dementia_limousine",
-   "glb": "cars/models3d/028_dementia_limousine.glb",
+   "glb": "cars/vehicle_art2/028_dementia_limousine.glb",
    "scale": 1.0,
    "paint_rgb": [
-    149.0,
-    113.7,
-    103.5
+    235.0,
+    235.0,
+    235.0
    ],
    "texture_max": 512,
-   "paint_split": true
+   "material_textures": {
+    "seal": "cars/vehicle_art2/028_dementia_limousine/seal.png",
+    "chrome": "cars/vehicle_art2/028_dementia_limousine/chrome.png",
+    "underbody": "cars/vehicle_art2/028_dementia_limousine/underbody.png",
+    "paint_body": "cars/vehicle_art2/028_dementia_limousine/paint_body.png",
+    "interior_dark": "cars/vehicle_art2/028_dementia_limousine/interior_dark.png",
+    "paint_wheel": "cars/vehicle_art2/028_dementia_limousine/paint_wheel.png",
+    "chrome_disc": "cars/vehicle_art2/028_dementia_limousine/chrome_disc.png",
+    "lamp_head": "cars/vehicle_art2/028_dementia_limousine/lamp_head.png",
+    "lamp_amber": "cars/vehicle_art2/028_dementia_limousine/lamp_amber.png",
+    "lamp_tail": "cars/vehicle_art2/028_dementia_limousine/lamp_tail.png",
+    "seat": "cars/vehicle_art2/028_dementia_limousine/seat.png",
+    "tyre_side": "cars/vehicle_art2/028_dementia_limousine/tyre_side.png",
+    "tyre_tread": "cars/vehicle_art2/028_dementia_limousine/tyre_tread.png",
+    "glass": "cars/vehicle_art2/028_dementia_limousine/glass.png"
+   },
+   "generator": "tools/vehicle_art2/car_028.py",
+   "driver_seat": [
+    0.072,
+    0.132,
+    0.234,
+    0.303
+   ]
   },
   {
    "name": "029_dementia",
@@ -8916,13 +8938,25 @@
   },
   {
    "name": "028_dementia_limousine",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 13772,
+   "nodes": 18,
+   "meshes": 14,
+   "vertices": 26691,
    "animations": [],
    "textures": [
-    "028_dementia_limousine_0.tga",
-    "028_dementia_limousine_0_paint.tga"
+    "028_dementia_limousine_chrome.tga",
+    "028_dementia_limousine_chrome_disc.tga",
+    "028_dementia_limousine_glass.tga",
+    "028_dementia_limousine_interior_dark.tga",
+    "028_dementia_limousine_lamp_amber.tga",
+    "028_dementia_limousine_lamp_head.tga",
+    "028_dementia_limousine_lamp_tail.tga",
+    "028_dementia_limousine_paint_body_paint.tga",
+    "028_dementia_limousine_paint_wheel_paint.tga",
+    "028_dementia_limousine_seal.tga",
+    "028_dementia_limousine_seat.tga",
+    "028_dementia_limousine_tyre_side.tga",
+    "028_dementia_limousine_tyre_tread.tga",
+    "028_dementia_limousine_underbody.tga"
    ],
    "skins": 0,
    "forward": "",
