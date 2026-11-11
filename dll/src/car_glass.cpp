@@ -591,9 +591,11 @@ struct StemWork {
 };
 int g_synthOn = 1;                                         // GTA2DX9_GLASS_SYNTH=0: no synthesized panes (VEHICLE-GLASS-6)
 int g_columnsOn = 1;                                       // GTA2DX9_GLASS_COLUMNS=0: no column completion of the side windows
+int g_colTopOn = 1;                                        // GTA2DX9_GLASS_COLTOP=0: column completion stops at 0.87, not the band's 0.90 (VEHICLE-GLASS-7)
+int g_beltCutOn = 1;                                       // GTA2DX9_GLASS_BELTCUT=0: no drop of side glass under the sill ledge (VEHICLE-GLASS-7)
 
 void SynthesizePanes(const std::string& name, std::vector<StemWork>& work, float minY, float H, float minZ, float L,
-                     float z0, float z1, float rake, float midX) {
+                     float z0, float z1, float rake, float midX, float W) {
     const int number = name.size() >= 3 && isdigit(static_cast<unsigned char>(name[0])) ? atoi(name.substr(0, 3).c_str()) : -1;
     if (number == 54 || number == 55 || number == 61 || number == 65 || number == 66 || (number >= 72 && number <= 81)) return;
     const float span = (z1 - z0) / L;
@@ -615,15 +617,22 @@ void SynthesizePanes(const std::string& name, std::vector<StemWork>& work, float
     const float pin = 0.05f * L, zm = 0.5f * (z0 + z1);
     // Region of a texel: 0 none, 1 side +x, 2 side -x, 3 windscreen, 4 rear screen.
     std::vector<std::vector<uint8_t>> region(work.size());
+    // VEHICLE-GLASS-7: the side band from 0.87 up to the glasshouse bound (0.90, the band's own top), side 1/2 as region:
+    // column completion fills a window's top to the roof's turn, not to a line the bake's pale band sits above (071).
+    std::vector<std::vector<uint8_t>> topReg(work.size());
     for (size_t k = 0; k < work.size(); ++k) {
         const StemWork& w = work[k];
         region[k].assign(kR * kR, 0);
+        topReg[k].assign(kR * kR, 0);
         if (w.stem.find("underpan") != std::string::npos) continue;   // VEHICLE-ART-13's floor pan
         for (int i = 0; i < kR * kR; ++i) {
             if (!w.valid[i] || w.livery[i]) continue;
             const float nx = w.nrm[i * 3], ny = w.nrm[i * 3 + 1], nz = w.nrm[i * 3 + 2];
             if (ny > 0.80f) continue;
             const float h = (w.pos[i * 3 + 1] - minY) / H, z = w.pos[i * 3 + 2];
+            if (std::fabs(nx) > 0.4f && h > 0.87f && h <= 0.90f && z >= z0 + pin && z <= z1 - pin &&
+                !(z1 - z0 > 0.30f * L && std::fabs(z - zm) <= 0.0175f * L))
+                topReg[k][i] = nx > 0.0f ? 1 : 2;
             if (std::fabs(nx) > 0.4f && h >= 0.63f && h <= 0.87f && z >= z0 + pin && z <= z1 - pin &&
                 !(z1 - z0 > 0.30f * L && std::fabs(z - zm) <= 0.0175f * L)) {
                 region[k][i] = nx > 0.0f ? 1 : 2;
@@ -696,14 +705,51 @@ void SynthesizePanes(const std::string& name, std::vector<StemWork>& work, float
             }
             for (size_t k = 0; k < work.size(); ++k)
                 for (int i = 0; i < kR * kR; ++i) {
-                    if (region[k][i] != r || work[k].g[i]) continue;
+                    if ((region[k][i] != r && !(g_colTopOn && topReg[k][i] == r)) || work[k].g[i]) continue;
                     const int b = zbin(work[k], i);
                     if (cap[b] >= 4 && cfd[b] * 10 >= cap[b] * 4 && work[k].pos[i * 3 + 1] >= cmid[b]) { work[k].g[i] = 1; ++colAdded[r]; }
                 }
         }
     }
-    Log("car glass: %s: glasshouse span %.2f, tumblehome %.2f (%s), synthesized panes: %s; side columns +%d / +%d", name.c_str(), span,
-        tumble, carLike ? "car" : "van/truck: windscreen only", sl ? said : "none", colAdded[1], colAdded[2]);
+    // VEHICLE-GLASS-7 belt cut: a side window starts above the belt. Where the body has a sill ledge (an up-facing surface,
+    // normal y > 0.7, at 0.55-0.72 of the roof, |x| over 0.30 of the width from the middle), side glass at that station
+    // (1/48 of the length) and side under the ledge's top and outboard of its inner edge (on the door's skin; a window stands
+    // inboard of its sill) is the door's top, not glass: 001 Wellard's beige strip under its chrome sill (its bake gives no
+    // paint cluster, so no colour rule held it), 002's and 005's dark door tops. GTA2DX9_GLASS_BELTCUT=0 / twin "beltcut".
+    int beltDropped = 0;
+    if (carLike && g_beltCutOn) {
+        float lh[2][48], lx[2][48];
+        for (int s = 0; s < 2; ++s) for (int b = 0; b < 48; ++b) { lh[s][b] = -1.0f; lx[s][b] = 1e9f; }
+        auto sb = [&](const StemWork& w, int i, int* s, int* b) {
+            *s = w.pos[i * 3] > midX ? 1 : 0;
+            *b = (std::max)(0, (std::min)(47, static_cast<int>((w.pos[i * 3 + 2] - minZ) / L * 48)));
+        };
+        for (const StemWork& w : work) {
+            if (w.stem.find("underpan") != std::string::npos) continue;
+            for (int i = 0; i < kR * kR; ++i) {
+                if (!w.valid[i] || w.nrm[i * 3 + 1] <= 0.7f) continue;
+                const float h = (w.pos[i * 3 + 1] - minY) / H, ax = std::fabs(w.pos[i * 3] - midX);
+                if (h < 0.55f || h > 0.72f || ax <= 0.30f * W) continue;
+                int s, b;
+                sb(w, i, &s, &b);
+                lh[s][b] = (std::max)(lh[s][b], h);
+                lx[s][b] = (std::min)(lx[s][b], ax);
+            }
+        }
+        for (StemWork& w : work) {
+            if (w.stem.find("underpan") != std::string::npos) continue;
+            for (int i = 0; i < kR * kR; ++i) {
+                if (!w.g[i] || std::fabs(w.nrm[i * 3]) <= 0.4f) continue;
+                const float h = (w.pos[i * 3 + 1] - minY) / H;
+                if (h >= 0.72f) continue;
+                int s, b;
+                sb(w, i, &s, &b);
+                if (lh[s][b] >= 0.0f && h < lh[s][b] && std::fabs(w.pos[i * 3] - midX) >= lx[s][b]) { w.g[i] = 0; ++beltDropped; }
+            }
+        }
+    }
+    Log("car glass: %s: glasshouse span %.2f, tumblehome %.2f (%s), synthesized panes: %s; side columns +%d / +%d; belt cut -%d", name.c_str(), span,
+        tumble, carLike ? "car" : "van/truck: windscreen only", sl ? said : "none", colAdded[1], colAdded[2], beltDropped);
 }
 
 void Build(const Model* model, std::shared_ptr<Glass> glass) {
@@ -1078,7 +1124,7 @@ void Build(const Model* model, std::shared_ptr<Glass> glass) {
             }
         }
     }
-    if (g_synthOn) SynthesizePanes(model->name, work, minY, H, minZ, L, z0, z1, rake, midX);
+    if (g_synthOn) SynthesizePanes(model->name, work, minY, H, minZ, L, z0, z1, rake, midX, W);
     for (StemWork& w : work) {
         const std::string& stem = w.stem;
         Mask& g = w.g;
@@ -1428,6 +1474,8 @@ void CarGlassSettings(int enabled, int alphaPercent, int rangeBlocks) {
     if (GetEnvironmentVariableA("GTA2DX9_GLASS_HOLES", v, sizeof v) && v[0] == '0') g_holesOn = 0;
     if (GetEnvironmentVariableA("GTA2DX9_GLASS_SYNTH", v, sizeof v) && v[0] == '0') g_synthOn = 0;
     if (GetEnvironmentVariableA("GTA2DX9_GLASS_COLUMNS", v, sizeof v) && v[0] == '0') g_columnsOn = 0;
+    if (GetEnvironmentVariableA("GTA2DX9_GLASS_COLTOP", v, sizeof v) && v[0] == '0') g_colTopOn = 0;
+    if (GetEnvironmentVariableA("GTA2DX9_GLASS_BELTCUT", v, sizeof v) && v[0] == '0') g_beltCutOn = 0;
     if (GetEnvironmentVariableA("GTA2DX9_GLASS_REAR_GATE", v, sizeof v) && v[0] == '1') g_rearGate = 1;
     g_alpha = (std::max)(0.05f, (std::min)(1.0f, alphaPercent / 100.0f));
     g_range = static_cast<float>((std::max)(1, rangeBlocks));

@@ -206,7 +206,13 @@ def synthesize(res, P):
         scr &= ~side   # as the DLL: a texel is a side's first
         front = scr & (nz > 0.35) & (z > z1 - 0.05 * L) & (z < z1 + rake)
         rear = scr & (nz < -0.35) & (z < z0 + 0.05 * L) & (z > z0 - rake)
-        regs[st] = {"side+": side & (nx > 0), "side-": side & (nx < 0), "front": front, "rear": rear, "x": x}
+        # VEHICLE-GLASS-7: the side band up to the glasshouse bound (0.90, the band's own top) for column completion's
+        # fill: a window's top follows the glasshouse (the roof's turn), not the bake's pale band under it
+        top = base & (np.abs(nx) > 0.4) & (h > 0.87) & (h <= 0.90) & (z >= z0 + pin) & (z <= z1 - pin)
+        if z1 - z0 > 0.30 * L:
+            top &= np.abs(z - 0.5 * (z0 + z1)) > 0.0175 * L
+        regs[st] = {"side+": side & (nx > 0), "side-": side & (nx < 0), "front": front, "rear": rear, "x": x,
+                    "top+": top & (nx > 0), "top-": top & (nx < 0)}
     out = {}
     def missed(r):
         ap = sum(int(g[r].sum()) for g in regs.values())
@@ -250,11 +256,48 @@ def synthesize(res, P):
             added = 0
             for st, g in regs.items():   # above the station's median found glass, never its lower half (071/002 sill notches)
                 y = res["masks"][st]["pos"][:, 1]
-                add = g[r] & full[zb[st]] & ~res["masks"][st]["g"] & (y >= mh[zb[st]])
+                reg = g[r] | g["top" + r[-1]] if P.get("coltop", 1) else g[r]
+                add = reg & full[zb[st]] & ~res["masks"][st]["g"] & (y >= mh[zb[st]])
                 added += int(add.sum()); res["masks"][st]["g"] = res["masks"][st]["g"] | add
             out[r + " columns"] = added
+    if carlike and P.get("beltcut", 1):
+        out["belt cut"] = belt_cut(res)
     res["synth"] = out
     res["carlike"] = (round(span, 2), round(tumble, 2), carlike)
+
+
+def belt_cut(res):
+    """VEHICLE-GLASS-7: a side window starts above the belt. Where the body has a sill ledge (an up-facing surface,
+    normal y > 0.7, at 0.55-0.72 of the roof in the outer part of the width, |x| > 0.30 of the width from the middle),
+    side glass at that station (1/48 of the length) and side lower than the ledge's top and outboard of its inner edge
+    (on the door's skin; a window stands inboard of its sill) is the door's top, not glass
+    (001 Wellard: a strip of its beige paint under the chrome sill ledge, taken because its bake gives no paint
+    cluster): dropped."""
+    H, L, minY, minZ, midX, W = res["H"], res["L"], res["minY"], res["minZ"], res["midX"], res["W"]
+    ledge = {}   # (side, station) -> the ledge's top height (fraction of the roof)
+    data = {}
+    for st, m in res["masks"].items():
+        if "underpan" in st: continue
+        pos, nrm, valid = m["pos"], m["nrm"], m["valid"]
+        h = (pos[:, 1] - minY) / H
+        sd = (pos[:, 0] > midX).astype(int); zb = np.clip(((pos[:, 2] - minZ) / L * 48).astype(int), 0, 47)
+        data[st] = (h, sd, zb)
+        up = valid & (nrm[:, 1] > 0.7) & (h >= 0.55) & (h <= 0.72) & (np.abs(pos[:, 0] - midX) > 0.30 * W)
+        ax = np.abs(pos[:, 0] - midX)
+        for i in np.nonzero(up)[0]:
+            k = (sd[i], zb[i])
+            lh, lx = ledge.get(k, (0.0, 1e9))
+            ledge[k] = (max(lh, h[i]), min(lx, ax[i]))
+    dropped = 0
+    for st, (h, sd, zb) in data.items():
+        m = res["masks"][st]; g = m["g"]
+        cand = g & (np.abs(m["nrm"][:, 0]) > 0.4) & (h < 0.72)
+        ax = np.abs(m["pos"][:, 0] - midX)
+        for i in np.nonzero(cand)[0]:
+            lh, lx = ledge.get((sd[i], zb[i]), (None, None))
+            if lh is not None and h[i] < lh and ax[i] >= lx:
+                g[i] = False; dropped += 1
+    return dropped
 
 
 def on_belt(black, paint, valid, h, z, nx, minZ, L, P):
@@ -653,6 +696,8 @@ if __name__ == "__main__":
     ap.add_argument("--nomirror", action="store_true", help="without VEHICLE-GLASS-5's mirror fill of each side window")
     ap.add_argument("--nosynth", action="store_true", help="without VEHICLE-GLASS-6's panes synthesized from the glasshouse")
     ap.add_argument("--nooff", action="store_true", help="without VEHICLE-GLASS-3's off-hue rule")
+    ap.add_argument("--nobeltcut", action="store_true", help="without VEHICLE-GLASS-7's drop of side glass under the sill ledge")
+    ap.add_argument("--nocoltop", action="store_true", help="column completion to 0.87 (before VEHICLE-GLASS-7's 0.90 glasshouse bound)")
     ap.add_argument("--old", action="store_true", help="the 33c34be heuristic (before VEHICLE-GLASS-2's class fixes)")
     a = ap.parse_args()
     params = {"roof": 0, "darkscale": 0, "screens": 0, "cool": 0, "split": 0, "offhue": 0, "deep": 0, "mirror": 0, "holes": 0, "synth": 0} if a.old else {}
@@ -662,6 +707,8 @@ if __name__ == "__main__":
     if a.nomirror: params["mirror"] = 0
     if a.noholes: params["holes"] = 0
     if a.nosynth: params["synth"] = 0
+    if a.nobeltcut: params["beltcut"] = 0
+    if a.nocoltop: params["coltop"] = 0
     for name in a.names:
         r = build(a.models, name, params)
         if not r: print(name, "no glass (no roof/too small)"); continue
