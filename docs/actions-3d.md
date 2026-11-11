@@ -2246,3 +2246,46 @@ fig18_close1/2): a loony three walking tight with the joint solve is three whole
 **Not done**: a zoomed before/after of the SAME pair (the close pairs last 4-12 frames: by the time the camera is on them
 they have parted; only groups were filmed); the filed five-man gang file was not met in 4 runs; people standing in a knot
 (not walking) are opened the same way but not looked at in frames; Remix.
+
+## FIX-FIGURE-19 (11 Nov 2026): a gun run dry lets go when the HUD does (qaexp68)
+
+**Filed**: after the machine gun ran dry in third person the HUD had no weapon icon, yet the hero stood on in the SMG
+aim pose holding the gun for seconds (first person dropped to fists).
+
+**Cause**: FIX-FIGURE-13's last-round hold (pfl51). The game sets the weapon to none on the frame the last round leaves.
+To keep the launcher on his shoulder while the rocket leaves, the spent gun stayed drawn in its aim for 27 drawn frames,
+for every gun. That is 0.9 s at 30 fps. The filer's session ran at about 5 fps (`hitch @1604: frame 211 ms`, the sprite
+stage at 185 ms under host load), so the 27 frames lasted 5.4 s. The HUD drops the icon on the game's frame, so the
+icon and the hands disagreed for the whole hold. On a 30 fps HEAD run the hold was 0.9 s of a gun with no icon:
+shorter, but the same fault.
+
+**Fix** (`live_geometry.cpp`, the last-round block in DrawPedFigures): only the rocket launcher keeps the 27 frames.
+Every other gun is drawn on for 4 frames past the game's none, which covers the last round's flash. Both holds also end
+by wall time (0.25 s for a gun, 0.9 s for the launcher), so a slow frame rate cannot stretch them. Bare hands then
+follow the game's word as before: idle, or the punch on Ctrl. This applies to every weapon with a muzzle flash and to
+every figure (cops and gang members run dry too). Thrown weapons (molotov, grenade) never took this path and are
+unchanged. Log with `GTA2DX9_LOG_PED_FRAMES=1`: `last round: ... drawn on to f=N`, then `... let go at f=N: bare hands`.
+A/B: `GTA2DX9_SPENT_HOLD_OLD=1` restores the old hold (27 frames for every gun, no wall cap).
+
+**Probe**: `gamerun/fig19_dry.py` (keys `keys_qa_fig19_dry.sh`, through `qa_run.sh fig19_dry`).
+- `FIG19_ONLY=third|first` picks the leg.
+- `FIG19_TAP=8` releases fire at 8 rounds and spends the rest in taps, as the filer did.
+- `FIG19_FP_PICK` / `FIG19_FP_WPN` set the first-person pickup. The wil machine gun at 166.5,140.5 does not respawn, so
+  each leg needs its own run.
+- Frames are taken every 0.15 s from the dry moment, then 2 s still, three Ctrl taps, V to the other street view, V to
+  classic.
+
+**Verified**: wil, plain GL, 30 fps, every frame below opened.
+- Before (HEAD 56a841fc, run fig19_dry2): `last round ... drawn on`, then aim_heavy with weapon 4 for 0.9 s, the gun
+  in the frame taken 0.6 s after none.
+- After (fig19_dry4): `let go` 0.13 s after the last shot. In game.mp4 at 0.15 s steps, the frame where the HUD reads
+  0 shows the gun and its flash. The next frame shows no icon, empty hands and the arm coming down to idle. Ctrl taps
+  then punch, and the hero stands idle with bare hands 2-5 s on.
+- First person, with a real magazine (fig19_dry5, machine gun run dry by taps): the view model goes to fists in the same
+  frame (`view model: weapon id 0 ... fists` 30 ms after `let go`), and the taps throw punches. V to third shows him
+  idle with no gun. The view model reads the game's word itself, so this fix does not change it.
+- Held fire to the end (fig19_dry1) was already right on HEAD: idle within 1 s.
+
+**Not tested**: the other guns run dry in a frame (pistol, shotgun, electro gun, flamethrower). They share the code
+path, but no frame of them was taken. The launcher's last rocket at 5 fps, where the 0.9 s wall cap now cuts it to
+about 5 frames. Remix. 1440p.

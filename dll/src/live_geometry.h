@@ -741,7 +741,7 @@ private:
         // which keeps it in the right hand while the left fetches a magazine.
         int magShots = 0;
         uint32_t magLastShot = 0, reloadStart = 0;
-        int spentWeapon = 0; uint32_t spentUntil = 0;   // FIX-FIGURE-13 (pfl51): the gun the last round left, still drawn to this frame
+        int spentWeapon = 0; uint32_t spentUntil = 0; double spentUntilSec = 0.0;   // FIX-FIGURE-19: wall-clock cap   // FIX-FIGURE-13 (pfl51): the gun the last round left, still drawn to this frame
         float reloadPrevT = -1.0f;
         float gripLocal[3] = {0.0f, 0.0f, 1.0f};
         bool gripValid = false;

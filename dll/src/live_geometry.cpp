@@ -11003,15 +11003,30 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     // (the game counts some weapons in tens: the launcher's last rocket is 10 -> none)
                     const bool lastRound = track.lastAmmo >= 0 && (track.lastAmmo <= 1 || (track.lastAmmo <= 10 && track.muzzleFrame &&
                                                                                           g_carFrame - track.muzzleFrame <= 3));
+                    // FIX-FIGURE-19 (qaexp68): the hold is the last round's flash, not 0.9 s. The HUD drops the gun's
+                    // icon on the frame the game sets none; a machine gun drawn on in its aim 27 frames past it read as
+                    // "he still has it", and on a loaded host (5 fps: 200 ms frames) those 27 frames were 5.4 s. Only
+                    // the launcher keeps its 27 frames (the rocket has to leave the tube on his shoulder); every gun
+                    // lets go after the flash (4 frames). Both end by 0.25 s / 0.9 s of wall time whatever the frame
+                    // rate. GTA2DX9_SPENT_HOLD_OLD=1: 27 frames for every gun, no wall cap (FIX-FIGURE-13 as it was).
+                    static const bool holdOld = [] { char b[8] = {}; return GetEnvironmentVariableA("GTA2DX9_SPENT_HOLD_OLD", b, sizeof b) && b[0] == '1'; }();
                     if (gameWeapon == 0 && track.weapon > 0 && track.spentWeapon == 0 && lastRound &&
                         track.lastWeaponObject && kWeapons[track.weapon].flashSize > 0.0f) {
-                        track.spentWeapon = track.weapon; track.spentUntil = g_carFrame + 27;
+                        const bool tube = track.weapon == kWpnRocket || holdOld;
+                        track.spentWeapon = track.weapon; track.spentUntil = g_carFrame + (tube ? 27 : 4);
+                        track.spentUntilSec = holdOld ? 1e300 : SkidNowSeconds() + (tube ? 0.9 : 0.25);
                         if (track.weapon == kWpnRocket) NoteRocketLaunch(cx, cy, cz);
-                        track.aimUntil = (std::max)(track.aimUntil, g_carFrame + 27);
+                        track.aimUntil = (std::max)(track.aimUntil, track.spentUntil);
                         if (g_logPedFrames) Log("last round: %p %s drawn on to f=%u", reinterpret_cast<const void*>(sprite.object), kWeapons[track.weapon].name, track.spentUntil);
                     }
-                    if (gameWeapon == 0 && track.spentWeapon > 0 && g_carFrame < track.spentUntil) gameWeapon = track.spentWeapon;
-                    else if (gameWeapon != 0 || g_carFrame >= track.spentUntil) track.spentWeapon = 0;
+                    const bool spentOver = g_carFrame >= track.spentUntil || SkidNowSeconds() >= track.spentUntilSec;
+                    if (gameWeapon == 0 && track.spentWeapon > 0 && !spentOver) gameWeapon = track.spentWeapon;
+                    else if (gameWeapon != 0 || spentOver) {
+                        if (track.spentWeapon > 0 && gameWeapon == 0 && g_logPedFrames)
+                            Log("last round: %p %s let go at f=%u: bare hands, as the game's weapon word", reinterpret_cast<const void*>(sprite.object),
+                                kWeapons[track.spentWeapon].name, g_carFrame);
+                        track.spentWeapon = 0;
+                    }
                 }
             }
             if (gameWeapon >= 0) track.weapon = gameWeapon;
