@@ -581,6 +581,7 @@ void LoadConfig() {
         GetPrivateProfileIntA("timeofday", "remix_day_max_exposure_tenths", 60, ini) / 10.0f;
     tod.nightMaxExposure =
         GetPrivateProfileIntA("timeofday", "remix_night_max_exposure_tenths", 25, ini) / 10.0f;
+        tod.nightFixedExposure = GetPrivateProfileIntA("timeofday", "remix_night_fixed_exposure_tenths", 20, ini) / 10.0f;
     tod.daySkyFill = GetPrivateProfileIntA("timeofday", "remix_day_sky_fill_tenths", 30, ini) / 10.0f;
     tod.nightSkyFill =
         GetPrivateProfileIntA("timeofday", "remix_night_sky_fill_tenths", 10, ini) / 10.0f;

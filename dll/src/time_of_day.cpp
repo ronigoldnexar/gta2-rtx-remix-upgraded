@@ -117,6 +117,7 @@ constexpr float kDayLookBandDeg = 6.0f;
 float g_dayT = -1.0f;            // 0 night .. 1 day, last pushed; -1 unknown (push now)
 float g_loggedDayT = -1.0f;
 int g_dayState = -1;             // -1 unknown, 0 night, 1 day: for the log only
+bool g_nightHold = false;        // FIX-REMIX-NIGHT-10: auto-exposure held at full night
 
 void PushFloat(const char* key, float value) {
     char text[32];
@@ -145,6 +146,22 @@ void UpdateDayLook(float elevation) {
     if (s.dayMaxExposure > 0.0f && s.nightMaxExposure > 0.0f) PushFloat("rtx.autoExposure.maxExposure", exposure);
     if (s.daySkyFill > 0.0f && s.nightSkyFill > 0.0f) PushFloat("rtx.atmosphere.skyIndirectRadianceScale", fill);
     const int state = t >= 1.0f ? 1 : (t <= 0.0f ? 0 : 2);
+    // FIX-REMIX-NIGHT-10 (owner 11 Nov: "in the 3D view the night is dark but slightly lit; in first person the world gets
+    // brighter"): the renderer pushes only a CAP on Remix's auto-exposure, and the meter then adapts to the frame: a
+    // first-person frame is mostly dark road and sky, so the exposure rises to the cap; a third-person frame holds the
+    // lit facades, so it settles lower. The night look must not depend on the view. At full night the meter is held:
+    // auto-exposure off and a fixed exposure (remix_night_fixed_exposure_tenths, 0 = the old floating meter), pushed
+    // as rtx.tonemap.exposureBias = log2(exposure); through twilight and by day the meter is back on with the cap.
+    if (s.nightFixedExposure > 0.0f && RemixApiAvailable()) {
+        const bool hold = state == 0;
+        if (first || hold != g_nightHold) {
+            RemixSetConfig("rtx.autoExposure.enabled", hold ? "False" : "True");
+            PushFloat("rtx.tonemap.exposureBias", hold ? std::log2(s.nightFixedExposure) : 0.0f);
+            Log("time of day: night exposure %s (fixed x%.2f = bias %.2f EV, auto-exposure %s)", hold ? "held" : "released",
+                s.nightFixedExposure, std::log2(s.nightFixedExposure), hold ? "off" : "on");
+            g_nightHold = hold;
+        }
+    }
     if (first || state != g_dayState || std::fabs(t - g_loggedDayT) >= 0.25f) {
         Log("time of day: %s look (sun %.1f deg, day %.2f): exposure cap %.2f, sky fill %.2f%s",
             state == 1 ? "day" : (state == 0 ? "night" : "twilight"), elevation, t, exposure, fill, first ? " (first push)" : "");

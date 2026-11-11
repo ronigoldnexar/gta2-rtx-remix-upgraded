@@ -78,6 +78,7 @@ struct TimeOfDaySettings {
     float dayLookAboveDeg = 0.0f;
     float dayMaxExposure = 6.0f;
     float nightMaxExposure = 2.5f;
+    float nightFixedExposure = 2.0f;   // FIX-REMIX-NIGHT-10: 0 = floating meter under the cap
     float daySkyFill = 3.0f;
     float nightSkyFill = 1.0f;
 
