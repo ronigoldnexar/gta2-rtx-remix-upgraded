@@ -219,6 +219,63 @@ IDirect3DTexture9* MakeWindowGlow(IDirect3DDevice9* device, const uint32_t* pixe
         }
         if (kept < 12) return nullptr;
     } else if (kept < n * n / 12 || kept > n * n * 2 / 3) return nullptr;
+    // FIX-WORLD-18 (qav76): inside a box the glass rule above tears a lit window into a tan stamp with black
+    // holes: its hue gate drops the dark, slightly warm texels of a pane's interior and its run filter drops
+    // bars and cracks (bil 488, the barred broken window; 491; 484). In a box the rule already lights (12+
+    // glass texels, so no window that was dark starts to glow), every dark texel of the opening now takes the
+    // glow by how dark it is (the room through the glass full, a bar or crack a darker line, the frame and
+    // the brick round it nothing), pinholes are closed and the weight softened by half a 3x3 blur, so the
+    // pane reads as lit from inside with its bars, not as a cut-out. GTA2DX9_GLOW_FILL=0: the old mask.
+    static int s_fill = -1;
+    if (s_fill < 0) { const char* e = getenv("GTA2DX9_GLOW_FILL"); s_fill = (e && e[0] == '0') ? 0 : 1; }
+    std::vector<float> weight(static_cast<size_t>(n) * n, 0.0f);
+    for (size_t i = 0; i < weight.size(); ++i) weight[i] = keep[i] ? 1.0f : 0.0f;
+    if (boxed && s_fill) {
+        std::vector<uint8_t> lit(static_cast<size_t>(n) * n, 0), cand(static_cast<size_t>(n) * n, 0);
+        for (const GlowBox& b : boxes) {
+            int inBox = 0;
+            for (int y = b.y0; y < b.y1; ++y) for (int x = b.x0; x < b.x1; ++x) inBox += keep[static_cast<size_t>(y) * n + x];
+            if (inBox < 12) continue;
+            for (int y = std::max(0, b.y0); y < std::min(n, b.y1); ++y) for (int x = std::max(0, b.x0); x < std::min(n, b.x1); ++x) lit[static_cast<size_t>(y) * n + x] = 1;
+        }
+        std::vector<float> w0(static_cast<size_t>(n) * n, 0.0f);
+        for (int y = 0; y < n; ++y) for (int x = 0; x < n; ++x) {
+            const size_t i = static_cast<size_t>(y) * n + x;
+            if (!lit[i]) continue;
+            const uint32_t px = pixels[i];
+            const int r = (px >> 16) & 0xFF, gg = (px >> 8) & 0xFF, b = px & 0xFF;
+            const float lum = (r * 2 + gg * 3 + b) / 6.0f;
+            if ((px >> 24) == 0 || lum >= 100.0f || b < r - 24 || b < gg - 20) continue;
+            cand[i] = 1;
+            w0[i] = 0.8f * std::min(1.0f, std::max(0.0f, (60.0f - lum) / 45.0f)) + 0.2f;
+        }
+        std::vector<float> w1 = w0;
+        for (int y = 0; y < n; ++y) for (int x = 0; x < n; ++x) {
+            const size_t i = static_cast<size_t>(y) * n + x;
+            if (!lit[i] || cand[i]) continue;
+            int c = 0; float sum = 0.0f;
+            for (int dy = -1; dy <= 1; ++dy) for (int dx = -1; dx <= 1; ++dx) {
+                if (!dx && !dy) continue;
+                const int xx = x + dx, yy = y + dy;
+                if (xx < 0 || yy < 0 || xx >= n || yy >= n) continue;
+                const size_t j = static_cast<size_t>(yy) * n + xx;
+                c += cand[j]; sum += w0[j];
+            }
+            if (c >= 5) w1[i] = 0.6f * sum / 8.0f;   // a pinhole in the glass
+        }
+        for (int y = 0; y < n; ++y) for (int x = 0; x < n; ++x) {
+            const size_t i = static_cast<size_t>(y) * n + x;
+            if (!lit[i]) continue;
+            float acc = 0.0f;
+            for (int dy = -1; dy <= 1; ++dy) for (int dx = -1; dx <= 1; ++dx) {
+                const int xx = x + dx, yy = y + dy;
+                if (xx < 0 || yy < 0 || xx >= n || yy >= n) continue;
+                acc += w1[static_cast<size_t>(yy) * n + xx] * (dy ? 1.0f : 2.0f) * (dx ? 1.0f : 2.0f);
+            }
+            weight[i] = 0.5f * w1[i] + 0.5f * acc / 16.0f;
+            keep[i] = weight[i] > 0.004f;
+        }
+    }
     std::vector<uint32_t> level(static_cast<size_t>(n) * n, 0xFF000000u);
     std::vector<uint32_t> skyLevel(static_cast<size_t>(n) * n, 0xFF000000u);
     uint32_t seed = 0x9E3779B9u ^ static_cast<uint32_t>(tileIndex * 2654435761u);
@@ -246,11 +303,15 @@ IDirect3DTexture9* MakeWindowGlow(IDirect3DDevice9* device, const uint32_t* pixe
                     break;
                 }
             }
-            const float f = c * std::min(1.0f, 0.35f + 0.65f * std::min(ex, ey));
+            float f = c * std::min(1.0f, 0.35f + 0.65f * std::min(ex, ey));
+            // FIX-WORLD-18: a filled window is lit a little more toward its top (the room's ceiling light).
+            if (boxed && s_fill) f *= weight[static_cast<size_t>(y) * n + x] * (1.12f - 0.32f * std::min(1.0f, std::max(0.0f, fromTop)));
+            f = std::min(1.0f, f);
             const int r = static_cast<int>(255.0f * f * 1.0f), g = static_cast<int>(255.0f * f * 0.78f), b = static_cast<int>(255.0f * f * 0.45f);
             level[static_cast<size_t>(y) * n + x] = 0xFF000000u | (r << 16) | (g << 8) | b;
             // By day: the sky's cool grey, 0.30 at a pane's top to 0.12 at its foot, softened at the edges.
-            const float s = (0.12f + 0.18f * (1.0f - std::min(1.0f, std::max(0.0f, fromTop)))) * std::min(1.0f, 0.5f + 0.5f * std::min(ex, ey));
+            float s = (0.12f + 0.18f * (1.0f - std::min(1.0f, std::max(0.0f, fromTop)))) * std::min(1.0f, 0.5f + 0.5f * std::min(ex, ey));
+            if (boxed && s_fill) s *= std::min(1.0f, weight[static_cast<size_t>(y) * n + x]);
             const int sr = static_cast<int>(255.0f * s * 0.80f), sg = static_cast<int>(255.0f * s * 0.90f), sb = static_cast<int>(255.0f * s);
             skyLevel[static_cast<size_t>(y) * n + x] = 0xFF000000u | (sr << 16) | (sg << 8) | sb;
         }
