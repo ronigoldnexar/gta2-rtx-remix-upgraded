@@ -749,3 +749,35 @@ either face; only `car_012.py`'s plate uses it. The rebuilt 012 differs from the
 (the generator without the flag reproduces the shipped mesh byte for byte). out/va29_p1 (fresh / force_car_damage
 25000, chase and rear34): "PD 012" reads left to right in all four frames (was "210 DP" at 25000, out/va27_plt0).
 The model file `012_cop_car.mesh` goes out by release archive / restage (not in git).
+
+## 14. VEHICLE-ART-30 (11 Nov 2026): the liner bodies kept out of ART-29's cabin, the panes' blue back
+
+**Liner bodies (000/013/014/016/047/083) keep their glass and cabin as before ART-29.** These bodies carry the light
+`interior_liner` (117,110,97, normals leaning up, made earlier to read through the old pane) instead of the kit
+`interior_dark` shell. ART-29 left an uncommitted exclusion for them; it is committed here with a live A/B key,
+`[devtools] liner_see` (0 default = excluded, 1 = treated like the other kit bodies). Same-run A/B, wil 164.5,147.6,
+own car forced (`keys_va6_own.sh`, regression-camera poses), noon look:
+- out/va30_a2 (000/013 liner, 012 kit; side/front34/eye/chase/far; sets a = ART-28 glass, x = new defaults,
+  y = `liner_see=1`): with y, 000's and 013's windows are flat pale white from the side and from front34 (the panes
+  read as painted panels); with x they are the same dark grey glass as in a. 012 is identical in x and y (seats,
+  the driver's head and the far window through the panes), so the key reaches only the liner bodies.
+- out/va30_a3 (which part makes the white; `liner_see=1` with p = cabin_lift 0, q = cabin_cull 0 + lift 90, r =
+  both off, only the clearer pane): q is the white (the lift on the light liner); p and r are a flat mid grey the
+  colour of the body: the clearer pane exposes a plain liner wall with no seats in it. No variant shows a cabin, so
+  the exclusion is the right default; a seen-through cabin on these bodies needs seats in the liner bodies
+  (asset-side: rebuild them on the kit's cabin), not a renderer setting.
+
+**glass_tint: the panes' faint blue back (ART-29 residual "neutral grey reflection").** The premultiplied kit pane's
+colour is the sky reflection (ambient x glass_lift) at full weight plus the lit pane x its opacity x glass_see; with
+the pane scaled down, tex_glass's blue had nearly gone. `[devtools] glass_tint` (percent, 200 default, 0 = ART-29's
+neutral grey) scales the reflection's red/green/blue by (1 - 0.06t, 1 - 0.03t, 1 + 0.06t), t = glass_tint/100. It is a
+multiply on the ambient, so it fades with the ambient at dusk and night. Plain renderer only (the glass_see path);
+liner bodies (old lift path) and Remix untouched. out/va30_a3 (100 vs 0: B-R +2..+5 on the window pixels, too weak to
+see) and out/va30_a4 (200 vs 0, kit 012/050/005, side/front34/eye/chase): window medians at front34
+(68,67,67) -> (63,64,71) on 012, (65,63,63) -> (60,61,67) on 050, (66,65,65) -> (61,63,70) on 005 (ART-28's panes
+(52,56,62), sprite glass 005 (65,64,73)); frames opened: a faint cool cast on the panes, cabin, seats and driver as
+readable as at 0.
+
+Still short / untested: the liner bodies show no cabin through their glass (assets); night/dusk tint not filmed;
+the shells' mask-pass panes (071, 002, ...) are outside the glass_see path and keep their own colour; Remix
+unchanged (pane outline, closed kit shell, 005 door rectangles: see sections 12-13); box cabins.
