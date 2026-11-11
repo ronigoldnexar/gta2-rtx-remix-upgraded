@@ -638,3 +638,21 @@ then V first, V classic; Escape in classic, third and first, each resumed) and `
 (the MG collected in classic, V at once, third shots every 0.3 s). Run with SWAP_LEVEL=bil,
 GTA2_DIRECT_KEYS=1 and `-e GTA2DX9_HUD_LOG_PARTS=1`. `gamerun/qaf2_d.py`'s state regex now accepts the
 `cargun=` field that FIX-HUD-6 added (it read None).
+
+Verified (plain renderer, bil, 1280x720):
+- Noon: runs fh8_b2 (the gun collected in third, then first; Escape in all three views), fh8_c2 (the gun
+  collected in classic, V at once: the chip under the TEDIUM plate) and the filer's fixhud5_game_font scenario
+  (fh8q: classic shows the game's word; third shows no pixel word).
+- Night: fh8_night2 (22:00, `[weather] enabled=1`, clock paused): the chip in third and first, and the quit
+  card in third and first.
+- Classic: vreg spawn_classic PASS, 0 tiles. A vreg capture of the unchanged e2e0a8f6 stage gives the same
+  PASS/WARN/FAIL counts with identical HUD pixels; the 3D shots' FAIL tiles against the goldens are the
+  FIX-HUD-4/5 HUD regions in both captures. No vreg shot has a collect word or the prompt up.
+
+Untested:
+- Remix, 1080p/1440p.
+- Weapons other than the S-Uzi in play (the c00-c10 keys come from the weapon type and were checked
+  offline against e.gxt).
+- Armour and power-up words in play (they rely on the game's last text key being c28-c37).
+- A gun collected while another is in hand without a hand change (only the ammunition test catches it).
+- The quit card on wil/ste.
