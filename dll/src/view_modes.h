@@ -106,6 +106,7 @@ struct ViewModeSettings {
     // mesh), it glides round instead along a path the walls leave open (railings see-through, shortened or lifted as
     // the path needs). [camera] pocket_glide.
     bool pocketGlide = true;
+    bool deathJumpHold = true;   // FIX-CAMERA-22 [camera] death_jump_hold
     // FIX-CAMERA-20 (qaexp52): third person clips the sparse lattices between the lens and him. [camera] chase_lattice_clip.
     bool chaseLatticeClip = true;
     float fpCarRate = 240.0f;       // first person at the wheel: fixed to the car, this is only a safety cap

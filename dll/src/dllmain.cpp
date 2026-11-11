@@ -245,6 +245,7 @@ void LoadConfig() {
         vm.trainTrail = GetPrivateProfileIntA("camera", "train_trail", 1, ini) != 0;   // FIX-CAMERA-19
         vm.cutDissolve = GetPrivateProfileIntA("camera", "cut_dissolve", 30, ini);   // FIX-CAMERA-19
         vm.pocketGlide = GetPrivateProfileIntA("camera", "pocket_glide", 1, ini) != 0;   // FIX-CAMERA-20
+        vm.deathJumpHold = GetPrivateProfileIntA("camera", "death_jump_hold", 1, ini) != 0;   // FIX-CAMERA-22
         vm.chaseLatticeClip = GetPrivateProfileIntA("camera", "chase_lattice_clip", 1, ini) != 0;   // FIX-CAMERA-20
         vm.fpExitDoor = GetPrivateProfileIntA("camera", "fp_exit_door", 1, ini) != 0;   // FIX-FP-EXIT-1
         vm.navMap = GetPrivateProfileIntA("camera", "nav_map", 1, ini) != 0;

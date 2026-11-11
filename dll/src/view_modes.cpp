@@ -1745,6 +1745,12 @@ float CameraTurnBudgetDeg() {
     return v > 0.0f ? (std::max)(1.0f, v) : 0.0f;
 }
 
+// FIX-CAMERA-22 (qaf103): [camera] death_jump_hold, GTA2DX9_CAM_DEATH_JUMP_HOLD (0 = off).
+bool CameraDeathJumpHoldOn() {
+    static int env = -2;
+    if (env == -2) { char b[8] = {}; env = GetEnvironmentVariableA("GTA2DX9_CAM_DEATH_JUMP_HOLD", b, sizeof b) ? atoi(b) : -1; }
+    return env >= 0 ? env != 0 : ViewModes().deathJumpHold;
+}
 // FIX-CAMERA-20 (qaexp52): [camera] chase_lattice_clip, GTA2DX9_CAM_LATTICE_CLIP (0 = off).
 bool CameraLatticeClipOn() {
     static int env = -2;
@@ -2838,6 +2844,32 @@ bool ViewCameraSolver::Update(const PlayerState& player, const ViewQueries& quer
     // south, so the row is mirrored exactly as the mesh builder mirrors it.
     float px = player.x;
     float pz = static_cast<float>(gta2::kMapHeight) - player.y;
+    {
+        // FIX-CAMERA-22 (qaf103: a car driven off the ste quay): dying at the wheel, the game names a new body (the
+        // hospital's) or the locator glances at a stranger 20 blocks off (`view: player ped id 1000`) one or more frames
+        // BEFORE its WASTED message, and the chase camera cut there for a frame before the beat cut back to the death
+        // place (the "hard cut" of the filing: one frame of another street, then WASTED). A jump of more than 6 blocks out
+        // of a car seat, with no beat running, holds the camera's last pose for up to 0.5 s; the beat, when the message
+        // comes, anchors on the death place (beats.cpp anchor_death) and takes the camera from there. Without a message
+        // (a warp, a respawn) the chase goes on after the hold. A same-frame message never holds (the beat is already on).
+        static float seenX = 0.0f, seenZ = 0.0f, seenAge = 99.0f, held = 0.0f;
+        static bool seenCar = false;
+        const float step = (dt > 0.0f && dt < 0.25f) ? dt : 1.0f / 30.0f;
+        seenAge += step;
+        const bool jumped = seenAge < 1.5f && seenCar && std::hypot(px - seenX, pz - seenZ) > 6.0f;
+        if (jumped && settled_ && !BeatActive() && held < 0.5f && CameraDeathJumpHoldOn()) {
+            if (held == 0.0f)
+                Log("cam: death jump hold: %.1f blocks from his seat %.2f s ago (%.2f,%.2f -> %.2f,%.2f), %s: the camera holds for the game's message",
+                    std::hypot(px - seenX, pz - seenZ), seenAge, seenX, seenZ, px, pz, player.inVehicle ? "in a car" : "on foot");
+            held += step;
+            beatcam::Apply(queries, dt, camera);
+            status_ = "third person, holding over his seat (a jump out of the car)";
+            return true;
+        }
+        if (held > 0.0f) Log("cam: death jump hold ends after %.2f s (%s)", held, BeatActive() ? "the beat is on" : "no message: the chase goes on");
+        held = 0.0f;
+        seenX = px; seenZ = pz; seenCar = player.inVehicle; seenAge = 0.0f;
+    }
     const float py = player.z;
     // FIX-KNOCKDOWN (kd_t3 #4): knocked down, the subject is his body where it lies (up to 0.9 block off the
     // game's spot), not the spot: the chase camera framed a truck while he lay at the edge behind a post.

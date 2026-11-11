@@ -1849,3 +1849,36 @@ filer's qaexp82_spray.py with a waypoint creep into the shop and a stuck-escape;
 The player's car logged no other `CHANGED` line over the ~45 s drive to the shop in any run (no flicker:
 the hold still holds dents and lamps). Classic is untouched (vreg spawn_classic). Untested: Remix, the
 other shops (wil, ste), other models, a respray while a ped is at the door.
+
+## Arrests in a car are the game's own; the death jump hold (FIX-CAMERA-22, 11 Nov 2026)
+
+- qaf106 / qaf107 (arrested seated at 4 and 5 stars, third person: he stands upright for ~7 s while his health drains,
+  then BUSTED; at 5 stars WASTED and a life lost). Classic baseline first, with the filer's loop (gamerun/cam22_bust.py,
+  keys keys_qa_cam22bust.sh, `C22_PLAN=view:stars,...`, bil scene car 50.5,92.5, seated and still): classic at 4 stars
+  (qa_cam22_c1) and at 5 stars twice (qa_cam22_c2, force_sirens=1, a beat cop first each time) show the same sequence:
+  the cop drags him out ('busted: punched down' is the renderer's label for that knockdown), he gets up (state 7 sub 0xE
+  is the ordinary on-foot state, not a hold), stands beside the car while the cop beats him 100 -> 10, a second
+  knockdown, BUSTED!, lives unchanged. The 3D BUSTED beat starts on the game's own big message, the frame classic shows
+  BUSTED!; starting it at the first knockdown would announce an arrest the game has not made. On HEAD (qa_cam22_b1) the
+  game arrested on the first knockdown in both third and first person (beat +0.4 s and +0.8 s): 3 fps sheets show the
+  drag-out among the cops, BUSTED! framed on him with his hands up, fade, station. qaf107's death: the FBI agents' car
+  knocked him down (state 8 sub 0x19, health 100 -> 50) and the agents killed him; no BUSTED message was ever given.
+  The renderer writes no ped health or state outside devtools test pokes. No code change; both released to triage as
+  classic parity.
+- qaf103 (a car driven off the ste quay, third and first person). The car rides on the water at z 1.0 in classic too
+  (the game's own behaviour: classic frames show the van on the sea ~1.5 s). With 23240b87 (anchor_death), the WASTED
+  beat now holds on the death place instead of the hospital (qa_cam22_w1: `the death place (already moved)`). One frame
+  before the message, the locator glanced at a stranger ped 20-31 blocks away (`view: player ped id 1000 (was 1)`),
+  and the chase camera cut there for one frame (a red-tinted foreign street at 15 fps) before the beat cut back.
+  `view_modes.cpp` (ViewCameraSolver::Update): a jump of more than 6 blocks out of a car seat with no beat running holds
+  the camera's last pose for up to 0.5 s, waiting for the game's message; the beat then takes the camera from there, and
+  a warp or respawn without a message carries on after the hold. Log `cam: death jump hold: ...` / `... ends after N s`.
+  `[camera] death_jump_hold=1` (default; 0 = before), env A/B `GTA2DX9_CAM_DEATH_JUMP_HOLD`.
+- Verified (ste, noon, plain GL, private stage = a690ba48 stage + this build): qa_cam22_w2 (the filer's qaf103_a.py,
+  classic/third/first): the hold fired once per death (0.03 s, `the beat is on`), 15 fps strips opened: third, the van
+  on the sea, then WASTED framed on the spot (water, the splash puffs); first, the windscreen, then WASTED over the spot.
+  No foreign frame. Before: qa_cam22_w1 (same build without the hold), one foreign frame in third.
+- Still short of classic (not this seat's files): at the beat the 3D van is gone (classic draws it sinking, a dark
+  smear, for ~0.7 s, and the splash as a white burst with debris); the 3D splash is soft cyan puffs (FX routing) and
+  the car body is not drawn sinking (car bodies). The third-person beat eye sits low over the water (h ~0.25 above it).
+  Untested: other quays, night, Remix, a slow drive in.
