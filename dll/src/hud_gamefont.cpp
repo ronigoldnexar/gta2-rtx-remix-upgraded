@@ -117,11 +117,27 @@ void HudGameFontCapture(const gta2::Style& style) {
         delete s;
         return;
     }
+    // FIX-HUD-7: the clock and counter panel's LCD cells (part 11, measured with GTA2DX9_HUD_LOG_GLYPHS in the
+    // wil fire-truck frenzy: the counter's "20" = 122 (blank), 125, 123; the clock's seconds 132..123 as they
+    // count down). Optional: the HUD keeps Barlow for the clock if they are missing or not 6x12.
+    int lcd = 0;
+    for (int d = 0; d <= 9; ++d) lcd += Whole(style, 123 + d, &set(GameGlyphSet::Lcd)['0' + d]) ? 1 : 0;
+    lcd += Whole(style, 122, &set(GameGlyphSet::Lcd)['#']) ? 1 : 0;
+    lcd += Whole(style, 121, &set(GameGlyphSet::Lcd)[':']) ? 1 : 0;
+    lcd += Whole(style, 120, &set(GameGlyphSet::Lcd)['.']) ? 1 : 0;
+    const GameGlyph& l0 = set(GameGlyphSet::Lcd)['0'];
+    const GameGlyph& lc = set(GameGlyphSet::Lcd)[':'];
+    if (lcd != 13 || l0.width != 6 || l0.height != 12 || lc.width != 2 || lc.height != 12) {
+        Log("hud3d: game glyphs: the clock panel's LCD cells not found (%d of 13, 0 is %dx%d): the clock keeps Barlow", lcd, l0.width, l0.height);
+        for (int c = 0; c < 128; ++c) set(GameGlyphSet::Lcd)[c] = GameGlyph();
+        lcd = 0;
+    }
     g_kept.push_back(s);
     g_store.store(s);
     const int gen = ++g_generation;
     Log("hud3d: game glyphs read from the style (generation %d): money $ 12x22 and 0-9 11x20, multiplier/lives x and 0-9 9x13, "
-        "hearts 15x14, font 1 %d characters (ammunition in font remap 6, labels in its own palette)", gen, label);
+        "hearts 15x14, font 1 %d characters (ammunition in font remap 6, labels in its own palette), clock LCD %s", gen, label,
+        lcd == 13 ? "0-9 6x12" : "none");
 }
 
 int HudGameFontGeneration() { return g_generation.load(); }

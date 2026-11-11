@@ -533,3 +533,38 @@ the timer's end (the game's FRENZY FAILED! over the cab, the gun now 20), third 
 gone, TANK CANNON 20). Not verified: a frenzy with kills (the scripted tank stays against the dock wall, so the counter
 never dropped below 35 in the run), an on-foot frenzy's K.F., other car weapons' names, Remix.
 
+
+## FIX-HUD-7: every frenzy's counter, the car gun's ammunition as classic writes it, the clock in the game's LCD (qaf90, 11 Nov 2026)
+
+Defect qaf90-wil-third-first-fire-truck-kill-frenzy-shows-only-the-clock: in the wil fire-truck frenzy (model 17 at
+5.5,26.5 z3, "Use the Fire Engine to knock down 20 people in 60 seconds!") the street views showed the clock alone.
+
+- **The counter was already read.** The filer's stage (240e3d2b) predates FIX-HUD-6 (a9810718): its `hud3d:` lines
+  carry no `cargun=` field. On a HEAD stage the fire truck's frenzy is the tank's case exactly: slot 0 holds the clock
+  and `+4` points at the kills still needed (`hud3d: counter slots 0:clock/ptr/...  (clock slot 0, counter slot 0 = 20)`),
+  and the truck's gun is car weapon type 20 (`cargun=20`). No frenzy is a special case: any slot with a value pointer
+  gives the counter, any car weapon type 11+ the weapon block. Not played here: an on-foot weapon frenzy, a gun-car
+  frenzy (same code path, untested).
+- **The chip's label.** A counter in the clock's own slot is a kill frenzy's: the chip reads KILLS; a counter in a slot
+  of its own keeps COUNT.
+- **Ammunition only when the game writes it.** Classic draws the water cannon's icon with no number (its ammunition
+  is 500, never shown), where the tank's gun gets "K.F." and later 20. Part 1's draws are watched: a quad 24 or more
+  game pixels tall and narrower than 24 is a font-1 cell of the ammunition (the money's digits are 20-22 tall, the
+  multiplier's 13, the icon 24+ wide); the street views write the ammunition only while the game drew such a cell in the
+  last three frames (`g_gameAmmoFrame`), and as before while part 1 is not seen at all. The truck's weapon reads
+  WATER CANNON (`CarWeaponName` 20).
+- **The clock and counter in the game's LCD.** Classic's frenzy panel (part 11, top left) is a green LCD: measured with
+  `GTA2DX9_HUD_LOG_GLYPHS=1` and the style's sprite index (the logged `pix` is the sprite page base + the SPRX offset,
+  so each quad names its sprite): user 123-132 are the digits 0-9 (6x12), 122 the unlit cell (the faint "8" classic
+  shows in a blank place), 121/120 the colon lit and dark (it blinks), 119 and its neighbours the plate. The clock
+  ("00:58", two minute digits as classic) and the counter (two cells at least, a leading unlit one under 10) are now
+  those cells (`GameGlyphSet::Lcd`, `hud_gamefont.cpp`), a game pixel apart as classic's 7-pixel pitch, on a plate of
+  the unlit cell's mean green (its 1/2.2 power: the HUD's vertex colours reach the screen squared), at 3x (18x36 at
+  720p) in whole pixels: the cells are a dithered plate with faint segments, which Scale2x/3x turned into blobs (tried,
+  fh7c). The chips, the clock face and the urgent red edge stay the modern ones. Barlow if the style lacks the cells
+  (`game_font=0`, a style without them: logged `clock LCD none`).
+- **A frenzy with kills, scripted.** `gamerun/fh7_a.py` (keys `keys_qa_fh7a.sh`) boards the truck as qaf90_a.py, shoots
+  all three views at the start, then with `FH7_HUNT=1` steers at the nearest standing person from the `view: peds`
+  line (hose held, reverse when stuck), cycles the views every `FH7_CYCLE` s and, when the counter drops, shoots
+  classic, third and first back to back. Two to three kills a 60 s frenzy (the wil yard is thin of people).
+  `GTA2_GPU=4 STAGE=<stage> QA_DISTRICT=wil PRIO=1 QA_ENV="-e GTA2DX9_STATE_EVERY=3 -e GTA2DX9_LOG_VEHICLES=1 -e FH7_HUNT=1 -e FH7_DUR=64 -e FH7_CYCLE=3" gamerun/qa_run.sh <name> 240 fh7a`

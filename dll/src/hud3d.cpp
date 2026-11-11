@@ -136,6 +136,10 @@ uint32_t g_partSeen[19] = {};         // the frame each part last drew in
 float g_part10MinY = 1e9f;             // top of the game's subtitle/portrait block (game y) in frame g_part10Frame
 uint32_t g_part10Frame = 0;
 Capture g_weaponIcon, g_portrait;
+// FIX-HUD-7 (qaf90): the last frame the game's part 1 drew an ammunition glyph (font 1, 25 rows; the money's
+// digits are 20-22, the multiplier's 13): classic writes no number under some car weapons (the fire truck's
+// water cannon, ammunition 500), so the street views show the ammunition only when the game writes it.
+uint32_t g_gameAmmoFrame = 0;
 Capture g_weaponBuild, g_portraitBuild;
 bool g_active = false;                // the modern HUD is on screen (decides the swallowing)
 bool g_street = false;                // a street view's camera was up at the last Hud3dRender
@@ -315,10 +319,12 @@ struct Values {
 };
 
 // The car weapons (the game's types 11..27, a car's slots of the inventory). Only the tank's is
-// verified (qaf2 / FIX-HUD-6, the wil dock frenzy tank); the others read as the car's gun.
+// verified (qaf2 / FIX-HUD-6, the wil dock frenzy tank) and the fire truck's (qaf90 / FIX-HUD-7); the others
+// read as the car's gun.
 const char* CarWeaponName(int raw) {
     switch (raw) {
         case 19: return "TANK CANNON";
+        case 20: return "WATER CANNON";   // FIX-HUD-7 (qaf90): the wil fire truck's (model 17)
         default: return "CAR GUN";
     }
 }
@@ -536,12 +542,12 @@ std::vector<uint32_t> Reauthor(const GameGlyph& g, int k, bool smooth, int* w, i
 }
 
 constexpr int kGlyphSets = static_cast<int>(GameGlyphSet::Count);
-constexpr int kGlyphSetsN = 8;
+constexpr int kGlyphSetsN = 9;
 static_assert(kGlyphSets == kGlyphSetsN, "one factor a set");
 struct BakedGlyph { int w = 0, h = 0; ImVec2 uv0, uv1; };
 struct GameGlyphs {
     bool on = false;
-    int k[kGlyphSetsN] = {1, 1, 1, 1, 1, 1, 1, 1};   // each set's integer factor
+    int k[kGlyphSetsN] = {1, 1, 1, 1, 1, 1, 1, 1, 1};   // each set's integer factor
     int gen = -1;
     BakedGlyph g[kGlyphSets][128];
 };
@@ -555,7 +561,8 @@ std::vector<PendingGlyph> QueueGameGlyphs(ImFontAtlas* atlas) {
     if (!g_cfg.gameFont || g_glyphs.gen <= 0) return out;
     for (int set = 0; set < kGlyphSets; ++set) {
         // 2 at 720p, 4 at 1440p; the weapon's name (font 1 letters) at half that
-        const float f = set == static_cast<int>(GameGlyphSet::Label) ? 1.0f : 2.0f;
+        // FIX-HUD-7: the clock's LCD cells (6x12, half the money's height) at 3 (18x36 at 720p)
+        const float f = set == static_cast<int>(GameGlyphSet::Label) ? 1.0f : set == static_cast<int>(GameGlyphSet::Lcd) ? 3.0f : 2.0f;
         g_glyphs.k[set] = (std::max)(1, static_cast<int>(std::lround(f * g_u)));
     }
     for (int set = 0; set < kGlyphSets; ++set)
@@ -564,7 +571,9 @@ std::vector<PendingGlyph> QueueGameGlyphs(ImFontAtlas* atlas) {
             if (!src) continue;
             PendingGlyph p;
             p.set = set; p.c = c;
-            p.img = Reauthor(*src, g_glyphs.k[set], g_cfg.glyphSmooth, &p.w, &p.h);
+            // FIX-HUD-7: the LCD cells are a dithered plate with faint unlit segments: Scale2x/3x turns that
+            // texture into blobs, so they are whole pixels (as classic's nearest)
+            p.img = Reauthor(*src, g_glyphs.k[set], g_cfg.glyphSmooth && set != static_cast<int>(GameGlyphSet::Lcd), &p.w, &p.h);
             p.rect = atlas->AddCustomRectRegular(p.w, p.h);
             out.push_back(std::move(p));
         }
@@ -2503,6 +2512,9 @@ void Draw(ImDrawList* dl, IDirect3DDevice9* device, const Values& v, float W, fl
         // -1 is a kill frenzy's weapon (the game sets its slot's ammunition to -1): classic writes K.F.
         if (v.ammo < 0) snprintf(ammo, sizeof ammo, "K.F.");
         else snprintf(ammo, sizeof ammo, "%d", (v.ammo + 9) / 10);
+        // FIX-HUD-7 (qaf90): the number only when the game writes one (its part 1 drew a font cell lately);
+        // while part 1 is not seen at all, as before.
+        if (g_partSeen[1] + 2 >= g_frame && g_gameAmmoFrame + 3 < g_frame) ammo[0] = 0;
         std::string name = v.carWeapon >= 0 ? CarWeaponName(v.carWeapon) : WeaponName(v.weapon);
         for (char& c : name) c = c == '_' ? ' ' : static_cast<char>(toupper(static_cast<unsigned char>(c)));
         ImVec2 as, ns;
@@ -2536,13 +2548,43 @@ void Draw(ImDrawList* dl, IDirect3DDevice9* device, const Values& v, float W, fl
     }
 
     // The clock and the counter, top centre.
+    // FIX-HUD-7: the digits in the game's own LCD cells (part 11's green panel: user 123-132, the unlit cell
+    // 122, the colon 121/120 blinking as classic's does), on a plate of the cells' own green; Barlow when the
+    // style has no such cells (game_font=0, another style).
     {
+        const bool lcd = GlyphsOn() && Glyph(GameGlyphSet::Lcd, '0') && Glyph(GameGlyphSet::Lcd, ':') && Glyph(GameGlyphSet::Lcd, '#');
+        const float lk = static_cast<float>(g_glyphs.k[static_cast<int>(GameGlyphSet::Lcd)]);
+        ImU32 plate = IM_COL32(0, 0, 0, 255);
+        if (lcd) {
+            if (const GameGlyph* blank = HudGameGlyph(GameGlyphSet::Lcd, '#')) {
+                // the plate between the cells: the blank cell's mean colour (the game's plate, user 119, is the same green)
+                double sum[3] = {0, 0, 0};
+                for (uint32_t c : blank->argb) { sum[0] += (c >> 16) & 0xFF; sum[1] += (c >> 8) & 0xFF; sum[2] += c & 0xFF; }
+                const double n = blank->argb.empty() ? 1.0 : static_cast<double>(blank->argb.size());
+                auto lin = [&](double x) { return static_cast<int>(std::lround(255.0 * std::pow(x / n / 255.0, 1.0 / 2.2))); };
+                plate = IM_COL32(lin(sum[0]), lin(sum[1]), lin(sum[2]), 255);   // the HUD's vertex colours reach the screen squared
+            }
+        }
+        // An LCD strip: the cells a game pixel apart (classic's 7-pixel pitch), on the plate one game pixel
+        // wider all round; returns its size.
+        auto lcdMeasure = [&](const char* t) {
+            const ImVec2 m = GlyphMeasure(GameGlyphSet::Lcd, t, 1.0f);
+            return ImVec2(m.x + 2 * lk, m.y + 2 * lk);
+        };
+        auto lcdDraw = [&](ImVec2 at, const char* t) {
+            const ImVec2 m = lcdMeasure(t);
+            const ImVec2 p0(std::floor(at.x + 0.5f), std::floor(at.y + 0.5f));
+            dl->AddRectFilled(ImVec2(p0.x + lk, p0.y + lk), ImVec2(p0.x + m.x + lk, p0.y + m.y + lk), IM_COL32(0, 0, 0, static_cast<int>(110 * A)));
+            dl->AddRectFilled(p0, ImVec2(p0.x + m.x, p0.y + m.y), Fade(plate, A));
+            GlyphText(dl, GameGlyphSet::Lcd, ImVec2(p0.x + lk, p0.y + lk), t, A, 1.0f, false);
+        };
         float cy = margin;
         if (v.timerTicks >= 0) {
             const int secs = (v.timerTicks + 29) / 30;
             char t[16];
-            snprintf(t, sizeof t, "%d:%02d", secs / 60, secs % 60);
-            const ImVec2 s = Measure(g_fonts.money, g_fonts.moneyPx * 0.85f, t);
+            // "00:58" as classic's panel; the colon blinks as the game's does (121 lit, 120 dark), half a second each
+            snprintf(t, sizeof t, lcd ? "%02d%c%02d" : "%d%c%02d", secs / 60, !lcd || std::fmod(an.time, 1.0f) < 0.5f ? ':' : '.', secs % 60);
+            const ImVec2 s = lcd ? lcdMeasure(t) : Measure(g_fonts.money, g_fonts.moneyPx * 0.85f, t);
             const float w = s.x + 60 * u, h = s.y + 8 * u;
             const ImVec2 a(W * 0.5f - w * 0.5f, cy), b(W * 0.5f + w * 0.5f, cy + h);
             const bool urgent = secs <= 10;
@@ -2554,19 +2596,25 @@ void Draw(ImDrawList* dl, IDirect3DDevice9* device, const Values& v, float W, fl
             dl->AddCircle(c, 10 * u, Fade(kWhite, A), 20, 2 * u);
             const float hand = an.time * 6.2831853f / 2.0f;
             dl->AddLine(c, ImVec2(c.x + std::sin(hand) * 7 * u, c.y - std::cos(hand) * 7 * u), Fade(kWhite, A), 2 * u);
-            Text(dl, g_fonts.money, g_fonts.moneyPx * 0.85f, ImVec2(a.x + 44 * u, a.y + 4 * u), urgent ? Mix(kWhite, kRed, blink) : kWhite, t, A);
+            if (lcd) lcdDraw(ImVec2(a.x + 44 * u, a.y + 4 * u), t);
+            else Text(dl, g_fonts.money, g_fonts.moneyPx * 0.85f, ImVec2(a.x + 44 * u, a.y + 4 * u), urgent ? Mix(kWhite, kRed, blink) : kWhite, t, A);
             cy = b.y + 8 * u;
         }
         if (v.counter >= 0) {
             char t[24];
-            snprintf(t, sizeof t, "%d", v.counter);
-            const ImVec2 s = Measure(g_fonts.heavy, g_fonts.heavyPx, t);
-            const ImVec2 ls = Measure(g_fonts.label, g_fonts.labelPx, "COUNT");
+            // two cells at least, the leading one unlit, as classic's panel ("#5")
+            if (lcd && v.counter < 10) snprintf(t, sizeof t, "#%d", v.counter);
+            else snprintf(t, sizeof t, "%d", v.counter);
+            // FIX-HUD-7: a counter in the clock's own slot is a kill frenzy's kills still needed
+            const char* label = v.counterSlot >= 0 && v.counterSlot == v.clockSlot ? "KILLS" : "COUNT";
+            const ImVec2 s = lcd ? lcdMeasure(t) : Measure(g_fonts.heavy, g_fonts.heavyPx, t);
+            const ImVec2 ls = Measure(g_fonts.label, g_fonts.labelPx, label);
             const float w = s.x + ls.x + 34 * u, h = s.y + 6 * u;
             const ImVec2 a(W * 0.5f - w * 0.5f, cy), b(W * 0.5f + w * 0.5f, cy + h);
             Panel(dl, a, b, A, kYellow);
-            Text(dl, g_fonts.label, g_fonts.labelPx, ImVec2(a.x + 14 * u, a.y + (h - ls.y) * 0.5f), Fade(kWhite, 0.75f), "COUNT", A);
-            Text(dl, g_fonts.heavy, g_fonts.heavyPx, ImVec2(b.x - 10 * u - s.x, a.y + 3 * u), kWhite, t, A);
+            Text(dl, g_fonts.label, g_fonts.labelPx, ImVec2(a.x + 14 * u, a.y + (h - ls.y) * 0.5f), Fade(kWhite, 0.75f), label, A);
+            if (lcd) lcdDraw(ImVec2(b.x - 10 * u - s.x, a.y + 3 * u), t);
+            else Text(dl, g_fonts.heavy, g_fonts.heavyPx, ImVec2(b.x - 10 * u - s.x, a.y + 3 * u), kWhite, t, A);
         }
     }
 
@@ -3086,6 +3134,11 @@ bool Hud3dSwallow(bool hud, int part, const void* texture, const void* corners, 
             float minX = k[0].x, maxX = k[0].x;
             for (int i = 1; i < count; ++i) { minX = (std::min)(minX, k[i].x); maxX = (std::max)(maxX, k[i].x); }
             if (maxX - minX >= 24.0f) Note(&g_weaponIcon, texture, k, count);   // not a digit of the score (12x22)
+            else {
+                float minY = k[0].y, maxY = k[0].y;
+                for (int i = 1; i < count; ++i) { minY = (std::min)(minY, k[i].y); maxY = (std::max)(maxY, k[i].y); }
+                if (maxY - minY >= 24.0f) g_gameAmmoFrame = g_frame;   // FIX-HUD-7: a font-1 cell, the ammunition
+            }
         }
         else if (part == 10) {
             Note(&g_portrait, texture, k, count);

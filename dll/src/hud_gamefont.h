@@ -23,6 +23,8 @@ enum class GameGlyphSet {
     Label,    // font 1 in its own palette (gold): letters for the weapon's name
     Pop,      // the same glyphs at the ammunition's size: the money's gain pop
     Heart,    // 'H' the full heart (user 113, 15x14), 'h' the small one (user 114)
+    Lcd,      // FIX-HUD-7: the clock/counter panel's green LCD (part 11): 0-9 user 123-132 (6x12), '#' the unlit
+              // cell (user 122, the game's blank leading digit), ':' the colon (121), '.' the colon off (120, 2x12)
     Count
 };
 
