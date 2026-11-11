@@ -9733,6 +9733,26 @@ void SetContactShadows(int percent) { g_contactShadows = (std::max)(0, (std::min
 int g_tyreShadows = 1;   // [renderer] tyre_shadows=0: no per-tyre contact patch (VEHICLE-ART-5)
 void SetTyreShadows(int on) { g_tyreShadows = on ? 1 : 0; }
 namespace {
+// FIX-KNOCKDOWN-5 / FIX-FIGURE-18 (pm24): the figures' spacing solved jointly (GTA2DX9_SEP_JOINT=0: per figure, as
+// before). [devtools] sep_joint=0|1 overrides it live (re-read every 0.25 s; -1 or unset: the env), for an A/B of one
+// walking group within one burst.
+bool SepJointOn() {
+    static int env = -1, dev = -1;
+    static ULONGLONG readAt = 0;
+    if (env < 0) { char v[8] = {}; env = (GetEnvironmentVariableA("GTA2DX9_SEP_JOINT", v, sizeof v) && v[0] == '0') ? 0 : 1; }
+    if (CarBodiesDevIni()[0] && GetTickCount64() - readAt > 250) {
+        readAt = GetTickCount64();
+        const int v = GetPrivateProfileIntA("devtools", "sep_joint", -1, CarBodiesDevIni());
+        if (v != dev) Log("devtools: sep_joint %d", v);
+        dev = v;
+    }
+    return dev >= 0 ? dev != 0 : env == 1;
+}
+// FIX-FIGURE-18 (pm24): the joint solve keeps a close pair's drawn order (GTA2DX9_SEP_SIDE_KEEP=0: along their points).
+bool SepSideKeepOn() {
+    static const bool on = [] { char v[8] = {}; return !(GetEnvironmentVariableA("GTA2DX9_SEP_SIDE_KEEP", v, sizeof v) && v[0] == '0'); }();
+    return on;
+}
 bool FigureShadowPm20() {
     static const bool on = [] { char b[8] = {}; return GetEnvironmentVariableA("GTA2DX9_FIG_SHADOW_PM20", b, sizeof b) && b[0] == '1'; }();
     return on;
@@ -10229,7 +10249,8 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
     // draw-only separation below. GTA2DX9_NO_FIGURE_SEP=1 turns it off (A/B).
     static const bool sepOff = [] { char b[8] = {}; return GetEnvironmentVariableA("GTA2DX9_NO_FIGURE_SEP", b, sizeof b) && b[0] == '1'; }();
     struct SepPed { uintptr_t object; float x, y, z; bool player; float fx = 0.0f, fz = 0.0f, speed = 0.0f;
-                    float ux = 0.0f, uz = 0.0f; bool movable = false; };   // FIX-FIGURE-16: its point before its own separation
+                    float ux = 0.0f, uz = 0.0f; bool movable = false;   // FIX-FIGURE-16: its point before its own separation
+                    float jx = 0.0f, jz = 0.0f; };   // FIX-KNOCKDOWN-5: its offset from the joint solve
     static std::vector<SepPed> sepPeds;
     sepPeds.clear();
     static CarFootprint sepCars[96];
@@ -10257,6 +10278,81 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             if (tr != pedTracks_.end()) {   // FIX-KNOCKDOWN-4 (pm24): his facing and pace, for the single-file spacing
                 sepPeds.back().fx = std::sin(tr->second.heading); sepPeds.back().fz = std::cos(tr->second.heading);
                 sepPeds.back().speed = tr->second.drawnSpeed;
+            }
+        }
+        // FIX-KNOCKDOWN-5 (pm24 residual): the spacing solved for everyone at once. Pushed one figure at a time, a
+        // tight gang never opened: each push off one neighbour moved him toward another, the 'never into a third
+        // person' rule halved it to nothing, and a file of five the game walks 0.03-0.06 apart was drawn 0.02-0.10
+        // apart, shoulders inside backs (tri46_file f=1008-1044). Here every pair closer than a body (a stride in a
+        // file) is pushed apart from the points before separation, eight passes, so the push travels through the
+        // group: half each when both may move; in a file all of it to the follower, straight back along his way
+        // (the file opens from its head); nobody moves more than 0.3 block. Draw-only: the game's positions are
+        // never written. GTA2DX9_SEP_JOINT=0: the per-figure push as before (A/B).
+        if (SepJointOn() && sepPeds.size() > 1 && sepPeds.size() < 160) {
+            constexpr float kBodyJ = 0.14f, kFileJ = 0.18f, kMaxJ = 0.3f;   // FIX-FIGURE-18: a file's stride 0.18 (0.22 could not open five within the cap)
+            const size_t n = sepPeds.size();
+            for (int pass = 0; pass < 8; ++pass) {
+                for (size_t i = 0; i < n; ++i) {
+                    SepPed& a = sepPeds[i];
+                    const bool am = a.movable && !a.player;
+                    for (size_t j = i + 1; j < n; ++j) {
+                        SepPed& b = sepPeds[j];
+                        const bool bm = b.movable && !b.player;
+                        if ((!am && !bm) || std::fabs(a.y - b.y) > 0.4f) continue;
+                        float dx = (a.ux + a.jx) - (b.ux + b.jx), dz = (a.uz + a.jz) - (b.uz + b.jz);
+                        float d2 = dx * dx + dz * dz;
+                        if (d2 >= kFileJ * kFileJ) continue;
+                        // a file: both walking the same way, one behind the other
+                        const bool file = !a.player && !b.player && a.speed > 0.4f && b.speed > 0.4f && a.fx * b.fx + a.fz * b.fz > 0.8f;
+                        if (file) {
+                            const float along = dx * a.fx + dz * a.fz;   // + : a is ahead of b
+                            const float d = std::sqrt(d2);
+                            if (std::fabs(along) > 0.6f * d) {
+                                SepPed& f = along > 0.0f ? b : a;   // the follower
+                                const bool fm = along > 0.0f ? bm : am;
+                                const float need = kFileJ - std::fabs(along);
+                                if (fm && need > 0.0f) { f.jx -= f.fx * need; f.jz -= f.fz * need; }
+                                else if (need > 0.0f && d < kBodyJ) {   // the follower may not move: the leader steps on
+                                    SepPed& l = along > 0.0f ? a : b;
+                                    const float k = kBodyJ - d;
+                                    l.jx += l.fx * k; l.jz += l.fz * k;
+                                }
+                                continue;
+                            }
+                        }
+                        if (d2 >= kBodyJ * kBodyJ) continue;
+                        float d = std::sqrt(d2);
+                        if (d < 1e-4f) {
+                            const uint32_t h = static_cast<uint32_t>((a.object ^ b.object) >> 4) * 2654435761u;
+                            const float ang = static_cast<float>(h & 1023) / 1024.0f * 6.2831853f;
+                            dx = std::cos(ang) * (a.object < b.object ? 1.0f : -1.0f); dz = std::sin(ang) * (a.object < b.object ? 1.0f : -1.0f);
+                            d = 1.0f; d2 = 0.0f;
+                        }
+                        float deficit = kBodyJ - (d2 > 0.0f ? d : 0.0f);
+                        // FIX-FIGURE-18 (pm24): two people passing keep their sides. Pushed along the line between their
+                        // points, the push turned over as the game moved one past the other, and the eased offset passed
+                        // through zero with them inside each other (fig18_file1 f=1554-1561: two runners, game 0.02-0.13,
+                        // drawn 0.04-0.08 for 8 frames). Along the way they were DRAWN apart last frame instead, when
+                        // that is known: the push keeps last frame's order.
+                        if (SepSideKeepOn()) {
+                            const float ddx = a.x - b.x, ddz = a.z - b.z, dl = std::sqrt(ddx * ddx + ddz * ddz);
+                            if (dl > 0.02f) {
+                                const float nx = ddx / dl, nz = ddz / dl;
+                                const float proj = (d2 > 0.0f ? dx * nx + dz * nz : 0.0f);
+                                if (proj >= kBodyJ) continue;
+                                dx = nx; dz = nz; d = 1.0f;
+                                deficit = (std::min)(kBodyJ - proj, 2.0f * kBodyJ);
+                            }
+                        }
+                        const float wa = am ? (bm ? 0.5f : 1.0f) : 0.0f, wb = bm ? (am ? 0.5f : 1.0f) : 0.0f;
+                        a.jx += dx / d * deficit * wa; a.jz += dz / d * deficit * wa;
+                        b.jx -= dx / d * deficit * wb; b.jz -= dz / d * deficit * wb;
+                    }
+                }
+                for (SepPed& a : sepPeds) {
+                    const float l = std::sqrt(a.jx * a.jx + a.jz * a.jz);
+                    if (l > kMaxJ) { a.jx *= kMaxJ / l; a.jz *= kMaxJ / l; }
+                }
             }
         }
         sepCarCount = CarBodiesFootprints(sepCars, 96);
@@ -11616,7 +11712,13 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 float fileBack = 0.0f;
                 static int pairOld = -1;   // FIX-FIGURE-16 (pm24), see below
                 if (pairOld < 0) { char v[8] = {}; pairOld = (GetEnvironmentVariableA("GTA2DX9_SEP_PAIR_OLD", v, sizeof v) && v[0] == '1') ? 1 : 0; }
+                // FIX-KNOCKDOWN-5: the joint solve's offset for him (above) replaces the pair pushes and the file's yield.
+                const SepPed* joint = nullptr;
+                if (SepJointOn() && !pairOld)
+                    for (const SepPed& o : sepPeds) if (o.object == sprite.object && o.movable && !o.player) { joint = &o; break; }
+                if (joint) { sx = joint->jx; sz = joint->jz; }
                 for (const SepPed& o : sepPeds) {
+                    if (joint) break;
                     if (o.object == sprite.object || std::fabs(o.y - cy) > 0.4f) continue;
                     float dx = selfX - o.x, dz = selfZ - o.z;
                     float d2 = dx * dx + dz * dz;
@@ -11667,7 +11769,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 }
                 const float fileX = -selfFx * fileBack, fileZ = -selfFz * fileBack;
                 float sl = std::sqrt(sx * sx + sz * sz);
-                if (sl > 0.2f) { sx *= 0.2f / sl; sz *= 0.2f / sl; }
+                if (sl > 0.2f && !joint) { sx *= 0.2f / sl; sz *= 0.2f / sl; }
                 sx += fileX; sz += fileZ;
                 sl = std::sqrt(sx * sx + sz * sz);
                 if (sl > 0.3f) { sx *= 0.3f / sl; sz *= 0.3f / sl; }
@@ -11734,13 +11836,13 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     }
                 }
                 const float tl = std::sqrt(sx * sx + sz * sz);
-                const float cap = inCar ? 0.6f : eyePush ? 0.42f : fileBack > 0.0f ? 0.3f : 0.2f;
+                const float cap = inCar ? 0.6f : eyePush ? 0.42f : (fileBack > 0.0f || joint) ? 0.3f : 0.2f;
                 if (tl > cap) { sx *= cap / tl; sz *= cap / tl; }
                 // FIX-FIGURE-16 (pm24): never into a third person. Pushed off one neighbour or dropped back in a file, a
                 // figure was drawn inside another the game had kept apart (fig16_file3: game 0.115 -> drawn 0.022, 0.145 ->
                 // 0.056). The offset is halved (up to four times) while it would put him closer than a body to anyone,
                 // and closer than he is by the unmoved points. Not out of a car body or the eye (those must clear).
-                if (!pairOld && !inCar && !eyePush && (sx != 0.0f || sz != 0.0f)) {
+                if (!pairOld && !joint && !inCar && !eyePush && (sx != 0.0f || sz != 0.0f)) {
                     for (int tries = 0; tries < 4; ++tries) {
                         bool worse = false;
                         for (const SepPed& o : sepPeds) {
@@ -11791,7 +11893,24 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             static std::vector<SepSeen> sepSeen;
             static uint32_t sepRawPairs = 0, sepDrawnPairs = 0, sepFixedPairs = 0;
             static uint32_t fileRawPairs = 0, fileDrawnPairs = 0;   // FIX-KNOCKDOWN-4 (pm24): walking the same way, one within 0.16 behind the other
+            // FIX-FIGURE-18 (pm24): the same counts split by the joint solve's state that frame ([devtools] sep_joint flipped
+            // live gives an A/B over one crowd): frames, pairs closer than 0.10 by the game / drawn / drawn closer than 0.06,
+            // and of them both walking.
+            static uint32_t abFrames[2] = {}, abRaw[2] = {}, abDrawn[2] = {}, abDeep[2] = {}, abWRaw[2] = {}, abWDrawn[2] = {}, abWDeep[2] = {};
             if (sepFrame != g_carFrame) {
+                const int abJ = SepJointOn() ? 1 : 0;
+                ++abFrames[abJ];
+                for (size_t i = 0; i < sepSeen.size(); ++i)
+                    for (size_t j = i + 1; j < sepSeen.size(); ++j) {
+                        if (std::fabs(sepSeen[i].y - sepSeen[j].y) > 0.4f || sepSeen[i].object == sepSeen[j].object) continue;
+                        const float rdx = sepSeen[i].rx - sepSeen[j].rx, rdz = sepSeen[i].rz - sepSeen[j].rz;
+                        if (rdx * rdx + rdz * rdz >= 0.01f) continue;
+                        const float gdx = sepSeen[i].gx - sepSeen[j].gx, gdz = sepSeen[i].gz - sepSeen[j].gz, g2 = gdx * gdx + gdz * gdz;
+                        const bool walk = sepSeen[i].speed > 0.4f && sepSeen[j].speed > 0.4f;
+                        ++abRaw[abJ]; if (walk) ++abWRaw[abJ];
+                        if (g2 < 0.01f) { ++abDrawn[abJ]; if (walk) ++abWDrawn[abJ]; }
+                        if (g2 < 0.0036f) { ++abDeep[abJ]; if (walk) ++abWDeep[abJ]; }
+                    }
                 for (size_t i = 0; i < sepSeen.size(); ++i)
                     for (size_t j = i + 1; j < sepSeen.size(); ++j) {
                         if (std::fabs(sepSeen[i].y - sepSeen[j].y) > 0.4f) continue;
@@ -11799,6 +11918,25 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                         const float rdx = sepSeen[i].rx - sepSeen[j].rx, rdz = sepSeen[i].rz - sepSeen[j].rz;
                         const float gdx = sepSeen[i].gx - sepSeen[j].gx, gdz = sepSeen[i].gz - sepSeen[j].gz;
                         if (rdx * rdx + rdz * rdz < 0.01f) ++sepRawPairs;
+                        // FIX-FIGURE-18 (pm24): two walkers the game keeps closer than 0.10 for 4 frames running, with where
+                        // they are (game x,y) and which way he walks, so a probe can aim its camera at them while it lasts.
+                        if (rdx * rdx + rdz * rdz < 0.01f && sepSeen[i].speed > 0.4f && sepSeen[j].speed > 0.4f && !sepSeen[i].player && !sepSeen[j].player) {
+                            static std::map<uint64_t, std::pair<uint32_t, int>> closeRun;
+                            const uint64_t key = (static_cast<uint64_t>((std::min)(sepSeen[i].object, sepSeen[j].object)) << 32) |
+                                                 static_cast<uint64_t>((std::max)(sepSeen[i].object, sepSeen[j].object) & 0xFFFFFFFFu);
+                            auto& cr = closeRun[key];
+                            cr.second = cr.first + 1 == g_carFrame ? cr.second + 1 : 1;
+                            cr.first = g_carFrame;
+                            static int closeLogs = 0;
+                            if ((cr.second == 4 || (cr.second > 4 && cr.second % 6 == 0)) && closeLogs < 300) {
+                                ++closeLogs;
+                                Log("figure close walkers: f=%u %08x %08x %d frames at %.2f,%.2f dir %.2f,%.2f game %.3f drawn %.3f joint %d", g_carFrame,
+                                    static_cast<unsigned>(sepSeen[i].object), static_cast<unsigned>(sepSeen[j].object), cr.second,
+                                    0.5f * (sepSeen[i].rx + sepSeen[j].rx), static_cast<float>(gta2::kMapHeight) - 0.5f * (sepSeen[i].rz + sepSeen[j].rz),
+                                    sepSeen[i].fx, -sepSeen[i].fz, std::sqrt(rdx * rdx + rdz * rdz), std::sqrt(gdx * gdx + gdz * gdz), SepJointOn() ? 1 : 0);
+                            }
+                            if (closeRun.size() > 256) closeRun.clear();
+                        }
                         if (sepSeen[i].speed > 0.4f && sepSeen[j].speed > 0.4f && sepSeen[i].fx * sepSeen[j].fx + sepSeen[i].fz * sepSeen[j].fz > 0.8f) {
                             const float ra = std::fabs(rdx * sepSeen[i].fx + rdz * sepSeen[i].fz), ga = std::fabs(gdx * sepSeen[i].fx + gdz * sepSeen[i].fz);
                             if (rdx * rdx + rdz * rdz < 0.16f * 0.16f && ra * ra > 0.36f * (rdx * rdx + rdz * rdz)) ++fileRawPairs;
@@ -11807,10 +11945,11 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                         if (gdx * gdx + gdz * gdz < 0.01f) {
                             ++sepDrawnPairs; if (!sepSeen[i].movable && !sepSeen[j].movable) ++sepFixedPairs;
                             static int pairLog = 0;
-                            if (pairLog < 60) { ++pairLog; Log("figure sep pair: f=%u %08x(st %d%s%s) %08x(st %d%s%s) game %.3f drawn %.3f", g_carFrame,
-                                static_cast<unsigned>(sepSeen[i].object), sepSeen[i].state, sepSeen[i].movable ? " mov" : "", sepSeen[i].player ? " player" : "",
-                                static_cast<unsigned>(sepSeen[j].object), sepSeen[j].state, sepSeen[j].movable ? " mov" : "", sepSeen[j].player ? " player" : "",
-                                std::sqrt(rdx * rdx + rdz * rdz), std::sqrt(gdx * gdx + gdz * gdz)); }
+                            // FIX-FIGURE-18: 400 lines (60 went on standing crossings in the first minute), the joint solve's state
+                            if (pairLog < 400) { ++pairLog; Log("figure sep pair: f=%u %08x(st %d%s%s v%.1f) %08x(st %d%s%s v%.1f) joint %d game %.3f drawn %.3f", g_carFrame,
+                                static_cast<unsigned>(sepSeen[i].object), sepSeen[i].state, sepSeen[i].movable ? " mov" : "", sepSeen[i].player ? " player" : "", sepSeen[i].speed,
+                                static_cast<unsigned>(sepSeen[j].object), sepSeen[j].state, sepSeen[j].movable ? " mov" : "", sepSeen[j].player ? " player" : "", sepSeen[j].speed,
+                                SepJointOn() ? 1 : 0, std::sqrt(rdx * rdx + rdz * rdz), std::sqrt(gdx * gdx + gdz * gdz)); }
                         }
                     }
                 sepSeen.clear();
@@ -11818,6 +11957,10 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 if (++sepFrames >= 300) {
                     Log("figure sep: %.4f ms a frame over %u frames (%zu people, %d car bodies); pairs closer than 0.10: %u by the game, %u drawn (%u of them two figures it may not move); in file closer than 0.16: %u by the game, %u drawn",
                         sepMs / sepFrames, sepFrames, sepPeds.size(), sepCarCount, sepRawPairs, sepDrawnPairs, sepFixedPairs, fileRawPairs, fileDrawnPairs);
+                    Log("figure sep A/B (game<0.10 / drawn<0.10 / drawn<0.06; walking): per-figure %u frames %u/%u/%u; %u/%u/%u | joint %u frames %u/%u/%u; %u/%u/%u",
+                        abFrames[0], abRaw[0], abDrawn[0], abDeep[0], abWRaw[0], abWDrawn[0], abWDeep[0],
+                        abFrames[1], abRaw[1], abDrawn[1], abDeep[1], abWRaw[1], abWDrawn[1], abWDeep[1]);
+                    for (int q = 0; q < 2; ++q) abFrames[q] = abRaw[q] = abDrawn[q] = abDeep[q] = abWRaw[q] = abWDrawn[q] = abWDeep[q] = 0;
                     sepMs = 0.0; sepFrames = 0; sepRawPairs = 0; sepDrawnPairs = 0; sepFixedPairs = 0; fileRawPairs = 0; fileDrawnPairs = 0;
                 }
             }

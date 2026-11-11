@@ -2207,3 +2207,42 @@ was dragged through it), fig18_fp4 (recentre from 0.9 s left as he landed: moved
 down by the player's kick-free combos while running; a blow that kills (state 9: the corpse is followed the same way, not
 filmed); the lying body against kerb furniture (fig18_fp4: an arm through a fire hydrant, the game's own fall); several
 victims at once (the last knock-down is followed).
+
+## FIX-FIGURE-18 (11 Nov 2026): pm24 residual, a tight group opened jointly
+
+**Cause** (FIX-KNOCKDOWN-5's analysis, re-measured). The draw-only separation pushed one figure at a time off each
+neighbour; in a group of five or six one push moved him toward another and FIGURE-16's "never into a third person"
+rule halved it to nothing, so a group the game walks 0.03-0.07 apart was drawn inside itself. Two people passing each
+other also overlapped for a few frames: the push followed the line between their points, turned over as the game moved
+one past the other, and the eased offset went through zero with them inside each other (fig18_file1 f=1554-1561).
+
+**Fix** (live_geometry.cpp, the separation gather; FIX-KNOCKDOWN-5's parked joint-relaxation patch, completed): every
+pair closer than a body (0.14) is pushed apart from the points before separation, all at once, eight passes, so a push
+travels through the group; half each when both may move; in a file all of it to the follower, straight back to a 0.18
+stride (KD5's 0.22 could not open five within the cap); nobody more than 0.3. New: a close pair keeps last frame's DRAWN
+order (pushed along where they were drawn apart, so passing people keep their sides; `GTA2DX9_SEP_SIDE_KEEP=0` = along
+their points). The per-figure pair pushes, the file yield and the third-person halving are skipped for a figure the joint
+solve placed. Draw-only, eased as before (out at 1.5 block/s, back over 0.25 s). `GTA2DX9_SEP_JOINT=0` = the per-figure
+push; `[devtools] sep_joint=0|1` flips it live (re-read every 0.25 s) for an A/B over one crowd. Logs: the 300-frame
+`figure sep A/B` line (pairs the game keeps closer than 0.10 / drawn closer than 0.10 / drawn closer than 0.06, all and
+walking, split by the state that frame), `figure close walkers` (two walkers the game keeps within 0.10 for 4 frames,
+with where they are, for a probe's camera), `figure sep pair` (400 lines now, with speeds and the state).
+
+**Measured** (wil loony streets 49.5,23.5 / 64.5,23.95 / 80.5,36.5, third view, the player standing; private stage =
+repo/stage + this build, GPU 5). Same crowd, the state flipped every 5 s (`gamerun/fig18_ab.py`, keys `keys_fig18_ab.sh`,
+run fig18_ab1, 0 FAULT):
+
+| state | frames | pairs closer than 0.10 by the game | drawn closer than 0.10 | drawn closer than 0.06 | walking: drawn < 0.10 / < 0.06 |
+|---|---|---|---|---|---|
+| per-figure push (before) | 3311 | 648 | 68 (10.5 %) | 27 (4.2 %) | 56 / 21 of 570 (9.8 / 3.7 %) |
+| joint solve (after) | 3289 | 489 | 15 (3.1 %) | 2 (0.4 %) | 13 / 2 of 429 (3.0 / 0.5 %) |
+
+Cost 0.07-0.08 ms a frame at 65-69 people. Steady pairs (the same pair drawn closer than 0.10 for 5+ frames): with the
+joint solve the worst was drawn 0.092-0.098 (shoulders touching) where the game had them 0.008-0.10 apart (fig18_file2);
+with the per-figure push 0.014-0.072 (inside each other). Frames: `gamerun/fig18_close.py` (keys `keys_fig18_close.sh`)
+aims the regress camera at a `figure close walkers` pair and alternates the state every 1.2 s in a 5 s burst (runs
+fig18_close1/2): a loony three walking tight with the joint solve is three whole bodies (fig18_close1 close6 +3.1 s).
+
+**Not done**: a zoomed before/after of the SAME pair (the close pairs last 4-12 frames: by the time the camera is on them
+they have parted; only groups were filmed); the filed five-man gang file was not met in 4 runs; people standing in a knot
+(not walking) are opened the same way but not looked at in frames; Remix.
