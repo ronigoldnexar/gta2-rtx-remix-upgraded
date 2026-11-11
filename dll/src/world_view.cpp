@@ -732,7 +732,9 @@ void WorldView::MatchGameViewToFrame() {
     // From the ground the camera looks along either axis, so the window is made
     // square: with the stock 16:9 shape traffic was created six blocks ahead
     // when looking along the short axis, and popped into clear air.
-    g_viewAspect = ground ? static_cast<int32_t>(0x4000 * widen + 0.5f)
+    // FIX-PERF-8: while the grid guard has the window fully back at the game's own size (5+ stars, a shed),
+    // its shape is the game's own too, so the game keeps exactly what the classic view keeps.
+    g_viewAspect = ground && !DensityClassicWindow() ? static_cast<int32_t>(0x4000 * widen + 0.5f)
                           : static_cast<int32_t>(game::kViewAspectStock / widen + 0.5f);
     // The game's car and people budgets grow with that window (density.cpp);
     // the classic view gets them back as shipped.

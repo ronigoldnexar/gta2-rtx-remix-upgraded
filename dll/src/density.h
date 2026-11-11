@@ -36,6 +36,8 @@ void SetGridHeadroom(int mode, int wantedHold, int wantedWindowPercent);
 // The street views' scale of the game's window (gameViewScale) as the grid guard lets it stand now:
 // the scale itself, or less (down to 1, the game's own) while the guard sheds (FIX-PERF-8).
 float DensityGameViewScale(float scale);
+// True while that scale is held at 1 (the game's own size): the window then takes the game's own shape too.
+bool DensityClassicWindow();
 
 // 0 for any of these turns that part off (the game's own value is kept).
 void SetDensity(int trafficCap, int pedDensityScale, int pedCap);

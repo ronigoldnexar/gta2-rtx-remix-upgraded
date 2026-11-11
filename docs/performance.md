@@ -1893,6 +1893,8 @@ fires' smoke inside the wide window; the pool at 255-375), classic at the same s
 - The column pool keeps FIX-PERF-6's levels. `grid_headroom=1` is FIX-PERF-6's guard alone, 0 none;
   `GTA2DX9_GRID_HEADROOM`, `GTA2DX9_WANTED_HOLD`, `GTA2DX9_WANTED_WINDOW` override for a run. Log lines
   `density: grid hold` / `grid hold off` / `grid shed` / `grid shed off`.
+- While the window is held fully at the game's own size (scale 1.0) it also takes the game's own shape: the street views
+  otherwise make it square, which at 16:9 is ~1.8x the classic window's area (see the same-spot runs below).
 - The classic view is never touched: its window is computed without the guard and every density byte goes back.
 
 ### After: the same 3 + 1 runs
@@ -1915,3 +1917,36 @@ particles) is gone at 5-6 stars. The game's pool and allocator are not patched. 
 What the player sees: at 5-6 stars the far streets of the third- and first-person views are as empty as the classic
 game's window (cars and people further out than the top-down window are removed), and they fill again within ~8 s of
 the stars going.
+
+### The same spot as the pre-fix crash, on foot, six stars for two minutes (`perf8_six.py` `P8_FOOT=1 P8_AT=26.5,93.3`)
+
+The spot of `perf8_pre_f1`'s fault: a wall the six-star army keeps on fire. One run each, first person unless named:
+
+| run | window at 5-6 stars | lowest free | free p10 / median | particle nodes median / max | samples under 250 | FAULT |
+|---|---|---|---|---|---|---|
+| `perf8_spot` (c50a42f7) | 1.0x, square | 158 | 188 / 257 | 379 / 469 | 111 of 243 | no |
+| `perf8_spot2` (this commit) | 1.0x, the game's own shape | 269 | 308 / 352 | 299 / 381 | 0 of 248 | no |
+| `perf8_spot_cls` (classic, the game as shipped) | the game's | 350 | 391 / 425 | 216 / 288 | 0 of 248 | no |
+
+Cars and people are the same in all three (car nodes 430-443, people 31-33). The square window's extra area kept ~80
+particle nodes more, and the game-shaped one still keeps ~80 more than classic (one run each: the army's fire differs run to
+run, and the game's own camera height in the street views may differ from the classic one: not measured). The late frame
+of `perf8_spot2` (first person, alive at 100 health, six stars, two minutes in) is opened and healthy.
+
+### The 20-minute soak at 0-2 stars: what the ordinary drive keeps (bil, third person, `keys_qa_stress3_third.sh`)
+
+Same build, interleaved by time (Y then X would be better; one pair): `perf8_soak1` = `grid_headroom=2`, `perf8_soak0` =
+`GTA2DX9_GRID_HEADROOM=1` (FIX-PERF-6's guard). Census every 150 frames, street-view lines only:
+
+| run | third frames | over 50 ms | avg / p99 ms | traffic median (p10) | vehicles | driven within 16 | dummies | people in window | free median / lowest | holds / sheds | FAULT |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| `perf8_soak0` (FIX-PERF-6) | 36 955 | 3.7 % | 35.8 / 57.2 | 24 (18) | 89 | 7.5 | 51 | 46 | 575 / 345 | 4 census lines held | 0 |
+| `perf8_soak1` (FIX-PERF-8) | 35 650 | 2.5 % | 34.9 / 57.9 | 24 (23) | 89 | 8 | 55 | 48 | 566 / 406 | 12 holds of 6 s, 1 shed of 41 s | 0 |
+
+The ordinary drive keeps its traffic and people: the raised budgets are in force the whole soak but for the twelve
+6-second holds (a blast's fall seen 8 s ahead) and one 41-second shed at 0 stars (414 free falling 37 a second: the
+window went to 1.0x and the far streets emptied for that time). Frames over 50 ms are within the host's swing of each
+other and of FIX-PERF-7's drives (7.2-13.1 %); FIX-PERF-6's reference soak was 20.0 %.
+
+Untested: ste and wil at six stars (ORDER 2 below if run), night, rain, Remix, and a long on-foot rampage that earns
+six stars by play rather than `force_wanted`.

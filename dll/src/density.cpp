@@ -186,6 +186,7 @@ double g_slopeHoldSince = 0.0;
 bool g_shed = false;
 double g_shedSince = 0.0, g_unshedCalmSince = -1.0;
 float g_scaleCap = 4.0f;    // most the game's window may be scaled now (1: the game's own)
+float g_scaleAsked = 4.0f;  // the street views' scale as last asked (DensityGameViewScale)
 double g_scaleLast = 0.0;
 int g_sheds = 0, g_holds = 0;
 
@@ -609,6 +610,7 @@ void GridGuard(bool ground, int freeCells, int stars) {
     }
     const double dt = g_scaleLast > 0.0 && now - g_scaleLast < 1.0 ? now - g_scaleLast : 0.0;
     g_scaleLast = now;
+    if (g_scaleCap > g_scaleAsked) g_scaleCap = g_scaleAsked;   // shrink from what is in force, not from the ceiling
     const float target = g_shed ? 1.0f : (wanted ? g_wantedScale : 4.0f);
     if (g_scaleCap > target)
         g_scaleCap = static_cast<float>((std::max)(static_cast<double>(target), g_scaleCap - kShrinkPerSecond * dt));
@@ -638,8 +640,11 @@ void SetGridHeadroom(int mode, int wantedHold, int wantedWindowPercent) {
             kGridCellLow, kGridColumnLow);
 }
 
+bool DensityClassicWindow() { return g_gridWatch == 2 && g_scaleCap <= 1.0f; }
+
 float DensityGameViewScale(float scale) {
     if (g_gridWatch != 2) return scale;
+    g_scaleAsked = scale;
     const float cap = g_scaleCap < 1.0f ? 1.0f : g_scaleCap;
     return scale < cap ? scale : cap;
 }
