@@ -89,6 +89,24 @@ int g_fpSeatLock = 1;     // [devtools] fp_seat_lock=0 / GTA2DX9_FP_SEAT_LOCK=0:
 // FIX-FP-ENTRY's learned seat point (the first-person eye in the driven body's posed frame), per driven car.
 struct SeatRef { float x = 0.0f, y = 0.0f, z = 0.0f; uintptr_t car = 0; int frames = 0; };
 SeatRef g_seatRef;
+// FIX-FP-EXIT-1: the first-person exit's door request (view_modes, every frame of the exit) and the held car's last frame.
+struct FpExitReq { uintptr_t car = 0; float wx = 0.0f, wz = 0.0f, target = 0.0f; ULONGLONG tick = 0; };
+FpExitReq g_fpExitReq;
+struct FpExitRec { uintptr_t car = 0; FpExitCarFrame f; float lastX = 0.0f, lastZ = 0.0f; uint32_t frame = 0; bool have = false; };
+FpExitRec g_fpExitRec;
+bool FpExitDoorOff() {
+    static int off = -1;
+    if (off < 0) { char v[8] = {}; off = GetEnvironmentVariableA("GTA2DX9_FP_EXIT_DOOR", v, sizeof v) && v[0] == '0' ? 1 : 0; }
+    return off != 0;
+}
+// The live request for this car: its target and the door's side (+-1 in the car's frame `m`).
+bool FpExitDoorFor(uintptr_t car, const gta2::Mat4& m, float* target, int* side) {
+    if (FpExitDoorOff() || !car || g_fpExitReq.car != car || GetTickCount64() - g_fpExitReq.tick > 120) return false;
+    const float lateral = (g_fpExitReq.wx - m.m[3][0]) * m.m[0][0] + (g_fpExitReq.wz - m.m[3][2]) * m.m[0][2];
+    *side = lateral >= 0.0f ? 1 : -1;
+    *target = g_fpExitReq.target;
+    return true;
+}
 static int FpSeatLockDefault() {
     static int v = -1;
     if (v < 0) { char b[8] = {}; v = GetEnvironmentVariableA("GTA2DX9_FP_SEAT_LOCK", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
@@ -4426,7 +4444,13 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         // from the driver's seat the models are solid hulls with painted windows, so
         // everything above a hand's breadth below the eye is clipped away and what
         // is left - hood, fenders, the cowl - is the view over a dashboard.
-        const bool inside = Inside(carToWorld, eye, 0.5f * b->bodyWidth, 0.5f * b->bodyLength, 1.4f * b->bodyWidth);
+        // FIX-FP-EXIT-1: during the first-person exit the held car counts the eye inside only within its own sides (+3 cm):
+        // with the 0.15 margin the cut hull and the cab were drawn round an eye already out of the door (cam19_p79a f2574-76)
+        // and the whole body then came in round an eye 0.18 from its skin (the shut door's panel filling the frame).
+        float fpxTarget = 0.0f; int fpxSide = 0;
+        const bool fpExit = FpExitDoorFor(use.object, carToWorld, &fpxTarget, &fpxSide);
+        const bool inside = fpExit ? Inside(carToWorld, eye, 0.5f * b->bodyWidth - 0.12f, 0.5f * b->bodyLength, 1.4f * b->bodyWidth)
+                                   : Inside(carToWorld, eye, 0.5f * b->bodyWidth, 0.5f * b->bodyLength, 1.4f * b->bodyWidth);
         // Nor the car he drives: a chase camera at the sedan distance sits inside a
         // fire truck or a bus (run a33_fire1: the truck vanished from the chase view).
         if (inside && !use.own && !use.driven) continue;
@@ -5155,13 +5179,19 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                     doorRate = 0.0f;
                 }
             }
+            if (fpExit) {
+                // FIX-FP-EXIT-1: the first-person exit opens and shuts the driver's door itself (no boarding plan runs for
+                // a figure hidden from his own eyes, nor for an exit from a car still rolling).
+                if (ds.open < 0.02f || fpxSide == ds.side) { ds.side = fpxSide; target = fpxTarget; doorRate = fpxTarget > 0.0f ? 2.6f : 2.2f; }
+                else { target = 0.0f; doorRate = 3.0f; }
+            }
             // The split comes from the worker (DoorReady): until it is there the door
             // stays shut, and a split made for an earlier dent step stands in for the
             // current one rather than shutting a door that is already open.
             DoorSplit split{nullptr, nullptr};
             bool haveSplit = false;
             float zFront = 0.0f;
-            if (!cpuCut && !WreckModelNumber(modelNumber) && (target > 0.0f || ds.open > 0.02f)) {
+            if ((!cpuCut || fpExit) && !WreckModelNumber(modelNumber) && (target > 0.0f || ds.open > 0.02f)) {
                 const float roofY = model->Height() * sy, halfW = 0.5f * b->bodyWidth;
                 float zRear = 0.0f;
                 doorSpan(&zFront, &zRear);
@@ -5183,6 +5213,24 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                     Log("door: obj=%08x model=%s side=%+d open=%.3f target=%.2f rate=%.2f split=%d ped=%d sprite=%d art=%d frame=%u",
                         static_cast<unsigned>(use.object), model->name.c_str(), ds.side, ds.open, target, doorRate, haveSplit ? 1 : 0,
                         use.doorPed ? 1 : 0, use.sprite, art ? 1 : 0, frame);
+            }
+            if ((use.own || use.driven || fpExit) && !WreckModelNumber(modelNumber)) {
+                // FIX-FP-EXIT-1: the held car's frame for the first-person exit's eye path (CarBodiesFpExitCar)
+                FpExitRec& r = g_fpExitRec;
+                if (r.car != use.object) { r = FpExitRec{}; r.car = use.object; }
+                float zf = 0.0f, zr = 0.0f;
+                doorSpan(&zf, &zr);
+                gta2::Mat4 mm = posed;
+                for (int row = 0; row < 3; ++row) {
+                    const float l = std::sqrt(mm.m[row][0] * mm.m[row][0] + mm.m[row][1] * mm.m[row][1] + mm.m[row][2] * mm.m[row][2]);
+                    if (l > 1e-6f) for (int k = 0; k < 3; ++k) mm.m[row][k] /= l;
+                }
+                const bool next = r.have && frame - r.frame == 1;
+                r.f.stepX = next ? mm.m[3][0] - r.lastX : 0.0f; r.f.stepZ = next ? mm.m[3][2] - r.lastZ : 0.0f;
+                r.lastX = mm.m[3][0]; r.lastZ = mm.m[3][2];
+                r.f.m = mm; r.f.halfW = 0.5f * b->bodyWidth; r.f.halfL = 0.5f * b->bodyLength; r.f.zFront = zf; r.f.zRear = zr;
+                r.f.roof = model->Height() * sy; r.f.side = ds.side; r.f.open = haveSplit ? ds.open : 0.0f;
+                r.frame = frame; r.have = true;
             }
             // FIX-COCKPIT-BODY: from the seat (cpuCut, first person) too: boarding lets a seated figure go once its
             // car has not been published for 6 frames, a climb whose car stopped being published (the eye glides
@@ -5348,7 +5396,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             if (IdentityProbeOn())   // IDENTITY-SYSTEM parity probe: every car on screen, the player's as "mycar"
                 IdentityProbeModel(device, use.driven ? "mycar" : "car", reinterpret_cast<const void*>(use.object), ident, *model,
                                    Mul(fit, posed).m, static_cast<int>(CurrentViewMode()));
-            if (ds.open > 0.02f && haveSplit) {
+            if (ds.open > 0.02f && haveSplit && !cpuCut) {
                 const float halfW = 0.5f * b->bodyWidth;
                 drawHull(*split.body, Mul(fit, posed));
                 // FIX-SEAT-ENTRY-3 (pfl16): the opening shows a cabin, not the black of the far side's liner
@@ -5378,7 +5426,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                     device->SetMaterial(&keep);
                 }
                 // Swing about the vertical through the door's front edge, outward.
-                const float theta = -static_cast<float>(ds.side) * ds.open * (60.0f * kPi / 180.0f);
+                const float theta = -static_cast<float>(ds.side) * ds.open * ((fpExit ? 80.0f : 60.0f) * kPi / 180.0f);   // FIX-FP-EXIT-1: wide for the eye
                 const float cs = std::cos(theta), sn = std::sin(theta);
                 const float hx = static_cast<float>(ds.side) * 0.92f * halfW, hz = zFront;
                 gta2::Mat4 hinge;
@@ -5556,6 +5604,18 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                 } else if (!flatCab) {
                     drawHull(*drawn, Mul(fit, posed));
                 }
+                if (fpExit && haveSplit && ds.open > 0.02f) {
+                    // FIX-FP-EXIT-1: the driver's door swung open beside the seat (the same hinge as from outside), so the
+                    // eye leaves through an open door; the cab's door card is left out below.
+                    const float halfW = 0.5f * b->bodyWidth;
+                    const float theta = -static_cast<float>(ds.side) * ds.open * ((fpExit ? 80.0f : 60.0f) * kPi / 180.0f);   // FIX-FP-EXIT-1: wide for the eye
+                    const float cs = std::cos(theta), sn = std::sin(theta);
+                    const float hx = static_cast<float>(ds.side) * 0.92f * halfW, hz = zFront;
+                    gta2::Mat4 hinge;
+                    hinge.m[0][0] = cs; hinge.m[0][2] = -sn; hinge.m[1][1] = 1.0f; hinge.m[2][0] = sn; hinge.m[2][2] = cs;
+                    hinge.m[3][0] = hx - (hx * cs + hz * sn); hinge.m[3][2] = hz - (-hx * sn + hz * cs); hinge.m[3][3] = 1.0f;
+                    ModelDraw(device, *split.door, Mul(Mul(fit, hinge), posed), nullptr, 0.0f);
+                }
                 if (hood && (hood->dash || (g_cabInterior && !WreckModelNumber(modelNumber)))) {
                     const float dull = (1.0f - 0.06f * static_cast<float>(dentStep)) * (fireStage >= 4 ? 0.45f : fireStage >= 3 ? 0.70f : 1.0f);
                     const float paint[3] = {b->paint.r / 255.0f * dull, b->paint.g / 255.0f * dull, b->paint.b / 255.0f * dull};
@@ -5599,6 +5659,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                         cp.openTop = CabOpenTop(modelNumber);
                         cp.taxi = modelNumber == 51 || modelNumber == 56;   // Taxi Xpress, Taxi
                         cp.dashcam = DashcamHidesCockpit();   // FIX-COCKPIT-BODY: the dashcam: no wheel, no hands
+                        cp.doorOpen = fpExit && haveSplit ? ds.open : 0.0f;   // FIX-FP-EXIT-1: the real door is drawn swung
                         static int cabLogged = -1;
                         if (cabLogged != modelNumber) {
                             cabLogged = modelNumber;
@@ -5916,4 +5977,14 @@ int g_fpNearMinMilli = -1;   // FIX-COCKPIT-CAB-4: [devtools] fp_near_min_milli 
 int CarDevFpNearMinMilli() { return g_fpNearMinMilli; }
 int g_fpNearDeepMilli = -1;   // FIX-COCKPIT-CAB-4: [devtools] fp_near_deep_milli, the floor looking straight down
 int CarDevFpNearDeepMilli() { return g_fpNearDeepMilli; }
+void CarBodiesFpExitDoor(uintptr_t carObject, float wx, float wz, float target) {
+    g_fpExitReq.car = carObject; g_fpExitReq.wx = wx; g_fpExitReq.wz = wz; g_fpExitReq.target = target; g_fpExitReq.tick = GetTickCount64();
+}
+bool CarBodiesFpExitCar(uintptr_t carObject, FpExitCarFrame* out) {
+    const FpExitRec& r = g_fpExitRec;
+    if (!carObject || r.car != carObject || !r.have || !out) return false;
+    *out = r.f;
+    out->age = g_wearFrame - r.frame;
+    return out->age <= 4;
+}
 }  // namespace gta2dx9

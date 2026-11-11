@@ -96,6 +96,14 @@ struct BoardingEye {
     uintptr_t car = 0;
 };
 bool BoardingPlayerEye(BoardingEye* eye);
+// FIX-FP-EXIT-1: view_modes, every frame the first-person exit still has him in the seat (the door opening): his seated
+// plan is kept although the game already draws him getting out (lapses ~0.1 s after the last call).
+void BoardingHoldPlayerSeat();
+// ... and every seated first-person frame with the exit on: the frame the game lets him out (the figures are placed
+// before the camera runs) keeps the seat too.
+void BoardingArmPlayerSeatHold();
+bool BoardingPlayerSeatHeld();
+void BoardingReleasePlayerSeat();   // at once (the eye leaves the seat)
 // Per figure, every frame, after the renderer has placed it and before it is posed.
 // True while a boarding plays: the figure is drawn from `out`.
 bool BoardingUpdate(const BoardingIn& in, BoardingOut* out);

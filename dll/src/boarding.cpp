@@ -108,6 +108,7 @@ int g_camSide = 1;
 uint32_t g_camFrame = 0, g_now = 0;
 int g_enabled = -1;
 bool g_log = false;
+ULONGLONG g_holdSeatTick = 0, g_armSeatTick = 0;   // FIX-FP-EXIT-1: BoardingHoldPlayerSeat, BoardingArmPlayerSeatHold
 
 float Clamp01(float x) { return x < 0.0f ? 0.0f : (x > 1.0f ? 1.0f : x); }
 float Smooth(float e0, float e1, float x) {
@@ -412,7 +413,7 @@ bool BoardingUpdate(const BoardingIn& in, BoardingOut* out) {
     if (b.mode != kNone && b.mode != kSeated && gap > 8) b = Board{};   // (seated: kept while his car is drawn, see below)
     if ((b.ended && ((b.mode == kExit && in.state == 3) || (b.mode == kClimb && in.state == 4))) ||
         (b.mode == kShut && (in.state == 3 || in.state == 4)) ||
-        (b.mode == kSeated && !in.ghost && in.state != 3)) {   // seated, and the game draws him again: an exit (planned below
+        (b.mode == kSeated && !in.ghost && in.state != 3 && !(b.player && BoardingPlayerSeatHeld()))) {   // seated, and the game draws him again: an exit (planned below
                                                                // from kNone), a jack, a dive (state 3: the climb's last sprites)
         const float px = b.px, pz = b.pz; const bool hp = b.havePrev;
         b = Board{}; b.px = px; b.pz = pz; b.havePrev = hp;
@@ -1041,6 +1042,15 @@ bool BoardingUpdate(const BoardingIn& in, BoardingOut* out) {
             b.limbW[3], c.m.m[3][0], c.m.m[3][2], hw, c.zFront, c.zRear, c.roof, in.ghost ? 1 : 0, out->x, out->z, out->heading, std::sqrt(b.ax * b.ax + b.az * b.az));
     }
     return true;
+}
+
+// FIX-FP-EXIT-1: the first-person exit holds his seat (his body at the wheel, drawn from the eye) while the door opens.
+void BoardingHoldPlayerSeat() { g_holdSeatTick = GetTickCount64(); }
+void BoardingArmPlayerSeatHold() { g_armSeatTick = GetTickCount64(); }
+void BoardingReleasePlayerSeat() { g_holdSeatTick = g_armSeatTick = 0; }
+bool BoardingPlayerSeatHeld() {
+    const ULONGLONG now = GetTickCount64();
+    return (g_holdSeatTick && now - g_holdSeatTick < 120) || (g_armSeatTick && now - g_armSeatTick < 120);
 }
 
 bool BoardingPlayerEye(BoardingEye* eye) {

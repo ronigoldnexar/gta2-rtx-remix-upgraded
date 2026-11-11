@@ -122,4 +122,15 @@ void SetCarPaintFloor(float fraction);
 // FIX-COCKPIT-CAB-4: [devtools] fp_near_min_milli, the first-person look-down near plane floor (-1: the default).
 int CarDevFpNearMinMilli();
 int CarDevFpNearDeepMilli();   // [devtools] fp_near_deep_milli: the floor looking straight down (-1: the default)
+// FIX-FP-EXIT-1 (pfl79, qaf72): the first-person exit. view_modes asks every frame of the exit for the held car's
+// driver's door (target 0 shut .. 1 open; the door's side is the one a world point lies on, the seat's eye) and
+// car_bodies drives it even while the car is drawn cut round the eye (the swung door drawn, the cab's door card
+// left out), and the eye counts as inside the body only while it is within the hull's own sides (the 0.15 margin
+// drew the cut hull round an eye already outside it). The request lapses ~0.1 s after the last call.
+void CarBodiesFpExitDoor(uintptr_t carObject, float wx, float wz, float target);
+// The held car as last drawn (posed car-to-world rows: x across, y up, z forward, unit; origin on the road at its
+// middle), its half width and length, the driver's door span along z (hinge, rear edge), its roof, the door's side and
+// how far it is open, and the origin's step since the frame before (the camera runs a frame ahead of the draw).
+struct FpExitCarFrame { gta2::Mat4 m; float halfW = 0, halfL = 0, zFront = 0, zRear = 0, roof = 0, open = 0, stepX = 0, stepZ = 0; int side = 0; uint32_t age = 0; };
+bool CarBodiesFpExitCar(uintptr_t carObject, FpExitCarFrame* out);
 }  // namespace gta2dx9

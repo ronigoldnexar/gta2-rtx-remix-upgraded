@@ -1160,7 +1160,8 @@ void DrawCabInterior(IDirect3DDevice9* device, const gta2::Mat4& carToWorld, con
     // FIX-FP-2 (pm30): the driver's door card under the window line, beside and behind the
     // dash: the sill, the card in the lower dash's vinyl and an armrest. In the frame's lower
     // corner on the driver's side (the seat is compressed: kept at the A-pillar's reach).
-    {
+    // FIX-FP-EXIT-1: not while the first-person exit has the car's own door swung open (car_bodies draws it).
+    if (p.doorOpen <= 0.02f) {
         const float reach = (std::min)(std::fabs((side > 0 ? x1 : x0) - ex), 0.105f);
         const float dx = ex + side * (reach + 0.006f);
         const float dF = dc, dB = -0.08f, hSill = 0.004f;

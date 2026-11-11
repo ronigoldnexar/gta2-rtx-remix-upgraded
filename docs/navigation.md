@@ -1639,3 +1639,47 @@ vehicle passes by" (work order owner10nov-B10, plan section B10), and qav26 (sta
   CAMERA-18's 4-7); a dissolve is a softened cut, not a lens that finds its way out. Getting in, the plan's door shuts in
   front of the eye while it still waits outside (f52-f64), and the eye does not travel through the open door; getting out
   (pfl79) has no boarding plan in first person at all (no door opens), see that order's note.
+
+## FIX-FP-EXIT-1: out of the car in first person through the opened door (11 Nov 2026)
+
+Orders pfl79 (exit after reversing off a wall: the cockpit gone in a frame, the shut door's dark panel, the van not seen)
+and qaf72 (exit at speed: a full-width dark slab). FIX-CAMERA-19 named the cause: in first person no boarding plan runs
+for his exit (his figure is hidden from his eyes, and from a car still rolling faster than 0.6 b/s the plan leaves the
+exit to the clips), so nothing opens the door; the held car is drawn cut round the eye (`cpuCut`), where the door split
+was skipped; and the half-second glide (FIX-COCKPIT-CAB-6) took the eye straight through the shut door, the hull then
+drawn whole round an eye 0.18 from its skin.
+
+The exit is now a sequence of its own in `view_modes.cpp` (`FpExitSeq`), in the held car's frame (car_bodies records the
+posed car each frame, `CarBodiesFpExitCar`, its origin carried on by its last step), so a car still rolling carries it:
+
+1. **In the seat while the door opens.** The eye stays on the seat's eye (kept in the car's frame every seated frame);
+   view_modes asks car_bodies for the driver's door every frame (`CarBodiesFpExitDoor`), which opens it (2.6 a second,
+   80 degrees for this exit, 60 as before for every other) even while the car is drawn cut round the eye: the door split is
+   built, the swung door is drawn beside the cut hull and the cab's door card is left out (`CabInteriorParams::doorOpen`).
+   His body at the wheel stays (boarding keeps his seat, `BoardingHoldPlayerSeat`; live_geometry does not let it go), so
+   the hands stay on the rim; the head turns 15 degrees toward the door. Until the door is half open (0.2-0.6 s).
+2. **Out through the opening.** His body at the wheel is let go (the hands leave the frame with it: a dissolve from the
+   frame before, `GTA2DX9_FP_EXIT_HAND_FADE=1`, doubled the cab because the kept frame is the last settled one, from before
+   the head turned, fx1_e2 f13-18; off by default), then the eye goes back (or
+   forward) inside the cab to the door's span (a cab-over van's door is cut behind its front arch, 0.26 behind the seat),
+   out through it to just past the sill, then out and back behind the open door's rear edge, clear of its swing; at seat
+   height until past the sill, then down or up to the standing eye. The look turns out of the door's side and a little
+   back (115 degrees from the nose): the open door, which stands forward of the opening, stays at the frame's edge. The
+   hull counts the eye inside only within its own sides (+3 cm) for this car, so the whole body (the split body, the
+   opening, the open door) is drawn as soon as the eye is out of it.
+3. **Standing; the door shuts behind him** (2.2 a second); the on-foot arms come in.
+4. **Handed back** over 0.6 s: the eye eases onto the game's own (where it has him) and the look onto his facing: the
+   game's heading, or, with the view its own (`nav_map`), along the car toward wherever it is now (a car still rolling
+   back is behind him).
+
+No boarding plan or 'fp ride' runs for this exit (the riding eye is off while the sequence runs). Keys: **`[camera]
+fp_exit_door`** (default 1; 0 or `GTA2DX9_FP_EXIT_DOOR=0`: the old glide). Log: `view: fp exit: hold in the seat for the door (...)`, `out through the door`, `standing, the door shuts`,
+`back to his eye`, `done after N s`; with `GTA2DX9_LOG_SEAT=1` a line a frame (`fp exit: phase P t T eye car-frame x,y,z
+door D look A deg`). Plain renderer and Remix alike (the door and the cab are the same draws).
+
+Verified (private stage, plain GL, 30 fps bursts, every frame of each exit opened): keys_pfl79.sh P79=first (the filer's
+pose: van run up to the wall, reversed off it, Return while still rolling back) out/fx1_p79e; a settled F9 scene van at
+rest and at speed (gamerun/fx1_exit.py, FX_SEGS=first:rest,first:speed,third:rest) out/fx1_e1; the third-person exit
+unchanged (the door swings at 60 degrees as before, fx1_p79e b_p79_third_crash). Classic: vreg 0 changed tiles.
+Not yet: the hand on the door frame and a hand pushing the door (the hands fade off the rim instead); the speed exit's
+first frame can show the cab a half-step off at 4+ b/s; open tops, the train and Remix untested.

@@ -75,6 +75,50 @@ bool CarFrameOf(const CameraCar& c, float* cx, float* cz, float* ex, float* ez, 
     return true;
 }
 float g_fpExitGlideLeft = 0.0f;   // FIX-COCKPIT-CAB-6: FpExitGlideLeft()
+// FIX-FP-EXIT-1 (pfl79, qaf72): the first-person exit as a sequence in the held car's own frame: 1 the eye holds in the
+// seat while the driver's door opens, 2 out through the opening at seat height (standing up over its last part, back
+// behind the door's rear edge), 3 standing, turned along the car, the door shut behind him, 4 handed back to the game's
+// eye. The seat's eye is kept in the car's frame every seated frame.
+struct FpExitSeq {
+    bool on = false;
+    int phase = 0;
+    float t = 0.0f, total = 0.0f;
+    uintptr_t car = 0;
+    float sx = 0.0f, sy = 0.0f, sz = 0.0f;   // the seat's eye, car frame (x across, y up from the road, z forward)
+    float side = 1.0f;
+    FpExitCarFrame f;                         // the car as last seen
+    int missing = 0;
+    float pedA = 0.0f, pedB = 0.0f;           // where the game has him in the car's frame at the stand
+    gta2::Vec3 shown{}, backFrom{};
+    bool backFixed = false;
+    float yawOff = 0.0f;                      // the look toward the door's side (radians)
+};
+FpExitSeq g_fx;
+struct FpExitSeat { uintptr_t car = 0; float x = 0.0f, y = 0.0f, z = 0.0f; uint32_t serial = 0; };
+FpExitSeat g_fxSeat;
+uint32_t g_fxSerial = 0;
+bool FpExitDoorEnvOn() {
+    static int on = -1;
+    if (on < 0) { char b[8] = {}; on = GetEnvironmentVariableA("GTA2DX9_FP_EXIT_DOOR", b, sizeof b) && b[0] == '0' ? 0 : 1; }
+    return on != 0;
+}
+bool FpExitLogOn() {
+    static int on = -1;
+    if (on < 0) { char b[8] = {}; on = GetEnvironmentVariableA("GTA2DX9_LOG_SEAT", b, sizeof b) && atoi(b) ? 1 : 0; }
+    return on != 0;
+}
+// The car frame's point (x across, y up, z forward) in the world, the origin carried on by its last step.
+gta2::Vec3 FxWorld(const FpExitCarFrame& f, float x, float y, float z) {
+    const float ox = f.m.m[3][0] + f.stepX, oy = f.m.m[3][1], oz = f.m.m[3][2] + f.stepZ;
+    return {ox + x * f.m.m[0][0] + y * f.m.m[1][0] + z * f.m.m[2][0], oy + x * f.m.m[0][1] + y * f.m.m[1][1] + z * f.m.m[2][1],
+            oz + x * f.m.m[0][2] + y * f.m.m[1][2] + z * f.m.m[2][2]};
+}
+void FxLocal(const FpExitCarFrame& f, const gta2::Vec3& w, float* x, float* y, float* z) {
+    const float dx = w.x - (f.m.m[3][0] + f.stepX), dy = w.y - f.m.m[3][1], dz = w.z - (f.m.m[3][2] + f.stepZ);
+    *x = dx * f.m.m[0][0] + dy * f.m.m[0][1] + dz * f.m.m[0][2];
+    *y = dx * f.m.m[1][0] + dy * f.m.m[1][1] + dz * f.m.m[1][2];
+    *z = dx * f.m.m[2][0] + dy * f.m.m[2][1] + dz * f.m.m[2][2];
+}
 uint32_t g_chaseCutSerial = 0;   // FIX-CAMERA-19: ChaseCutSerial()
 // GTA2DX9_FP_EXIT_CAR_FRAME=0: the exit glide's start fixed in the world, as before (A/B).
 bool FpExitCarFrameOn() {
@@ -3331,6 +3375,150 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         }
         // Sideways is the heading turned a quarter: (-hz, hx) is the car's left.
         gta2::Vec3 eye{px + hx * ahead - hz * seat, baseY + eyeHeight, pz + hz * ahead + hx * seat};
+        // FIX-FP-EXIT-1 (pfl79, qaf72): the first-person exit (FpExitSeq). No boarding plan runs for a figure hidden from his
+        // own eyes leaving a car that still rolls, and the eye crossed the shut door (its dark panel, then the hull 0.18 from
+        // the lens). Here the eye holds in the seat while the door opens, leaves through the opening, stands behind the door
+        // and turns along the car while the door shuts. [camera] fp_exit_door=0 / GTA2DX9_FP_EXIT_DOOR=0: the old glide.
+        bool fxActive = false;
+        gta2::Vec3 fxEye = eye;
+        float fxYaw = 0.0f;
+        {
+            ++g_fxSerial;
+            const bool fxOn = s.fpExitDoor && FpExitDoorEnvOn();
+            if (g_fx.on && (inVehicle || deathCam || !fxOn)) {
+                g_fx.on = false;
+                Log("view: fp exit: ended (%s) after %.2f s", inVehicle ? "in a car again" : deathCam ? "the death camera" : "off", g_fx.total);
+            }
+            if (!g_fx.on && fxOn && !inVehicle && !deathCam && lastFpInVehicle_ && fpEyeKnown_ && g_fxSeat.car && g_fxSeat.serial + 3 >= g_fxSerial) {
+                FpExitCarFrame f;
+                if (CarBodiesFpExitCar(g_fxSeat.car, &f)) {
+                    g_fx = FpExitSeq{};
+                    g_fx.on = true; g_fx.phase = 1; g_fx.car = g_fxSeat.car; g_fx.f = f;
+                    g_fx.sx = g_fxSeat.x; g_fx.sy = g_fxSeat.y; g_fx.sz = g_fxSeat.z;
+                    g_fx.side = g_fxSeat.x >= 0.0f ? 1.0f : -1.0f;
+                    Log("view: fp exit: hold in the seat for the door (seat %.3f,%.3f,%.3f half w %.3f door z %.3f..%.3f side %+d open %.2f, car step %.3f)",
+                        g_fx.sx, g_fx.sy, g_fx.sz, f.halfW, f.zRear, f.zFront, f.side, f.open, std::hypot(f.stepX, f.stepZ));
+                }
+            }
+            if (g_fx.on) {
+                FpExitSeq& x = g_fx;
+                FpExitCarFrame f;
+                if (CarBodiesFpExitCar(x.car, &f)) { x.f = f; x.missing = 0; }
+                else ++x.missing;
+                const FpExitCarFrame& F = x.f;
+                x.t += dt; x.total += dt;
+                constexpr float kStand = 0.15f, kBack = 0.6f;
+                const float standY = baseY + s.fpEyeFoot;
+                const gta2::Vec3 seatW = FxWorld(F, x.sx, x.sy, x.sz);
+                // The way out, car frame (u outward on the door's side, z forward): from the seat back (or forward) inside
+                // the cab to the door's opening (a cab-over van's door is cut behind the front arch, 0.2-0.3 behind the
+                // seat), out through it to just past the sill, then out and back behind the open door's rear edge, clear
+                // of its swing when it shuts. Seat height until past the sill, then the standing eye.
+                const float hw = F.halfW, us = x.sx * x.side;
+                const float zMid = F.zFront - F.zRear > 0.18f ? (std::max)(F.zRear + 0.08f, (std::min)(x.sz, F.zFront - 0.08f)) : 0.5f * (F.zFront + F.zRear);
+                const float wu[4] = {us, us, hw + 0.06f, hw + 0.22f};
+                const float wz[4] = {x.sz, zMid, zMid, (std::min)(zMid - 0.12f, F.zRear - 0.12f)};
+                float segL[3], pathL = 0.0f;
+                for (int k = 0; k < 3; ++k) { segL[k] = std::hypot(wu[k + 1] - wu[k], wz[k + 1] - wz[k]); pathL += segL[k]; }
+                const float kOut = (std::max)(0.5f, (std::min)(0.95f, 0.3f + 0.9f * pathL));
+                const float sillAt = segL[0] + (std::max)(0.0f, segL[1] - 0.05f);
+                auto outEye = [&](float q) {
+                    float d = Smooth01(q) * pathL;
+                    const float dAll = d;
+                    int k = 0;
+                    while (k < 2 && d > segL[k]) { d -= segL[k]; ++k; }
+                    const float f = segL[k] > 1e-4f ? (std::min)(1.0f, d / segL[k]) : 1.0f;
+                    const float u = wu[k] + (wu[k + 1] - wu[k]) * f, z = wz[k] + (wz[k + 1] - wz[k]) * f;
+                    gta2::Vec3 w = FxWorld(F, u * x.side, x.sy, z);
+                    const float r = pathL - sillAt > 1e-3f ? Smooth01((dAll - sillAt) / (pathL - sillAt)) : 1.0f;
+                    w.y = seatW.y + (standY - seatW.y) * r;
+                    return w;
+                };
+                auto handFadeOn = [] {
+                    // off by default: the kept frame is the last settled one (before the look turned), so the dissolve doubled
+                    // the cab (fx1_e2 f13-18); GTA2DX9_FP_EXIT_HAND_FADE=1 for trials
+                    static const bool on = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_FP_EXIT_HAND_FADE", b, sizeof b) && b[0] == '1'; }();
+                    return on;
+                };
+                auto next = [&](int ph, const char* what) {
+                    x.phase = ph; x.t = 0.0f;
+                    Log("view: fp exit: %s at %.2f s (door open %.2f)", what, x.total, F.open);
+                };
+                if (x.missing > 6 && x.phase < 4) { x.backFixed = true; x.backFrom = x.shown; next(4, "the car is gone, back to his eye"); }
+                if (x.phase == 1 && ((F.open >= 0.5f && x.t >= 0.2f) || x.t >= 0.6f)) {
+                    next(2, "out through the door");
+                    // his body at the wheel is let go as the eye leaves the seat (GTA2DX9_FP_EXIT_HAND_FADE=1: the frame before
+                    // dissolves over the new one, [camera] cut_dissolve)
+                    if (handFadeOn()) ++g_chaseCutSerial;
+                    BoardingReleasePlayerSeat();
+                }
+                // (the eye stays in the seat for the hands' fade, kFade: a moving eye under the dissolve doubled the view)
+                const float kFade = handFadeOn() ? 0.22f : 0.0f;
+                if (x.phase == 2 && x.t >= kOut + kFade) {
+                    float a = 0.0f, yy = 0.0f, b = 0.0f;
+                    FxLocal(F, gta2::Vec3{px, F.m.m[3][1], pz}, &a, &yy, &b);
+                    x.pedA = a; x.pedB = b;
+                    next(3, "standing, the door shuts");
+                }
+                if (x.phase == 3) {
+                    float a = 0.0f, yy = 0.0f, b = 0.0f;
+                    FxLocal(F, gta2::Vec3{px, F.m.m[3][1], pz}, &a, &yy, &b);
+                    if (std::hypot(a - x.pedA, b - x.pedB) > 0.3f) next(4, "he walks, back to his eye");
+                    else if (x.t >= kStand) next(4, "back to his eye");
+                }
+                if (x.phase == 4 && x.t >= kBack) {
+                    x.on = false;
+                    Log("view: fp exit: done after %.2f s", x.total);
+                }
+                if (x.on) {
+                    float lookA = 0.0f;
+                    // The look: out of the door's side and a little back as he climbs out (115 degrees from the nose: never
+                    // into the open door, which stands forward of the opening, so the door shuts behind him), then round to
+                    // his own facing as he is handed back.
+                    // (in the seat the head turns only a little: his body at the wheel is drawn under the eye, its hands on the rim)
+                    constexpr float kLookHold = 15.0f * kDegToRad, kLookOut = 115.0f * kDegToRad;
+                    bool lookAbs = false;
+                    switch (x.phase) {
+                        case 1: fxEye = seatW; lookA = kLookHold * Smooth01(x.t / 0.3f); BoardingHoldPlayerSeat(); break;
+                        case 2: {
+                            const float tt = (std::max)(0.0f, x.t - kFade);
+                            fxEye = outEye(tt / kOut); lookA = kLookHold + (kLookOut - kLookHold) * Smooth01(tt / kOut / 0.35f);   // turned before the sill
+                            break;
+                        }
+                        case 3: fxEye = outEye(1.0f); lookA = kLookOut; break;
+                        default: {
+                            const gta2::Vec3 from = x.backFixed ? x.backFrom : outEye(1.0f);
+                            const float k = Smooth01(x.t / kBack);
+                            fxEye = {from.x + (eye.x - from.x) * k, from.y + (eye.y - from.y) * k, from.z + (eye.z - from.z) * k};
+                            // round from the door's side to his own facing: the game's heading, or (the view its own, nav_map)
+                            // along the car toward wherever it is now (a car still rolling back is behind him)
+                            const float fYaw = std::atan2(F.m.m[2][0], F.m.m[2][2]);
+                            float endYaw = headingYaw;
+                            if (g_navActive) {
+                                const float cx = F.m.m[3][0] + F.stepX - fxEye.x, cz = F.m.m[3][2] + F.stepZ - fxEye.z;
+                                endYaw = cx * F.m.m[2][0] + cz * F.m.m[2][2] < -0.6f ? WrapAngle(fYaw + kPi) : fYaw;
+                            }
+                            const float outYaw = std::atan2(F.m.m[2][0] * std::cos(kLookOut) + x.side * F.m.m[0][0] * std::sin(kLookOut),
+                                                            F.m.m[2][2] * std::cos(kLookOut) + x.side * F.m.m[0][2] * std::sin(kLookOut));
+                            fxYaw = WrapAngle(outYaw + WrapAngle(endYaw - outYaw) * Smooth01(x.t / (0.85f * kBack)));
+                            lookA = 0.0f; lookAbs = true;
+                            break;
+                        }
+                    }
+                    // the door: open while he is in the seat and in the opening, shut once he stands
+                    CarBodiesFpExitDoor(x.car, seatW.x, seatW.z, x.phase <= 2 ? 1.0f : 0.0f);
+                    const float ox = x.side * F.m.m[0][0], oz = x.side * F.m.m[0][2], fx = F.m.m[2][0], fz = F.m.m[2][2];
+                    if (!lookAbs) fxYaw = std::atan2(fx * std::cos(lookA) + ox * std::sin(lookA), fz * std::cos(lookA) + oz * std::sin(lookA));
+                    fxActive = true;
+                    if (FpExitLogOn()) {
+                        float lx = 0.0f, ly = 0.0f, lz = 0.0f;
+                        FxLocal(F, fxEye, &lx, &ly, &lz);
+                        Log("view: fp exit: phase %d t %.2f eye car-frame %.3f,%.3f,%.3f door %.2f look %.0f deg", x.phase, x.t, lx, ly, lz, F.open,
+                            lookA / kDegToRad);
+                    }
+                }
+            }
+        }
         // FIX-FP-ENTRY (feel15, feel11): getting into or out of a car, the eye is the boarding plan's
         // head (the figure the chase view shows: to the door, held there while a driver is hauled out,
         // the climb; out over the sill, the turn and the shove that shuts the door), kept outside the
@@ -3339,7 +3527,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         BoardingEye ride;
         // (only a plan on the car he is at: a boarding that guessed a car in passing traffic drove off
         // with the eye, 4 blocks in a second, run fpentry_d)
-        const bool riding = !inVehicle && !deathCam && BoardingPlayerEye(&ride) &&
+        const bool riding = !inVehicle && !deathCam && !fxActive && BoardingPlayerEye(&ride) &&
                             std::hypot(ride.carX - px, ride.carZ - pz) < 1.5f && std::hypot(ride.x - px, ride.z - pz) < 1.2f;
         float rideCarX = 0.0f, rideCarZ = 0.0f;
         if (riding) {
@@ -3528,7 +3716,12 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         // The view heading lags the game's: a rate cap and a short ease, so an
         // about-face is a half-second sweep rather than a two-frame whirl. At
         // the wheel it also leans a little toward where the car is going.
-        if (riding) {
+        if (fxActive) {
+            // FIX-FP-EXIT-1: toward the door while he gets out, then along the car
+            SpringTurn(&fpYaw_, &fpYawVel_, fxYaw, 2.0f / 0.14f, 260.0f * kDegToRad, dt);
+            g_fpViewYaw = fpYaw_;
+            look.yaw = 0.0f;
+        } else if (riding) {
             // FIX-FP-ENTRY: his head turns with the plan's figure (to the door, into the seat, out and round)
             const float omega = 2.0f / 0.18f;
             // out of the car the figure faces away from it; his eyes keep the door in view: part way
@@ -3579,7 +3772,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         float pitch = look.pitch;
         {
             // FIX-FP-ENTRY: a glance down at the sill and the door while getting in or out, eased
-            const float want = riding && ride.mode >= 2 ? -10.0f * kDegToRad : 0.0f;
+            const float want = riding && ride.mode >= 2 ? -10.0f * kDegToRad : (fxActive && g_fx.phase <= 2 ? -6.0f * kDegToRad : 0.0f);
             fpRidePitch_ += (want - fpRidePitch_) * (1.0f - std::exp(-dt / 0.2f));
             pitch += fpRidePitch_;
         }
@@ -3886,6 +4079,20 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         // out of it, thrown by a blast, back from the death camera - is a glide:
         // the eye keeps where it was shown and the difference dies away over a
         // quarter of a second. Ordinary motion (the predicted step) never is.
+        if (fxActive) {
+            // FIX-FP-EXIT-1: the exit's own path (continuous from the seat's eye; nothing to glide)
+            eye = fxEye;
+            fpGlideDur_ = 0.0f; fpGlideX_ = fpGlideY_ = fpGlideZ_ = 0.0f; fpOffX_ = fpOffY_ = fpOffZ_ = 0.0f; fpGlideCar_ = 0;
+            fpRawX_ = eye.x; fpRawY_ = eye.y; fpRawZ_ = eye.z;
+            fpEyeKnown_ = true;
+            lastFpInVehicle_ = inVehicle;
+            g_fpExitGlideLeft = g_fx.phase <= 2 ? 1.0f : 0.0f;
+            if (g_fx.phase >= 3 && eyecol::Ready()) eyecol::Clear(gta2::Vec3{px, eye.y, pz}, &eye, 0.24f);
+            g_fx.shown = eye;
+            shownX_ = eye.x; shownY_ = eye.y; shownZ_ = eye.z;
+            lastPitch_ = pitch;
+            lastPitchKnown_ = true;
+        } else
         {
             if (fpEyeKnown_) {
                 const float ex = fpRawX_ + velX_ * dt, ez = fpRawZ_ + velZ_ * dt;
@@ -4033,6 +4240,16 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             lastPitchKnown_ = true;
         }
 
+        if (inVehicle && player.vehicleSprite) {
+            // FIX-FP-EXIT-1: the seat's eye in its car's frame, for the exit
+            FpExitCarFrame f;
+            const uintptr_t car = reinterpret_cast<uintptr_t>(player.vehicleSprite);
+            if (CarBodiesFpExitCar(car, &f)) {
+                if (s.fpExitDoor && FpExitDoorEnvOn()) BoardingArmPlayerSeatHold();
+                g_fxSeat.car = car; g_fxSeat.serial = g_fxSerial;
+                FxLocal(f, eye, &g_fxSeat.x, &g_fxSeat.y, &g_fxSeat.z);
+            }
+        }
         camera->SetPosition(eye);
         camera->SetOrientation(yaw, pitch);
         camera->SetRoll(roll);
@@ -6526,6 +6743,7 @@ bool FirstPersonSeatEyeRaw(gta2::Vec3* eye) {
 void SetFirstPersonSeatCorrection(const gta2::Vec3& delta) { g_fpSeat.delta = delta; g_fpSeat.deltaAt = Now(); }
 bool FirstPersonBoardEyeOn() { return FpSeatGlideOn(); }
 float FpExitGlideLeft() { return g_fpExitGlideLeft; }
+bool FpExitHoldsCar() { return g_fx.on && g_fx.phase <= 2; }
 uint32_t ChaseCutSerial() { return g_chaseCutSerial; }
 // FIX-CAMERA-19 (cam18-third-pocket residual): [camera] cut_dissolve (percent of a second, 0 = the hard cut), or
 // GTA2DX9_CAM_CUT_DISSOLVE=<hundredths of a second>.

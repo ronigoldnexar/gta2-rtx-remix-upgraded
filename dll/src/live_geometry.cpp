@@ -10343,7 +10343,8 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                         out = dx * dx + dz * dz < 0.7f * 0.7f;
                     }
                 }
-                if (out || !inVehicle(key)) {
+                // FIX-FP-EXIT-1: his seat is kept while the first-person exit holds him in it (the door opening)
+                if ((out || !inVehicle(key)) && !(BoardingIsPlayer(key) && BoardingPlayerSeatHeld())) {
                     if (g_logFigures) Log("seat: %p let go (%s)", reinterpret_cast<const void*>(key), out ? "his sprite is back" : "not in a vehicle");
                     BoardingForget(key); boardPeds_.erase(key); it = boardSprites_.erase(it); continue;
                 }

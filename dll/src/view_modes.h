@@ -96,6 +96,9 @@ struct ViewModeSettings {
     bool tunnelPivot = true;
     // FIX-CAMERA-19: on a train the chase lens rides the line behind the carriage. [camera] train_trail.
     bool trainTrail = true;
+    // FIX-FP-EXIT-1 (pfl79, qaf72): leaving a car in first person the eye holds in the seat while the driver's door
+    // opens, leaves through the opening, stands up and turns along the car while the door shuts. [camera] fp_exit_door.
+    bool fpExitDoor = true;
     // FIX-CAMERA-19: the third person's one-frame boom cut dissolves from the frame before over this many hundredths of a
     // second (0: the hard cut). [camera] cut_dissolve.
     int cutDissolve = 30;
@@ -594,6 +597,8 @@ void SetFirstPersonSeatCorrection(const gta2::Vec3& delta);
 bool FirstPersonBoardEyeOn();
 // FIX-COCKPIT-CAB-6 (pfl79): how much of the first-person exit glide (seat to door) is left, 1..0 (0: none running).
 float FpExitGlideLeft();
+// FIX-FP-EXIT-1: whether the first-person exit still holds his car as seen from the seat (in the seat, in the door).
+bool FpExitHoldsCar();
 // FIX-CAMERA-19: a count of the third person's one-frame boom cuts (the pocket's swing cut), and how long the dissolve
 // over one lasts (0: the hard cut).
 uint32_t ChaseCutSerial();

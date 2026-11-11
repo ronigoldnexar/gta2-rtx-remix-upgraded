@@ -2611,7 +2611,7 @@ void WorldView::ApplyPresentation(ViewMode mode) {
         if (player.inVehicle && player.vehicleSprite) { lastCarSprite = player.vehicleSprite; framesOut = 0; }
         else if (framesOut < 1000) ++framesOut;
         const void* heldCar = hide && player.inVehicle ? player.vehicleSprite
-                              : (hide && FirstPersonBoardEyeOn() && framesOut <= 14 ? lastCarSprite : nullptr);
+                              : (hide && FirstPersonBoardEyeOn() && (framesOut <= 14 || FpExitHoldsCar()) ? lastCarSprite : nullptr);   // FIX-FP-EXIT-1
         // FIX-SEAT-ENTRY-2: a V out of the driver's seat (to classic or the chase view) starts from the
         // seat's eye; while the moving eye is still inside the car's body the car stays drawn from the
         // seat (the cut hull and the cab), not whole round the eye (a black frame).
