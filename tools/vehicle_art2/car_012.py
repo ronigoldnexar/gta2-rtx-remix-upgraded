@@ -220,7 +220,7 @@ def build():
     car.sweep(lambda u: np.stack([(u - 0.5) * 1.30, 0.93 + 0 * u, zt + 0.01 + 0.02 * (1 - ((u - 0.5) * 2) ** 2)], 1), 0.014, 16, 6, "chrome")
     car.revolve([(0.03, 0.0), (0.03, 0.01), (0.0, 0.016)], (0, 0.86, zt - 0.002), (0, 0, -1), 12, default="chrome", uv_mode="disc")
     car.box("trim_dark", (-0.24, 0.52, zt - 0.005), (0.24, 0.72, zt + 0.04))
-    car.box("plate", (-0.20, 0.55, zt - 0.012), (0.20, 0.69, zt + 0.0))
+    car.box("plate", (-0.20, 0.55, zt - 0.012), (0.20, 0.69, zt + 0.0), back_reads=True)   # qaexp11
     # the bonnet's centre crease (the sprite's split bonnet)
     car.sweep(lambda u: np.stack([0 * u, top0(1.26 + 0.98 * u) - 0.004, 1.26 + 0.98 * u], 1), 0.014, 12, 6, "paint_top",
               squash=(1.0, 0.6))

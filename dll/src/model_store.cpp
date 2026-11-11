@@ -2436,6 +2436,23 @@ void ModelSetDevIni(const char* ini) {
 // pane's opacity in percent (lower: more of the seat rows behind it). Plain renderer only (Remix draws its own glass
 // material). Re-read once a second.
 int g_glassLift = 70, g_glassAlpha = 100;
+// VEHICLE-ART-29: the cabin seen through the kit glass. With the lift the panes reached the sprites' glass grey but
+// the cabin behind them stayed near-black: the pane's own opacity (tex_glass alpha ~0.76) let ~a quarter of a cabin
+// through, and that cabin is "interior_dark" (12,12,12) lit like paint. Two fixes, one key each:
+// - glass_see (percent, 100 = the old SRCALPHA blend): the pane is drawn premultiplied (ONE, INVSRCALPHA), its
+//   transmission set by its opacity x glass_see and its sky reflection (the lift) added on top at full weight, so a
+//   clearer pane shows the cabin without losing the grey of the reflection (real side glass passes ~70-80 %).
+// - cabin_lift (percent of the time-of-day ambient, 0 = off): the light coming in through the glasshouse, added to
+//   the "_interior" / "_seat" surfaces (lit like paint they had only the hull's outside lighting): seats, dash and the
+//   far side's trim read as a lit space by day and fade with the ambient at dusk and night. No new geometry.
+int g_glassSee = 45, g_cabinLift = 90;
+// cabin_cull: the kit bodies' cabin is a closed inner shell ("interior_dark", the body inset ~6 cm, outward normals)
+// and the cars draw with culling off, so the shell's near wall stood between the glass and the seats: the window
+// showed a flat dark wall whatever the pane did. 1 culls the shell's faces that look toward the eye (its winding
+// read from the world matrix's handedness, so mirrored placements keep it), leaving the far wall's inside, the seats
+// and the dash; 2 the opposite winding (a probe); 0 = as before.
+int g_cabinCull = 1;
+int g_glassPremulCaps = -1;
 DWORD g_glassLiftReadAt = 0;
 static bool GlassLiftOn() {
     if (g_modelDevIni[0]) {
@@ -2444,12 +2461,35 @@ static bool GlassLiftOn() {
             g_glassLiftReadAt = now ? now : 1;
             const int lift = GetPrivateProfileIntA("devtools", "glass_lift", 70, g_modelDevIni);
             const int alpha = GetPrivateProfileIntA("devtools", "glass_alpha", 100, g_modelDevIni);
-            if (lift != g_glassLift || alpha != g_glassAlpha) Log("models: kit glass lift %d %%, alpha %d %%", lift, alpha);
+            const int see = GetPrivateProfileIntA("devtools", "glass_see", 45, g_modelDevIni);
+            const int cabin = GetPrivateProfileIntA("devtools", "cabin_lift", 90, g_modelDevIni);
+            const int ccull = GetPrivateProfileIntA("devtools", "cabin_cull", 1, g_modelDevIni);
+            if (ccull != g_cabinCull) Log("models: kit cabin cull %d", ccull);
+            g_cabinCull = (std::max)(0, (std::min)(ccull, 2));
+            if (lift != g_glassLift || alpha != g_glassAlpha || see != g_glassSee || cabin != g_cabinLift)
+                Log("models: kit glass lift %d %%, alpha %d %%, see %d %%, cabin lift %d %%", lift, alpha, see, cabin);
             g_glassLift = (std::max)(0, (std::min)(lift, 400));
             g_glassAlpha = (std::max)(0, (std::min)(alpha, 100));
+            g_glassSee = (std::max)(0, (std::min)(see, 100));
+            g_cabinLift = (std::max)(0, (std::min)(cabin, 400));
         }
     }
-    return (g_glassLift != 0 || g_glassAlpha != 100) && !RemixApiAvailable();
+    return (g_glassLift != 0 || g_glassAlpha != 100 || g_glassSee != 100 || g_cabinLift != 0 || g_cabinCull != 0) && !RemixApiAvailable();
+}
+int ModelCabinLiftPercent() { return GlassLiftOn() ? g_cabinLift : 0; }
+// VEHICLE-ART-29: a kit body's cabin surfaces (seats, dash, the inner shell).
+static bool CarCabinTexture(const std::string& file) {
+    return CarTextureName(file) && (file.find("_interior") != std::string::npos || file.find("_seat") != std::string::npos);
+}
+static bool GlassPremulCaps(IDirect3DDevice9* device) {
+    if (g_glassPremulCaps < 0) {
+        D3DCAPS9 caps = {};
+        g_glassPremulCaps = SUCCEEDED(device->GetDeviceCaps(&caps)) && (caps.TextureOpCaps & D3DTEXOPCAPS_MULTIPLYADD) &&
+                            caps.MaxTextureBlendStages >= 3 ? 1 : 0;
+        Log("models: kit glass premultiplied blend %s (MULTIPLYADD %d)", g_glassPremulCaps ? "available" : "not available",
+            (caps.TextureOpCaps & D3DTEXOPCAPS_MULTIPLYADD) ? 1 : 0);
+    }
+    return g_glassPremulCaps == 1;
 }
 static DWORD PaintFactor(const float* t) {
     const bool remix = RemixApiAvailable();
@@ -3423,8 +3463,33 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
         }
         // VEHICLE-ART-28: the kit glass lift (GlassLiftOn): stage 1 adds the sky's reflection (the ambient x the lift)
         // to the lit pane and scales its alpha. Glass carries no paint tint, so stage 1 is free here.
-        bool glassLifted = false;
-        if (carSurf == kCarSurfGlass && !g_modelGhost && GlassLiftOn()) {
+        bool glassLifted = false, glassPremul = false;
+        if (carSurf == kCarSurfGlass && !g_modelGhost && GlassLiftOn() && g_glassSee < 100 && GlassPremulCaps(device)) {
+            // VEHICLE-ART-29 glass_see: colour = reflection + lit pane x its alpha x k, alpha = its alpha x k (k =
+            // glass_alpha x glass_see), drawn ONE / INVSRCALPHA. The reflection is the lift at full weight, so over a dark
+            // cabin the pane keeps ART-28's grey.
+            DWORD amb = 0;
+            device->GetRenderState(D3DRS_AMBIENT, &amb);
+            auto ch = [&](int sh) { return static_cast<DWORD>((std::min)(255, static_cast<int>((amb >> sh) & 0xFF) * g_glassLift / 100)); };
+            const DWORD k = static_cast<DWORD>(g_glassAlpha * g_glassSee * 255 / 10000);
+            device->SetRenderState(D3DRS_TEXTUREFACTOR, (k << 24) | (ch(16) << 16) | (ch(8) << 8) | ch(0));
+            device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_MODULATE);
+            device->SetTextureStageState(1, D3DTSS_COLORARG1, D3DTA_CURRENT);
+            device->SetTextureStageState(1, D3DTSS_COLORARG2, D3DTA_CURRENT | D3DTA_ALPHAREPLICATE);
+            device->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
+            device->SetTextureStageState(1, D3DTSS_ALPHAARG1, D3DTA_CURRENT);
+            device->SetTextureStageState(1, D3DTSS_ALPHAARG2, D3DTA_TFACTOR);
+            device->SetTextureStageState(2, D3DTSS_COLOROP, D3DTOP_MULTIPLYADD);
+            device->SetTextureStageState(2, D3DTSS_COLORARG0, D3DTA_TFACTOR);
+            device->SetTextureStageState(2, D3DTSS_COLORARG1, D3DTA_CURRENT);
+            device->SetTextureStageState(2, D3DTSS_COLORARG2, D3DTA_TFACTOR | D3DTA_ALPHAREPLICATE);
+            device->SetTextureStageState(2, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+            device->SetTextureStageState(2, D3DTSS_ALPHAARG1, D3DTA_CURRENT);
+            device->SetTextureStageState(3, D3DTSS_COLOROP, D3DTOP_DISABLE);
+            device->SetTextureStageState(3, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+            device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_ONE);
+            glassLifted = glassPremul = true;
+        } else if (carSurf == kCarSurfGlass && !g_modelGhost && GlassLiftOn()) {
             DWORD amb = 0;
             device->GetRenderState(D3DRS_AMBIENT, &amb);
             auto ch = [&](int sh) { return static_cast<DWORD>((std::min)(255, static_cast<int>((amb >> sh) & 0xFF) * g_glassLift / 100)); };
@@ -3439,6 +3504,20 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
             device->SetTextureStageState(2, D3DTSS_COLOROP, D3DTOP_DISABLE);
             device->SetTextureStageState(2, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
             glassLifted = true;
+        } else if (carSurf == kCarSurfMatte && !g_modelGhost && GlassLiftOn() && g_cabinLift > 0 && CarCabinTexture(mesh.texture)) {
+            // VEHICLE-ART-29 cabin_lift: the daylight through the glasshouse on the seats, dash and inner shell.
+            DWORD amb = 0;
+            device->GetRenderState(D3DRS_AMBIENT, &amb);
+            auto ch = [&](int sh) { return static_cast<DWORD>((std::min)(255, static_cast<int>((amb >> sh) & 0xFF) * g_cabinLift / 100)); };
+            device->SetRenderState(D3DRS_TEXTUREFACTOR, 0xFF000000u | (ch(16) << 16) | (ch(8) << 8) | ch(0));
+            device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_ADD);
+            device->SetTextureStageState(1, D3DTSS_COLORARG1, D3DTA_CURRENT);
+            device->SetTextureStageState(1, D3DTSS_COLORARG2, D3DTA_TFACTOR);
+            device->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+            device->SetTextureStageState(1, D3DTSS_ALPHAARG1, D3DTA_CURRENT);
+            device->SetTextureStageState(2, D3DTSS_COLOROP, D3DTOP_DISABLE);
+            device->SetTextureStageState(2, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+            glassLifted = true;
         }
         const bool skinned = mesh.skin >= 0 && posed && posed->meshes.size() > static_cast<size_t>(mi) &&
                              posed->meshes[mi].size() == mesh.vertices.size();
@@ -3446,6 +3525,18 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
         D3DMATRIX m;
         memcpy(&m, world.m, sizeof(m));
         device->SetTransform(D3DTS_WORLD, &m);
+        // VEHICLE-ART-29 cabin_cull (GlassLiftOn reads it): the inner shell's near wall out of the way.
+        DWORD cabinCullPrev = 0;
+        bool cabinCulled = false;
+        if (g_cabinCull && carSurf == kCarSurfMatte && !g_modelGhost && GlassLiftOn() &&
+            mesh.texture.find("_interior") != std::string::npos && CarTextureName(mesh.texture)) {
+            const float* w = &world.m[0][0];
+            const float det = w[0] * (w[5] * w[10] - w[6] * w[9]) - w[1] * (w[4] * w[10] - w[6] * w[8]) + w[2] * (w[4] * w[9] - w[5] * w[8]);
+            const bool ccw = (det > 0.0f) != (g_cabinCull == 1);
+            device->GetRenderState(D3DRS_CULLMODE, &cabinCullPrev);
+            device->SetRenderState(D3DRS_CULLMODE, ccw ? D3DCULL_CCW : D3DCULL_CW);
+            cabinCulled = true;
+        }
         const ModelVertex* verts = skinned ? posed->meshes[mi].data() : mesh.vertices.data();
         QueryPerformanceCounter(&t1);
         // Rigid: the mesh's own managed buffers. Skinned: the index buffer from
@@ -3564,6 +3655,12 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
         if (glassLifted) {
             device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
             device->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+        }
+        if (cabinCulled) device->SetRenderState(D3DRS_CULLMODE, cabinCullPrev);
+        if (glassPremul) {
+            device->SetTextureStageState(2, D3DTSS_COLOROP, D3DTOP_DISABLE);
+            device->SetTextureStageState(2, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+            device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
         }
         if (glassStage) {
             device->SetTextureStageState(glassStage, D3DTSS_COLOROP, D3DTOP_DISABLE);

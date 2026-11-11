@@ -682,3 +682,70 @@ Run vg7_prx6 (`playtest_remix.sh ... bil "21,5.5" "150.5,130.5,2"` plus `-e GTA2
 triage 225's takes landed at 155.1,141.9). At that pose in this session no black muscle car is parked in view, at 21:00 or 5:30
 (a road with traffic, a police car, trucks): the parked cars are the game's per session, so the filer's car is not at the
 filer's pose. The car itself was judged at 155.1,141.9 by triage pass 225 (blobs gone) and here as the forced 071 (12.5).
+
+## 13. VEHICLE-ART-29 (11 Nov 2026): the cabin seen through the kit glass
+
+ART-28's lift (9956f8df) brought the kit bodies' panes to the sprites' glass grey by day, but nothing behind them read:
+no seat, no wheel, no driver, from any pose. Two causes, both in the renderer, none in the panes' colour:
+
+- **The cabin shell's near wall.** Every kit body (`tools/vehicle_art2`, 49 bodies with `_interior` textures) builds
+  its cabin as a closed inner shell: the body surface inset ~6 cm (`car.surface(... inset=0.06 ..., default=
+  "interior_dark")`), outward normals, plus seat/dash/wheel parts inside it. Cars draw with culling off, so from
+  outside the shell's near wall stands between the glass and the seats: the window shows a flat dark wall whatever
+  the pane does (out/va29_n2: glass_see 100 -> 40 and cabin_lift 0 -> 75 only turned that wall grey).
+  `model_store.cpp` now draws a car `_interior` mesh with culling on, the winding chosen from the world matrix's
+  handedness (the car placements are mirrored, det < 0), so the faces looking toward the eye go: one sees the far
+  wall's inside, the seats, the dash and the steering wheel, and the seated driver. `[devtools] cabin_cull` 1
+  (default), 2 the opposite winding (probe: it keeps the near wall, as 0 does), 0 = as before (out/va29_n3: only
+  the right winding shows the cabin).
+- **Transmission and light.** The pane (tex_glass alpha ~0.76) let a quarter of the cabin through, and the cabin's
+  `interior_dark` (12,12,12) was lit like paint. The kit glass is now drawn premultiplied (`ONE / INVSRCALPHA`;
+  stage 1 multiplies the lit pane by its alpha, stage 2 `MULTIPLYADD`s the sky reflection = the time-of-day ambient
+  x `glass_lift` at full weight), its opacity x `[devtools] glass_see` (45 % default, 100 = the old blend): a
+  clearer pane that keeps ART-28's grey. `[devtools] cabin_lift` (90 % of the ambient, 0 = off) adds the daylight
+  through the glasshouse to the `_interior` / `_seat` surfaces, and scales the image-to-3D shells' fixed cabin
+  colours (`car_glass.cpp` CarGlassDrawInterior: walls 28, seats 42 -> x1.9 at noon; night unchanged, x0.45).
+  Both fade with the ambient at dusk and night. Plain renderer only (gated on `RemixApiAvailable()` like the lift).
+  No new geometry: 0 triangles added per car.
+
+Same-run A/B (`keys_va6_own.sh`, wil 164.5,147.6, own car forced, regression-camera poses, `VA6_SETS`
+a = `glass_see=100,cabin_lift=0,cabin_cull=0` (ART-28's glass) / b = the new defaults), noon, out/va29_n5. Window
+region = the pixels the A/B changes; median RGB and luma p10/p50/p90 (the spread is the cabin reading):
+
+| body | pose | a (before) | b (after) |
+|---|---|---|---|
+| 050 B-Type | side | (52,56,62) 36/55/77 | (45,44,44) 30/44/89 |
+| 050 | front34 | (45,48,53) 41/47/67 | (65,65,64) 49/64/94 |
+| 001 Wellard | side | (52,57,63) 41/56/90 | (60,60,59) 30/59/105 |
+| 001 | front34 | (46,50,55) 41/49/71 | (70,70,70) 54/70/98 |
+| 005 Beamer | side | (53,58,65) 19/57/82 | (39,38,38) 28/38/78 |
+| 005 | front34 | (44,48,53) 31/47/73 | (67,67,66) 44/66/95 |
+| 032 Stretch Limousine | side | (53,57,64) 43/56/80 | (51,50,50) 35/50/80 |
+| 032 | front34 | (51,55,61) 43/54/79 | (73,72,72) 52/72/94 |
+| 071 Rumbler (shell) | eye | (17,21,30) 15/20/25 | (26,30,38) 22/29/36 |
+| 002 BD4 (shell) | rear34 | (25,51,53) 15/47/80 | (56,69,62) 24/64/90 |
+
+Sprite glass for reference: 001 (52,50,51), 005 (65,64,73), 050 (51,48,57). The medians stay in the sprites' band
+(38-73); the p90 rises where the seats, headrests and the driver's head now show. Frames opened: side / front34 /
+rear34 / eye on 050, 001, 005, 032 (seat backs and headrests through the side glass, steering wheel, dash and the
+driver through the windscreen, the rear bench through the rear screen; the panes keep the sky gradient and seals).
+Night (22:00, weather on, out/va29_nn1): panes (15-31) stay darker than the paint, the cabin dim but readable, the
+driver visible, no glow. The settings tried on the way (out/va29_n4: see 55/40, cabin 45/90) differ little once
+the near wall is gone; 45/90 keeps the pane in the sprite band.
+
+Still short / untested: the panes lost their faint blue tint (neutral grey reflection); the kit cabins are the
+generator's simple boxes (a lit space now, not upholstery); the image-to-3D shells (071, 002, 021 ...) gain only the
+brighter cabin colours (their panes are the mask pass, unchanged); Remix: unchanged and still dark. What the path
+tracer needs there: the same closed shell blocks the light into the cabin under Remix (Remix ignores the plain
+renderer's lift and does not take this cull), so the fix is asset-side: rebuild the kit bodies with the inner shell
+open on the glass side (or flipped, `flip=True`, and the parts' Remix hashes re-graded), then a translucent glass
+prim for `*_glass` in gta2hd; not attempted here. First person: the seated cab is FIX-COCKPIT-CAB-7's (the hull
+is not drawn from the seat, so this cull never reaches the player's own cab).
+
+**qaexp11 (012 Cop Car's rear plate mirrored on the burning / dent-4 copy): fixed in the body's UV.** The plate is a
+1.2 cm carkit box whose inner (+z) face carried the picture mirrored as seen from behind; on the dented copy that
+face ends up in front. `carkit.box(..., back_reads=True)` mirrors the +z face's u so the plate reads right through
+either face; only `car_012.py`'s plate uses it. The rebuilt 012 differs from the shipped files in the .mesh only
+(the generator without the flag reproduces the shipped mesh byte for byte). out/va29_p1 (fresh / force_car_damage
+25000, chase and rear34): "PD 012" reads left to right in all four frames (was "210 DP" at 25000, out/va27_plt0).
+The model file `012_cop_car.mesh` goes out by release archive / restage (not in git).

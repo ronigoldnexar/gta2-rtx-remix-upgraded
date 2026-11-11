@@ -159,6 +159,9 @@ const Model* ModelForVehicle(int modelNumber, int sprite);
 void ModelSetPaintTint(const float* rgb);
 // [devtools] ini path for the live Remix paint-factor toggle (remix_tint_linear)
 void ModelSetDevIni(const char* ini);
+// VEHICLE-ART-29: [devtools] cabin_lift in percent of the time-of-day ambient (0 off, or under Remix), for the
+// image-to-3D shells' cabin boxes (car_glass.cpp) as for the kit bodies' cabin surfaces.
+int ModelCabinLiftPercent();
 // FIX-CAR-IDENTITY: a car model's own paint (0-255), the mean of the texels its "_paint" meshes cover in
 // the shipped files; cached. False (rgb = paintRgb) when it has no paint meshes. identity.cpp divides by it.
 // mean (optional): the plain mean of the same texels (for a sprite paint measured from its remap's texels).

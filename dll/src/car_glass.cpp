@@ -3,6 +3,7 @@
 #include "thread_watch.h"
 #include "car_glass.h"
 #include "car_glass_split.h"
+#include "model_store.h"
 
 #include <algorithm>
 #include <cctype>
@@ -1725,7 +1726,15 @@ void CarGlassDrawInterior(IDirect3DDevice9* device, const Model& base, const gta
     // Which way each face is wound: front faces clockwise in D3D, so a quad meant to be seen from
     // the side its normal points to is wound so; a mirrored placement flips the sense.
     const bool mirrored = Det3(placement) < 0.0f;
-    const float dim = night ? 0.45f : 1.0f;
+    float dim = night ? 0.45f : 1.0f;
+    // VEHICLE-ART-29 cabin_lift: by day the boxes take the light through the glasshouse (their fixed colours were
+    // tuned near-black: seats 42, walls 28 read as a hole behind the pane), scaled by the time-of-day ambient.
+    if (!night && !remix) {
+        DWORD amb = 0;
+        device->GetRenderState(D3DRS_AMBIENT, &amb);
+        const float a = (((amb >> 16) & 0xFF) + ((amb >> 8) & 0xFF) + (amb & 0xFF)) / (3.0f * 90.0f);
+        dim = 1.0f + ModelCabinLiftPercent() / 100.0f * (std::min)(1.2f, a);
+    }
     for (const Quad& q : glass->cabin) {
         if (remix && q.kind == 0) continue;
         std::vector<V>& to = remix && q.kind == 1 ? lining : verts;
@@ -1738,8 +1747,9 @@ void CarGlassDrawInterior(IDirect3DDevice9* device, const Model& base, const gta
         bool flip = (wn[0] * q.n[0] + wn[1] * q.n[1] + wn[2] * q.n[2]) < 0.0f;
         if (mirrored) flip = !flip;
         auto col = [&](uint32_t c0) {
-            const uint32_t r = static_cast<uint32_t>(((c0 >> 16) & 0xFF) * dim), g = static_cast<uint32_t>(((c0 >> 8) & 0xFF) * dim),
-                           bl = static_cast<uint32_t>((c0 & 0xFF) * dim);
+            const uint32_t r = static_cast<uint32_t>((std::min)(255.0f, ((c0 >> 16) & 0xFF) * dim)),
+                           g = static_cast<uint32_t>((std::min)(255.0f, ((c0 >> 8) & 0xFF) * dim)),
+                           bl = static_cast<uint32_t>((std::min)(255.0f, (c0 & 0xFF) * dim));
             return 0xFF000000u | (r << 16) | (g << 8) | bl;
         };
         const uint32_t cc = col(q.colour);

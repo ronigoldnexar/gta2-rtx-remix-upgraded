@@ -249,9 +249,11 @@ class Car:
         self.surface(capfn, 0.0, 1.0, v0, v1, nr, nv, default=mat, mirror=mirror, regions=regions,
                      uvfn=uvfn or (lambda r, v: (0.5 + 0 * r, 0.5 + 0 * v)))
 
-    def box(self, mat, lo, hi, uv_scale=1.0, uv_rect=None):
+    def box(self, mat, lo, hi, uv_scale=1.0, uv_rect=None, back_reads=False):
         """uv_rect (s0, t0, s1, t1): every face maps its picture into that rectangle of the texture (VEHICLE-ART-16:
-        two boards share one picture)"""
+        two boards share one picture). back_reads (VEHICLE-ART-29, qaexp11): the +z face's picture is mirrored so it
+        reads right seen from -z through the box (a thin plate whose inner face can end up in front of its outer
+        face, as the dented copy's plate did on 012: the "210 DP" plate)"""
         lo = np.array(lo, float); hi = np.array(hi, float)
         P, N, T, F = [], [], [], []
         faces = [((0, 1, 2), 0, 1), ((0, 1, 2), 0, -1)]
@@ -267,6 +269,8 @@ class Car:
                     P.append(q); nn = [0, 0, 0]; nn[axis] = sgn; N.append(nn)
                     # faces looking down an axis read their picture unmirrored from outside
                     tc = (1 - c[0], c[1]) if (sgn < 0) != (axis == 1) else c
+                    if back_reads and axis == 2 and sgn > 0:
+                        tc = (1 - tc[0], tc[1])
                     if uv_rect is not None:
                         tc = (uv_rect[0] + (uv_rect[2] - uv_rect[0]) * tc[0], uv_rect[1] + (uv_rect[3] - uv_rect[1]) * tc[1])
                     T.append(tc)
