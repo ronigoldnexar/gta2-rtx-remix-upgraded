@@ -4133,15 +4133,15 @@ bool CarHiddenByWalls(const gta2::Vec3& eye, const gta2::Mat4& m, float halfW, f
 // back exactly as it would have been. The test volume is the body's box (10 % out, 1.6 widths tall) plus that box's
 // shadow on the ground (its top corners carried down the sun's direction, never flatter than the shadow maps' 10
 // degrees), so a car just out of view keeps the shadow it lays into view. Bits: 1 frustum, 2 walls. [renderer]
-// car_view_cull (default 0 until the A/B), GTA2DX9_CAR_VIEW_CULL, live [devtools] car_view_cull (-1: the ini's). Off under Remix
+// car_view_cull (default 3), GTA2DX9_CAR_VIEW_CULL, live [devtools] car_view_cull (-1: the ini's). Off under Remix
 // (the path tracer sees what is out of view) and for the car he drives or sits in.
-int g_viewCullIni = 0, g_viewCullDev = -1, g_viewCullEnv = -2;
+int g_viewCullIni = 3, g_viewCullDev = -1, g_viewCullEnv = -2;
 struct ViewCullStats { int tested = 0, frustum = 0, walls = 0; double ms = 0.0; } g_viewCull;
 // GTA2DX9_CAR_CULL_VERIFY=1: the cull's proof. Nothing is held; every car the test calls unseen is drawn inside an
 // occlusion query, and a car whose draws pass the depth test anywhere (against the world and the cars before it) is a
 // wrong call, logged with its pixels. Results are read a few frames later; a line every 300 frames sums them.
 int g_cullVerify = -1;
-struct CullQuery { IDirect3DQuery9* q = nullptr; int model = 0; float dist = 0.0f; int why = 0; uint32_t frame = 0; bool busy = false; };
+struct CullQuery { IDirect3DQuery9* q = nullptr; int model = 0; float dist = 0.0f; int why = 0; uint32_t frame = 0; bool busy = false; float car[3] = {}, eye[3] = {}; };
 CullQuery g_cullQueries[96];
 int g_cullQueryNext = 0;
 struct CullVerifyStats { int issued = 0, read = 0, seen = 0, seen16 = 0; unsigned maxPx = 0; int maxModel = -1, maxWhy = 0; float maxDist = 0.0f; } g_cullVerifyStats;
@@ -4160,8 +4160,9 @@ void CullVerifyPoll(bool wait) {
         if (px >= 16) ++v.seen16;
         if (px > 0) {
             static int logged = 0;
-            if (logged++ < 200) Log("car cull verify: WRONG CALL model %d at %.1f blocks (%s) drew %u pixels (frame %u)", c.model, c.dist,
-                                    c.why == 1 ? "frustum" : "walls", static_cast<unsigned>(px), c.frame);
+            if (logged++ < 200) Log("car cull verify: WRONG CALL model %d at %.1f blocks (%s) drew %u pixels (frame %u) car %.2f,%.2f,%.2f eye %.2f,%.2f,%.2f",
+                                    c.model, c.dist, c.why == 1 ? "frustum" : "walls", static_cast<unsigned>(px), c.frame,
+                                    c.car[0], c.car[1], c.car[2], c.eye[0], c.eye[1], c.eye[2]);
         }
         if (px > v.maxPx) { v.maxPx = px; v.maxModel = c.model; v.maxWhy = c.why; v.maxDist = c.dist; }
     }
@@ -4177,8 +4178,8 @@ int CarViewCullMode() {
 }
 // 1 outside the frustum, 2 behind walls, 0 seen (or may be). sd: unit direction the sunlight travels (sd.y < 0).
 int CarViewHidden(int mode, const gta2::Vec3& eye, const gta2::Mat4& m, float halfW, float halfL, float height, const gta2::Vec3& sd) {
-    const float hw = 1.1f * halfW + 0.05f, hl = 1.1f * halfL + 0.05f;
-    gta2::Vec3 p[13];
+    const float hw = 1.1f * halfW + 0.08f, hl = 1.1f * halfL + 0.12f;
+    gta2::Vec3 p[19];
     auto at = [&](float x, float y, float z) {
         return gta2::Vec3{m.m[3][0] + x * m.m[0][0] + y * m.m[1][0] + z * m.m[2][0], m.m[3][1] + x * m.m[0][1] + y * m.m[1][1] + z * m.m[2][1],
                           m.m[3][2] + x * m.m[0][2] + y * m.m[1][2] + z * m.m[2][2]};
@@ -4191,6 +4192,9 @@ int CarViewHidden(int mode, const gta2::Vec3& eye, const gta2::Mat4& m, float ha
         const float k = (std::max)(0.0f, t.y - groundY) / (std::max)(0.17f, -sd.y);
         p[9 + i] = gta2::Vec3{t.x + sd.x * k, groundY, t.z + sd.z * k};
     }
+    // The edges' middles (verify drive perf7_ver1: 1-3 pixel slivers of cars at wall corners between the corners' rays).
+    p[13] = at(0.0f, height, hl); p[14] = at(0.0f, height, -hl); p[15] = at(hw, height, 0.0f); p[16] = at(-hw, height, 0.0f);
+    p[17] = at(hw, 0.08f, 0.0f); p[18] = at(-hw, 0.08f, 0.0f);
     if (mode & 1) {
         float lo[3] = {1e9f, 1e9f, 1e9f}, hi[3] = {-1e9f, -1e9f, -1e9f};
         for (const gta2::Vec3& q : p) {
@@ -4202,7 +4206,7 @@ int CarViewHidden(int mode, const gta2::Vec3& eye, const gta2::Mat4& m, float ha
     }
     if ((mode & 2) && eyecol::Ready()) {
         // The middle and the top first: a car in view is usually found seen by its first ray.
-        static const int order[13] = {8, 4, 5, 6, 7, 9, 10, 11, 12, 0, 1, 2, 3};
+        static const int order[19] = {8, 4, 5, 6, 7, 13, 14, 15, 16, 9, 10, 11, 12, 0, 1, 2, 3, 17, 18};
         for (int i : order)
             if (!eyecol::SegmentBlocked(eye, p[i], 0.05f)) return 0;
         return 2;
@@ -4485,7 +4489,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
     // FIX-PERF-7: the view cull's settings and the shadows' sun (post_fx.cpp RenderShadows: the sky's sun, never
     // flatter than 10 degrees; the body light's sun when the sky draws none).
     if (g_devIni[0] && frame % 30 == 0) {
-        g_viewCullIni = GetPrivateProfileIntA("renderer", "car_view_cull", 0, g_devIni);
+        g_viewCullIni = GetPrivateProfileIntA("renderer", "car_view_cull", 3, g_devIni);
         g_viewCullDev = GetPrivateProfileIntA("devtools", "car_view_cull", -1, g_devIni);
     }
     const int viewCullMode = RemixApiAvailable() ? 0 : CarViewCullMode();
@@ -4636,9 +4640,16 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         if (use.fade <= 0.02f) continue;
         // FIX-PERF-7: the view cull (CarViewHidden): an unseen car's draws are held, its logic runs.
         bool viewCulled = false;
-        if (viewCullMode && !use.own && !use.driven && !inside) {
+        // The box from the body as last drawn (the cabin record, written by the car's logic every frame, held or not:
+        // the model's full length and height, roof gear and a truck's stacks included); a car with no record yet is
+        // drawn (verify drive perf7_ver1: a 063 cab's stacks over the 1.6-width estimate showed 476 pixels).
+        const auto cabRec = g_cabins.find(use.object);
+        if (viewCullMode && !use.own && !use.driven && !inside && cabRec != g_cabins.end() && frame - cabRec->second.frame <= 2) {
             const double tc = CarNowMs();
-            const int hidden = CarViewHidden(viewCullMode, eye, carToWorld, 0.5f * b->bodyWidth, 0.5f * b->bodyLength, 1.6f * b->bodyWidth + 0.1f, cullSun);
+            const float cullH = (std::max)(1.6f * b->bodyWidth, cabRec->second.height) + 0.1f;
+            const float cullHalfL = 0.5f * (std::max)(b->bodyLength, cabRec->second.length);
+            const float cullHalfW = (std::max)(0.5f * b->bodyWidth, cabRec->second.halfWidth);
+            const int hidden = CarViewHidden(viewCullMode, eye, carToWorld, cullHalfW, cullHalfL, cullH, cullSun);
             g_viewCull.ms += CarNowMs() - tc;
             ++g_viewCull.tested;
             if (hidden == 1) ++g_viewCull.frustum;
@@ -4652,6 +4663,8 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                     g_cullQueryNext = (g_cullQueryNext + 1) % 96;
                     const float dx = carToWorld.m[3][0] - eye.x, dz = carToWorld.m[3][2] - eye.z;
                     c.model = use.model; c.dist = std::sqrt(dx * dx + dz * dz); c.why = hidden; c.frame = frame;
+                    for (int k = 0; k < 3; ++k) c.car[k] = carToWorld.m[3][k];
+                    c.eye[0] = eye.x; c.eye[1] = eye.y; c.eye[2] = eye.z;
                     c.q->Issue(D3DISSUE_BEGIN);
                     openQuery = &c;
                     ++g_cullVerifyStats.issued;

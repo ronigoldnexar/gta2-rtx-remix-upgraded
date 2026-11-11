@@ -39,6 +39,7 @@ std::vector<uint32_t> g_cellStart;   // kGrid*kGrid+1, offsets into g_cellTris
 std::vector<uint32_t> g_cellTris;
 std::vector<uint32_t> g_tileTone;    // darkened mean colour of each tile, for the caps
 std::vector<uint8_t> g_tileSeeThrough;   // a tile with holes in it (fences, grilles): no cap
+std::vector<uint8_t> g_tileHoles;        // FIX-PERF-7: a tile with any holes worth a pixel (over 0.5 % of it): never hides a car
 std::vector<uint32_t> g_stamp;       // per triangle: the query that last tested it
 uint32_t g_query = 0;
 bool g_ready = false;
@@ -269,6 +270,7 @@ void Build(const gta2::WorldMesh& mesh, const gta2::Style& style) {
     // The caps' colour: each tile's mean, at 45% (the inside of a wall is in its own shadow).
     g_tileTone.assign(static_cast<size_t>((std::max)(style.TileCount(), 1)), 0xFF2A2826u);
     g_tileSeeThrough.assign(g_tileTone.size(), 0);
+    g_tileHoles.assign(g_tileTone.size(), 0);
     for (int i = 0; i < style.TileCount(); ++i) {
         const gta2::Tile& tile = style.GetTile(i);
         if (tile.pixels.empty()) continue;
@@ -278,6 +280,7 @@ void Build(const gta2::WorldMesh& mesh, const gta2::Style& style) {
             r += (px >> 16) & 0xFF; g += (px >> 8) & 0xFF; b += px & 0xFF; ++n;
         }
         if (holes * 20 > tile.pixels.size()) g_tileSeeThrough[static_cast<size_t>(i)] = 1;
+        if (holes * 200 > tile.pixels.size()) g_tileHoles[static_cast<size_t>(i)] = 1;
         if (!n) continue;
         const auto dark = [&](uint64_t s) { return static_cast<uint32_t>((s / n) * 45 / 100); };
         g_tileTone[static_cast<size_t>(i)] = 0xFF000000u | (dark(r) << 16) | (dark(g) << 8) | dark(b);
@@ -392,6 +395,7 @@ bool SegmentBlocked(const Vec3& a, const Vec3& b, float skipA) {
         for (uint32_t k = g_cellStart[cell]; k < g_cellStart[cell + 1]; ++k) {
             const Tri& t = g_tris[g_cellTris[k]];
             if (t.flags & (kTwoSided | kPanel | kBar)) continue;
+            if (t.tile < g_tileHoles.size() && g_tileHoles[t.tile]) continue;   // see-through art (fences, grilles, glass)
             if (gta2::Dot(d, N(t)) >= 0.0f) continue;   // from behind: no wall
             float tt;
             if (SegTri(a, d, g_pos[t.v[0]], g_pos[t.v[1]], g_pos[t.v[2]], &tt) && tt > tSkip) return true;

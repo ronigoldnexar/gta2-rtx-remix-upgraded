@@ -1759,3 +1759,88 @@ far one). So at a wall corner the frame paid for ~15 cars that are outside the v
 draws plus ~600 caster replays, through wined3d's single command thread (FIX-PERF-6's fit: 5.8 us a draw), and
 nothing of it reached the screen. It is the same class as FIX-PERF-6's "cars in view" (over 50 ms rises with the
 cars stage's draws), with the twist that "in view" meant "near the eye", not "visible".
+
+### The cut: a car nobody can see submits nothing (`[renderer] car_view_cull`, default 3)
+
+Per car, after the "behind the eye" test and before any of its draws (`CarViewHidden`, src/car_bodies.cpp), a volume
+is tested: the body's box (the cabin record's length, height and half width, i.e. the model as last drawn, roof gear
+and a truck's stacks included; 10 % out plus 0.08-0.12 block) **and that box's shadow on the ground** (its top
+corners carried down the sun's direction, never flatter than the shadow maps' 10 degrees). Bit 1: the volume's bounding
+sphere wholly outside the view frustum's four side planes. Bit 2: 19 rays from the eye (the box's corners, its
+middle, its edges' middles, the shadow's corners) all stopped by a one-sided wall or lid of the world
+(`eyecol::SegmentBlocked`: a cell walk that stops at the first face; railings, two-sided sheets and every tile with
+more than 0.5 % transparent texels never hide). A car that fails either test is drawn as before; one that passes
+has its draws held (`ModelHoldDraws`: body meshes, the clear coat inside them, wheels, doors, its glass path), so it
+records no shadow casters either, while everything else about it runs (identity, wear and dents, springs, steering,
+lamps, smoke, its door, the cabin record), and the frame it comes into view it is drawn exactly as it would have
+been. Never the car he drives or sits in, never a car with no cabin record yet (its first frame), never under RTX
+Remix (the path tracer sees what is out of view: Remix untested with the cut, and the cut is off there). The classic
+view draws no car bodies. Cost: 0.15-0.3 ms a frame for ~20 cars (census `cull mode` field).
+
+**The proof (`GTA2DX9_CAR_CULL_VERIFY=1`).** Nothing is held; every car the test calls unseen is drawn inside a D3D
+occlusion query against the depth of the world and the cars before it, and a call whose draws pass anywhere is
+logged (`car cull verify: WRONG CALL`, with the car and the eye). Ten-minute drives on QA-STRESS pass 18's route
+(`keys_qa_stress18_drive.sh`, all three views):
+
+| verify drive | unseen calls queried | drew any pixel | drew 16+ | worst | what it was |
+|---|---|---|---|---|---|
+| `perf7_ver1` (box 1.6 widths tall, 13 rays) | 40 123 | 42 | 2 | 476 px | a 063 cab's exhaust stacks above the estimated box |
+| `perf7_ver3` (box from the cabin record) | 44 876 | 61 | 3 | 1 331 px | cars behind see-through art (fences, grilles) counted hidden |
+| `perf7_ver4` (see-through tiles never hide, 19 rays) | 54 415 | 19 | 0 | 2 px | single-frame 1-2 px slivers at building corners (15-20 blocks) |
+
+The frustum test made no wrong call in any of them. What is left is 19 one-frame specks of 1-2 pixels in 54 k
+calls, cars 15-20 blocks away behind building corners (depth precision or a crack at a wall's edge).
+
+**Fixed-camera A/B, same session, interleaved A B A B** (live `[devtools] car_view_cull=0|3`, regression camera,
+fixed at 12:30 with a clear sky; `perf7_ab1` with the clock running, `perf7_pairs` at noon on the rebased build). Frames are
+street views only, the first 3 s after each switch left out:
+
+| pose (run) | cull | frames | avg ms | p99 | over 50 ms | cars ms | car draws | shadow-pass draws | all draws |
+|---|---|---|---|---|---|---|---|---|---|
+| wedge third (ab1) | off / on / off / on | 538 / 660 / 548 / 660 | 39.9 / 33.2 / 40.0 / 33.2 | 168 / 33 / 71 / 33 | 5.4 / 0.0 / 11.1 / 0.0 % | 3.5 / 1.4 / 3.7 / 1.6 | 371 / 5 / 492 / 60 | 824 / 420 / 1 008 / 501 | 2 771 / 2 005 / 3 115 / 2 155 |
+| wedge first (ab1) | off / on / off / on | 485 / 630 / 533 / 660 | 45.3 / 33.3 / 41.2 / 33.2 | 64 / 33 / 73 / 33 | 35.9 / 0.0 / 26.3 / 0.2 % | 5.1 / 4.1 / 14.6 / 3.3 | 664 / 3 / 742 / 2 | 1 220 / 439 / 1 260 / 415 | 3 506 / 2 026 / 3 593 / 1 985 |
+| wedge third, 3-min take (pairs) | off / on / off / on | 1 160 / 1 287 / 1 288 / 1 288 | 36.1 / 33.3 / 33.3 / 33.3 | 68.5 / 33.3 / 33.3 / 33.3 | 3.1 / 0.3 / 0.2 / 0.1 % | 4.2 / 1.2 / 4.6 / 1.6 | 508 / 20 / 607 / 3 | 965 / 424 / 1 070 / 396 | 3 055 / 2 029 / 3 267 / 1 977 |
+| wedge first (pairs) | off / on / off / on | 682 / 660 / 670 / 690 | 33.6 / 33.3 / 34.3 / 33.3 | 40.5 / 33.3 / 43.9 / 33.3 | 0.3 / 0.0 / 0.3 / 0.0 % | 12.6 / 4.0 / 13.3 / 4.4 | 721 / 3 / 851 / 2 | 1 199 / 401 / 1 271 / 425 | 3 504 / 1 982 / 3 718 / 2 020 |
+| parked car beside the church (pairs) | off / on / off / on | 234 / 240 / 202 / 240 | 34.2 / 33.2 / 34.6 / 33.2 | 46 / 33 / 45 / 44 | 0.4 / 0.0 / 1.0 / 0.4 % | 12.4 / 5.3 / 13.0 / 5.2 | 650 / 10 / 651 / 10 | 1 100 / 418 / 1 101 / 422 | 3 327 / 2 010 / 3 331 / 2 017 |
+| noon plaza, high over the church, cars in view (pairs) | off / on / off / on | 132 / 148 / 142 / 167 | 60.5 / 53.8 / 55.9 / 47.6 | 87 / 68 / 69 / 59 | 87.9 / 68.9 / 77.5 / 28.7 % | 27.1 / 16.2 / 23.9 / 15.7 | 935 / 478 / 935 / 478 | 1 344 / 1 011 / 1 344 / 1 018 | 3 894 / 3 101 / 3 893 / 3 111 |
+
+At the wedge the frame goes back to the 33.3 ms cap: ~1 000-1 700 fewer draws a frame, of them ~400-850 shadow-pass
+draws (the held cars' casters). The plaza pose shows what is left: 478 car draws for cars that really are on
+screen, still 29-69 % over 50 ms.
+
+**Same-pose frames, opened** (`perf7_ab1`, `perf7_pairs`; HUD corners masked): wedge third and first, cull off against
+on: 0 pixels differ (one 3-pixel moving speck in ab1). Parked car beside the church (a near car, both pairs): the
+car's crop 0 difference; the frame differs only where a pedestrian walks through (two frames with the cull on differ
+there too). Noon plaza: the near cars at the bottom edge and the far red car 0 difference; the far parked car's crop
+differs only by a pedestrian entering it; traffic and peds move between the frames (two frames with the cull off
+differ by 1.5 % too). Car shading, the clear coat, glass and the cars' shadows: no visible change.
+
+**Drives (interleaved, QA-STRESS pass 18's route, 10 minutes each, `perf7_drv_*`).** GPU 3 is shared with other seats'
+runs (QA-STRESS, triage, vreg captures), and this time that load was a strong confound (A1 ran with the GPU
+saturated by other runs). GPU 3 utilization is in the table (`nvidia-smi -l 15`, the whole GPU, this run included):
+
+| run | cull | street frames | avg ms | p99 | over 50 ms | per 2-min bucket over 50 ms | car draws | shadow-pass draws | all draws | host 1-min load (start/end) | GPU 3 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| A1 | off | 2 406 | 163.5 | 583 | 82.5 % | 83 / 72 / 94 / 96 / 88 / 100 | 216 | 779 | 2 583 | 77 / 46 | saturated (not logged) |
+| B1 | on | 10 788 | 39.3 | 80.6 | 13.1 % | 91 / 5 / 8 / 10 / 17 / 16 | 110 | 596 | 2 257 | 46 / 21 | 74 % (last 2 min) |
+| A2 | off | 8 594 | 50.6 | 258 | 25.9 % | 4 / 18 / 21 / 28 / 76 / 26 | 247 | 736 | 2 564 | 21 / 29 | 85 % |
+| B2 | on | 11 565 | 36.8 | 80.9 | 7.2 % | 44 / 16 / 6 / 3 / 4 / 0 | 101 | 635 | 2 331 | 29 / 23 | 54 % |
+
+Classic in the same runs: 0.5-2.9 % over 50 ms. The cull halves the car draws on the drive (216-247 down to 101-110 a frame)
+and takes 100-180 draws off the shadow pass. Both pairs favour it, but the GPU's other load moves the numbers as
+much as the cut does. **The standing acceptance (p99 under 50 ms, under 1 % over 50 ms in the street views) is not
+met on the drive:** 7.2-13.1 % over 50 ms with the cull, p99 81 ms. At the wedge spot it is met (0-0.4 %, p99 33.3).
+
+**What is left and the next cut.** The cost now is cars that are on screen: a model car is 9-53 draws (the plaza pose:
+478 car draws, 1 011 shadow-pass draws). In order of least visual risk: (1) per-cascade caster limits in the shadow
+pass. The `shadow census` field counts replays whose caster centre lies 12+ blocks outside the cascade's slice: only
+65 of ~600 near and 4-15 of ~700 far at the wedge, so a slice test needs per-caster bounds to be worth doing;
+(2) the clear coat folded into the body pass, one draw per body mesh instead of two. That is FIX-CAR-SHADING-1/2's
+look, and it needs pixel-close fixed-pose frames; (3) wheels and hull merged per split. GPU 3's shared load needs
+its own measure next to every A/B (`nvidia-smi -i 3 -l 15`).
+
+Classic: `tools/vreg/vreg.sh stage` on this build, `spawn_classic` PASS, 0 tiles changed. The 3D shots differ from
+the b89b95a goldens only in the new HUD, the window-glow lighting (yakuza1_street) and the first-person fists
+(spawn_first). None of those are cars. Untested: night (lamp pools and glows of held cars: their logic runs, and
+their glows are on the hidden body), rain and wet roads, Remix (the cut is off under Remix; the Remix rig was not
+this seat's).
