@@ -1796,3 +1796,19 @@ first frame can show the cab a half-step off at 4+ b/s; open tops, the train and
 - Not covered: a BUSTED arrested in a car (the game's arrest body is a new ped beside the car: anchor not exercised),
   a death by cops' gunfire in the car (qaf91's force_wanted recipe: same code path, not re-run), other districts,
   night, Remix. The first-person beat is the same third-person orbit shot as before (no in-cab death shot).
+- qaf94 (wil garden pocket 11.5,26.5, "hero not drawn in third person"): not a camera fault. After a devtools F9 warp the
+  game submits no sprite for the player until he first moves or turns (`identity: player figure: 0 drawn as him, sprite
+  00000000` until his first turn, then `1 drawn as him`); the filer's probe warped and only switched views. qa_cam21_garden2
+  (warp, settle the game camera 25 s, stand, turn, walk): before the first turn his screen box holds only grass and passing
+  peds; after it, he stands in the box at both pocket stops, the lens 1.3-1.9 blocks from him and outside the garden wall.
+  Probe gamerun/cam21_garden.py. Released for triage.
+- qav31 (wil y=175 shell, the filer's fixed regress eye inside the one-sided facade): the player's own chase boom never
+  enters it. gamerun/cam21_shell.py + cam21_shell_an.py, qa_cam21_shell (east end) and qa_cam21_shell2 (middle, the hero
+  0.5 block from the wall facing north, the boom's rest place inside the shell): 1342 and 584 poses, 0 inside, nearest
+  0.25 and 0.14 block outside the wall plane; the boom shortens and swings along the facade. Released for triage.
+- vreg `cityinfo_chase` (78 tiles against the goldens, the others' runs 20): FIX-CAMERA-20's lattice clip removes the
+  balcony railing within a block of that pose's lens (the golden had the iron railing across the frame); judged intended.
+  Not reseeded: a seed recaptures the whole set, and every current seat sees a shared ~20-tile drift in all 3D shots
+  (spawn_classic 0 tiles): a reseed for QA-REGRESSION with that drift in view.
+- Not attempted (FIX-CAMERA-20 residuals): the long kerb glide's railing posts at the lens and its far-figure end; a
+  lattice more than a block from the lens still hiding him.
