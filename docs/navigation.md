@@ -1575,3 +1575,41 @@ vehicle passes by" (work order owner10nov-B10, plan section B10), and qav26 (sta
 - Short of a shipping frame: the pockets still cut about twice a minute of walking loops where the walls (not a railing)
   close every way round (the iron-stair booth) or he stands mid-strip (filed: defects/open
   cam18-third-pocket-residual-cut-...); the looks through the bars over the road are a choice, not tested with an owner.
+
+## The train ride's chase lens rides the line behind his carriage (FIX-CAMERA-19, 11 Nov 2026)
+
+- **qaexp8 residual** (riding the ste elevated train in third person the lens stood on the lawn beside the line after a V
+  from classic, looked down through the station's lattice roof, or sat inside a carriage). Three causes, all fixed:
+  - the views followed the train found at the game's camera, which is its **lead carriage**; he sits in the one his ped
+    (no longer the game's player, its memory still live) names as its vehicle, often the next one back. A boom behind the
+    lead stood inside his own carriage (never faded: it is the car he is in) and the frame was black round his seated
+    figure (run qa_cam19_tr4: `lens inside his own car body (model 59, driven 1)` 113 times). Now the views follow his
+    carriage (`view: train ride: he sits in carriage ... following his`; `GTA2DX9_CAM_TRAIN_OWN_CAR=0`: the lead);
+  - the car's boom pivot (body height + 0.1 over the floor) stood in a station's roof cell, and the rescue went up through
+    it (FIX-CAMERA-18's down-search, `[camera] tunnel_pivot`, now shipped: the pivot first goes down under the roof);
+  - the boom itself, solved against the map's cells, is the wrong tool on a line whose station blocks the cells call solid
+    round the track. **`[camera] train_trail`** (`GTA2DX9_CAM_TRAIN_TRAIL=0`: the boom as before): the carriage's path is
+    kept every frame in every view (`g_trainTrail`, so a V from classic at speed starts from it), and the lens rides that
+    path behind the carriage, 0.85 over the floor the carriage had there (never more than 0.25 under its floor now: up a
+    ramp), lowered toward 0.35 where a drawn surface is within 0.15 (a low roof, a tunnel's lintel), looking at the
+    carriage itself (0.8 ahead of its middle, 0.45 up) with a 300 deg/s turn cap so a curve does not leave it half off the
+    frame. How far back: the chase distance (to 2.4) when the line from there to the carriage is clear of every drawn
+    surface, otherwise the farthest clear point in to the gap behind its rear (half its length + 0.22): round a curve in a
+    cutting the carriage went behind the cutting's wall; in fast (0.08 s), out slowly (0.6 s). Short of a trail (just
+    boarded) straight back along the carriage's heading where that is open air. The space is clear by construction (the
+    carriage was in it); the carriage behind, which the lens then stands in, fades round it (live_geometry
+    ChaseCarFades: a lens inside another body hides it like a body across the lines to him). Eased in over 0.25 s. Log
+    (`GTA2DX9_LOG_CAMERA=1`): `cam: train trail on|straight|blocked: eye ... (B back along N points ...)`,
+    `view: lens inside a car body` / `lens inside his own car body`.
+- **Probe**: `gamerun/cam19_train.py` (keys_qa_cam19_train.sh; `QA_DISTRICT=ste qa_run.sh <name> 300 cam19_train`):
+  CAMERA-16's boarding, then third person 12 s and three classic -> third V cycles at speed, shots at the V and every
+  1.5 s. Train rides differ run to run (the train waits at a platform or not): judge on several.
+- **Measured** (shots opened): before, FIX-CAMERA-18's runs on db0913d3 (qa_cam18_tr0: lawn, a dark frame, the lattice
+  from above; tr2 with the down-search: inside trailing carriages). This build, 7 rides (qa_cam19_tr4..tr10): tr4 black
+  round his seated figure (the lead-carriage cause), tr5 on (carriage end filling the frame at a standstill: too close),
+  tr6-tr8 behind the carriage over the deck under every station roof; tr9 with a clearance push (reverted: three wall
+  frames); tr10 the shipped build: 26 of 29 street-view shots with the carriage behind, above the deck; 0 FAULT in all.
+- Short of a shipping frame: in a curved cutting the stone wall can still fill a frame or two (tr10 v1_ride1), a curve's
+  exit can leave the carriage half off the frame for a moment (tr10 v1_ride3), the classic -> third move itself (1.4 s) is
+  the standard V move from the game's high camera, not a train shot; first person aboard and the ride's end (getting off)
+  untested with this build.

@@ -354,6 +354,11 @@ bool TrainStillLive(uintptr_t train, float camX, float camY, float* dist) {
 float g_foundX = -1.0f, g_foundY = -1.0f;
 double g_foundAt = -1.0;
 uintptr_t g_rideTrain = 0;
+// FIX-CAMERA-19 (qaexp8 residual): the path the ridden train's carriage ran (renderer frame: x, floor, z; newest last),
+// kept in every view (the chase lens may start from it right after a V), cleared with the ride.
+struct TrainTrailPoint { float x, y, z; };
+std::vector<TrainTrailPoint> g_trainTrail;
+uintptr_t g_trainTrailOf = 0;
 int RideTrainOn() {
     static int on = -1;
     if (on < 0) { char b[8] = {}; on = GetEnvironmentVariableA("GTA2DX9_CAM_TRAIN_RIDE", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
@@ -1699,6 +1704,20 @@ bool CameraPocketLiftOn() {
     return env >= 0 ? env != 0 : ViewModes().pocketLift;
 }
 
+// FIX-CAMERA-19 (qaexp8 residual): on a train the chase lens rides the line's own trail behind the carriage.
+// [camera] train_trail=0 or GTA2DX9_CAM_TRAIN_TRAIL=0: the car's boom as before (A/B).
+bool CameraTrainTrailOn() {
+    static int env = -2;
+    if (env < -1) { char b[8] = {}; env = GetEnvironmentVariableA("GTA2DX9_CAM_TRAIN_TRAIL", b, sizeof b) ? atoi(b) : -1; }
+    return env >= 0 ? env != 0 : ViewModes().trainTrail;
+}
+
+bool CameraTunnelPivotOn() {
+    static int env = -2;
+    if (env < -1) { char b[8] = {}; env = GetEnvironmentVariableA("GTA2DX9_CAM_TUNNEL_PIVOT", b, sizeof b) ? atoi(b) : -1; }
+    return env >= 0 ? env != 0 : ViewModes().tunnelPivot;
+}
+
 bool CameraPedFadeOn() {
     static int env = -2;
     if (env < -1) { char b[8] = {}; env = GetEnvironmentVariableA("GTA2DX9_CAM_PED_FADE", b, sizeof b) ? atoi(b) : -1; }
@@ -1964,7 +1983,7 @@ bool LocatePlayer(PlayerState* out) {
         if (g_rideTrain && !keep) { Log("view: the train ride ends (train %08X %s)", static_cast<unsigned>(g_rideTrain), rd < 99.0f ? "away from the camera" : "gone"); g_rideTrain = 0; }
         const uintptr_t train = keep ? g_rideTrain : TrainAtCamera(camX, camY, &d);
         float tx = 0.0f, ty = 0.0f, tz = 0.0f;
-        const uint8_t* tb = reinterpret_cast<const uint8_t*>(train);
+        const uint8_t* tb = reinterpret_cast<const uint8_t*>(train);   // (FIX-CAMERA-19: then his own carriage)
         if (train && game::ReadPlacement(tb, game::kVehiclePlacementPtr, &tx, &ty, &tz)) {
             const bool boarding = g_foundAt > 0.0 && Now() - g_foundAt < 20.0 && std::hypot(tx - g_foundX, ty - g_foundY) < 4.0f;
             if (train == g_rideTrain || boarding) {
@@ -1972,6 +1991,25 @@ bool LocatePlayer(PlayerState* out) {
                                               Now() - g_foundAt, std::hypot(tx - g_foundX, ty - g_foundY));
                 g_rideTrain = train;
                 out->inVehicle = true;
+                out->train = true;
+                // FIX-CAMERA-19 (qaexp8 residual): the train found at the camera is its lead carriage; he sits in the one
+                // his ped (no longer the game's player, its memory still live) names as its vehicle, often the next one
+                // back (run qa_cam19_tr4: model 59 behind the lead 60). The views follow that carriage: a chase lens behind
+                // the lead stood inside his own (never faded: it is the car he is in) and saw black with his seated figure.
+                // GTA2DX9_CAM_TRAIN_OWN_CAR=0: the lead as before (A/B).
+                static const bool ownCar = [] { char b[4] = {}; return !(GetEnvironmentVariableA("GTA2DX9_CAM_TRAIN_OWN_CAR", b, sizeof b) && b[0] == '0'); }();
+                if (ownCar && g_lastPlayerPed && PedPagesCommitted(g_lastPlayerPed)) {
+                    uintptr_t mine = 0;
+                    float mx = 0.0f, my = 0.0f, mz = 0.0f;
+                    if (ReadAt(g_lastPlayerPed + game::kPedVehicle, &mine) && mine && mine != train && Plausible(mine) &&
+                        game::ReadPlacement(reinterpret_cast<const uint8_t*>(mine), game::kVehiclePlacementPtr, &mx, &my, &mz) &&
+                        std::hypot(mx - tx, my - ty) < 8.0f && std::fabs(mz - tz) < 2.5f) {
+                        static uintptr_t logged = 0;
+                        if (logged != mine) { logged = mine; Log("view: train ride: he sits in carriage %08X, %.1f blocks from the lead %08X: following his", static_cast<unsigned>(mine), std::hypot(mx - tx, my - ty), static_cast<unsigned>(train)); }
+                        tb = reinterpret_cast<const uint8_t*>(mine);
+                        tx = mx; ty = my; tz = mz;
+                    }
+                }
                 out->vehicle = tb;
                 out->vehicleSprite = game::Placement(tb, game::kVehiclePlacementPtr);
                 out->x = tx; out->y = ty; out->z = tz;
@@ -1994,6 +2032,13 @@ bool LocatePlayer(PlayerState* out) {
                     out->x = cx; out->y = static_cast<float>(gta2::kMapHeight) - cz; out->z = c.y0;
                     break;
                 }
+                {   // FIX-CAMERA-19: the line behind the carriage, for the chase lens
+                    const TrainTrailPoint now{out->x, out->z, static_cast<float>(gta2::kMapHeight) - out->y};
+                    if (g_trainTrailOf != train) { g_trainTrail.clear(); g_trainTrailOf = train; }
+                    if (!g_trainTrail.empty() && std::hypot(now.x - g_trainTrail.back().x, now.z - g_trainTrail.back().z) > 3.0f) g_trainTrail.clear();
+                    if (g_trainTrail.empty() || std::hypot(now.x - g_trainTrail.back().x, now.z - g_trainTrail.back().z) > 0.05f) g_trainTrail.push_back(now);
+                    if (g_trainTrail.size() > 600) g_trainTrail.erase(g_trainTrail.begin(), g_trainTrail.begin() + (g_trainTrail.size() - 400));
+                }
                 out->source = "rider of a train at the camera";
                 out->valid = tx >= -1.0f && tx <= gta2::kMapWidth + 1.0f && ty >= -1.0f && ty <= gta2::kMapHeight + 1.0f;
                 return out->valid;
@@ -2002,6 +2047,7 @@ bool LocatePlayer(PlayerState* out) {
     }
     if (!ped) return false;
     g_rideTrain = 0;
+    g_trainTrail.clear(); g_trainTrailOf = 0;
     if (!atTheWheel && PedSignature(ped)) {
         g_lastPlayerPed = ped;
         const uint32_t was = g_lastPlayerPedId;
@@ -4384,6 +4430,25 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     if (q.blocked && solidAt(pivot.x, pivot.y, pivot.z)) {
         const gta2::Vec3 base = pivot;
         bool found = false;
+        // FIX-CAMERA-18 (qaexp8 residual, CAMERA-16's tunnel residual): a tall vehicle (a train carriage, a bus) in a
+        // one-block tunnel has its pivot (body height + 0.1 over its floor) in the tunnel's roof; the search below went
+        // up, out through the roof, and the chase eye stood on the lawn over the tunnel while the train ran under it
+        // (run qa_tri45_train f_third_ride0/1/4). In a vehicle the pivot first goes down, to the open air under the roof
+        // (no lower than 0.3 over the floor). [camera] tunnel_pivot=0 or GTA2DX9_CAM_TUNNEL_PIVOT=0: up only (A/B).
+        if (inVehicle && CameraTunnelPivotOn()) {
+            for (int d = 1; d <= 8 && !found; ++d) {
+                const float y = base.y - 0.1f * static_cast<float>(d);
+                if (y < baseY + 0.3f) break;
+                if (!solidAt(base.x, y, base.z)) {
+                    pivot = gta2::Vec3{base.x, y, base.z};
+                    found = true;
+                    if (cameraLogOn()) {
+                        static int every = 0;
+                        if ((++every % 15) == 1) Log("cam: car pivot under a roof: %.2f -> %.2f (floor %.2f)", base.y, y, baseY);
+                    }
+                }
+            }
+        }
         for (int f = 0; f <= 3 && !found; ++f) {
             for (int u = 0; u <= 4 && !found; ++u) {
                 const gta2::Vec3 c{base.x + hx * 0.3f * f, base.y + 0.25f * u, base.z + hz * 0.3f * f};
@@ -5912,6 +5977,102 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     eyeY_ += bodyLift_;
     gta2::Vec3 eye{eyeX_, eyeY_ + carLift_ + carRaise_, eyeZ_};
     eyeY_ -= bodyLift_;   // the solve's state stays the boom's
+    // FIX-CAMERA-19 (qaexp8 residual: riding the ste train the third-person lens stood on the lawn beside the line, over
+    // the station's lattice roof, inside the bridge over a cutting or in a trailing carriage). A train runs on a line it
+    // has just cleared: the lens rides that line, on the path the carriage's own centre ran (kept each frame), the chase
+    // distance behind it and a little under its roof's height over the floor it had there. Under a station roof, through
+    // a cutting under a bridge and round a curve that space is open by construction (the carriage was in it); the
+    // carriages behind, which run there too, fade at the lens (live_geometry ChaseCarFades: a lens inside a body).
+    // Eased in as the trail grows (the first second aboard) and out when he leaves the train.
+    gta2::Vec3 trainAim{px, baseY, pz};
+    bool trainAimOn = false;
+    {
+        const bool onTrain = player.train && inVehicle && mode == ViewMode::ThirdPerson && CameraTrainTrailOn();
+        float want = 0.0f;
+        gta2::Vec3 trailEye = eye;
+        if (onTrain) {
+            // at least just behind its rear (the gap to the carriage behind)
+            float minBack = 1.15f;
+            {
+                float bl = 0.0f, bh = 0.0f, bw = 0.0f;
+                if (CarBodiesExtent(player.vehicleSprite, &bl, &bh, &bw) && bl > 0.5f) minBack = (std::max)(0.9f, (std::min)(1.4f, 0.5f * bl + 0.22f));
+            }
+            // the chase's own distance where it is longer: the carriage behind, which the lens then stands in, fades
+            // round it (run qa_cam19_tr5 at the gap: the carriage's end filled 80 % of the frame at a standstill)
+            const float maxBack = (std::max)(minBack, (std::min)(2.4f, distance));
+            // the view looks at the carriage itself, a little ahead of its middle (the chase's look point ahead along a
+            // lagging yaw put it half off the frame round a curve: qa_cam19_tr5 v2_third_4)
+            trainAim = gta2::Vec3{px + hx * 0.8f, baseY + 0.45f, pz + hz * 0.8f};
+            trainAimOn = true;
+            const bool mesh = eyecol::Ready();
+            bool straight = false, reached = false;
+            gta2::Vec3 at{px, baseY, pz};
+            // the point `back` along the trail behind the carriage; short of it (just boarded, the train standing at the
+            // platform) straight on back along its heading, the line it stands on
+            auto trailAt = [&](float back, bool* isStraight) {
+                float run = 0.0f;
+                gta2::Vec3 a{px, baseY, pz};
+                for (size_t i = g_trainTrail.size(); i-- > 0;) {
+                    const gta2::Vec3 p{g_trainTrail[i].x, g_trainTrail[i].y, g_trainTrail[i].z};
+                    const float seg = std::hypot(p.x - a.x, p.z - a.z);
+                    if (run + seg >= back) {
+                        const float f = seg > 1e-4f ? (back - run) / seg : 0.0f;
+                        *isStraight = false;
+                        return a + (p - a) * f;
+                    }
+                    run += seg;
+                    a = p;
+                }
+                *isStraight = true;
+                return gta2::Vec3{a.x - hx * (back - run), a.y, a.z - hz * (back - run)};
+            };
+            auto eyeAt = [&](const gta2::Vec3& p) {
+                // (up a ramp the point behind is lower: never more than 0.25 under the carriage's floor now, or the view
+                // looked up at its underside past the ramp's side)
+                gta2::Vec3 e{p.x, (std::max)(p.y, baseY - 0.25f) + 0.85f, p.z};
+                // never inside a drawn surface (the map's cells call a station's whole block solid round the line, so
+                // they are not asked): down to 0.35 over its floor under a low roof
+                for (int d = 0; d < 5 && mesh && (eyecol::InsideSolid(e) || eyecol::Nearest(e, 0.2f) < 0.15f); ++d) e.y = (std::max)(p.y + 0.35f, e.y - 0.1f);
+                return e;
+            };
+            // Round a curve in a cutting the carriage goes behind the cutting's inner wall from 2 blocks back (a stone
+            // wall filled the frame, qa_cam19_tr7 v1_ride3): the farthest point from maxBack in to minBack whose line to
+            // the carriage is clear of every drawn surface; in fast, back out slowly.
+            float pick = minBack;
+            for (float bk = maxBack; bk > minBack + 0.01f; bk -= 0.2f) {
+                bool st = false;
+                const gta2::Vec3 e = eyeAt(trailAt(bk, &st));
+                float t = 1.0f;
+                if (!mesh || !eyecol::SegmentHitSolid(e, trainAim, &t)) { pick = bk; break; }
+            }
+            if (trailBack_ <= 0.0f || trailMix_ <= 0.0f) trailBack_ = pick;
+            else trailBack_ += (pick - trailBack_) * (1.0f - std::exp(-dt / (pick < trailBack_ ? 0.08f : 0.6f)));
+            const float back = trailBack_;
+            at = trailAt(back, &straight);
+            reached = true;
+            trailEye = eyeAt(at);
+            // the straight guess only where it is open air (a line that curves just behind: the boom as before)
+            if (straight && mesh && eyecol::InsideSolid(trailEye)) reached = false;
+            want = reached ? 1.0f : 0.0f;
+            if (cameraLogOn()) {
+                static int every = 0;
+                if ((++every % 15) == 1)
+                    Log("cam: train trail %s: eye %.2f,%.2f,%.2f (%.2f back along %d points, floor there %.2f, now %.2f) mix %.2f", !reached ? "blocked" : straight ? "straight" : "on",
+                        trailEye.x, trailEye.y, static_cast<float>(gta2::kMapHeight) - trailEye.z, back, static_cast<int>(g_trainTrail.size()), at.y, baseY, trailMix_);
+            }
+        }
+        trailMix_ += (want - trailMix_) * (1.0f - std::exp(-dt / 0.25f));
+        if (trailMix_ < 1e-3f) trailMix_ = 0.0f;
+        if (want > 0.5f && trailMix_ > 0.995f) trailMix_ = 1.0f;
+        if (trailMix_ > 0.0f && onTrain) {
+            eye = eye + (trailEye - eye) * trailMix_;
+            orientEye = orientEye + (trailEye - orientEye) * trailMix_;
+            eyeX_ = eye.x; eyeY_ = eye.y; eyeZ_ = eye.z;   // the boom's state follows, so leaving the trail eases from here
+            carLift_ = carRaise_ = 0.0f;
+        } else if (!onTrain) {
+            trailMix_ = 0.0f;
+        }
+    }
     if (shake_ > 0.001f) {
         eye.x += Wobble(shakeClock_, 11.0f) * 0.04f * shake_;
         eye.y += Wobble(shakeClock_ + 2.3, 13.0f) * 0.03f * shake_;
@@ -5921,6 +6082,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     // comes back from ahead of him toward his chest, so the frame holds him and
     // not the wall beyond (on foot; at 0.4 block or less, 80 % of the way).
     gta2::Vec3 aim = lookAt;
+    if (trainAimOn && trailMix_ > 0.0f) aim = aim + (trainAim - aim) * trailMix_;   // FIX-CAMERA-19
     if (inVehicle && carSwing != 0.0f) {
         // FIX-CAMERA-9 (pfl28): turned aside, the chase looks at the car, not down the road ahead of it (from the
         // side the point ahead put the van's nose off the frame's edge, run cam9_p28c); whole at a 60-degree turn.
@@ -5967,8 +6129,10 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         // FIX-INCAR-1 (pfl28): the in-car boom turning aside carries the view round with it; capped at the car rate
         // alone the view's yaw fell 50 degrees behind the turn and the car slid off the frame's edge (run incar1_rev1
         // f615-f629, box -0.28..0.48).
-        const float cap = (inVehicle ? s.turnRateCar : s.turnRateFoot) * ViewTurnSpeedScale() * kDegToRad * (std::min)(dt, 1.0f / 30.0f) +
+        float cap = (inVehicle ? s.turnRateCar : s.turnRateFoot) * ViewTurnSpeedScale() * kDegToRad * (std::min)(dt, 1.0f / 30.0f) +
                           (CarSwingEarlyOn() ? carSwingStep : 0.0f);
+        // FIX-CAMERA-19: on the train's trail the view turns with the line (a 90-degree curve in 0.6 s)
+        if (trainAimOn && trailMix_ > 0.5f) cap = (std::max)(cap, 300.0f * kDegToRad * (std::min)(dt, 1.0f / 30.0f));
         if (finalYawKnown_ && cap > 0.0f) {
             const float d = WrapAngle(camYaw - finalYaw_);
             camYaw = WrapAngle(finalYaw_ + (std::max)(-cap, (std::min)(cap, d)));

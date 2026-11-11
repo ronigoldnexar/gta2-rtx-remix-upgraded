@@ -4928,11 +4928,29 @@ static void ChaseCarFades(std::vector<CarBodyUse>& cars) {
     static int fadeTest = -2;   // FIX-CAMERA-18 probe: GTA2DX9_CAM_FADE_TEST=<percent> draws every other car at that alpha
     if (fadeTest < -1) { char b[8] = {}; fadeTest = GetEnvironmentVariableA("GTA2DX9_CAM_FADE_TEST", b, sizeof b) ? atoi(b) : -1; }
     if (fadeTest > 0 && fadeTest < 100) { for (CarBodyUse& u : cars) if (!u.own && !u.driven) u.fade = fadeTest / 100.0f; return; }
+    static int camLogOn = -1;
+    if (camLogOn < 0) { char b[8] = {}; camLogOn = GetEnvironmentVariableA("GTA2DX9_LOG_CAMERA", b, sizeof b) && atoi(b) ? 1 : 0; }
     for (CarBodyUse& u : cars) {
+        if (camLogOn && (u.own || u.driven)) {
+            const CameraCar* oc = nullptr;
+            for (const CameraCar& c : LiveCameraCars()) if (c.object == u.object) { oc = &c; break; }
+            if (oc && e.y > oc->y0 - 0.05f && e.y < oc->y1 + 0.05f && inside(*oc, e.x, e.z, -0.05f)) {
+                static uint32_t lastOwn = 0;
+                if (g_carFrame - lastOwn > 10) { lastOwn = g_carFrame; Log("view: lens inside his own car body (model %d, own %d driven %d)", u.model, u.own ? 1 : 0, u.driven ? 1 : 0); }
+            }
+        }
         if (u.own || u.driven) continue;
         const CameraCar* cc = nullptr;
         for (const CameraCar& c : LiveCameraCars()) if (c.object == u.object) { cc = &c; break; }
         bool hides = false;
+        if (cc && camLogOn && e.y > cc->y0 - 0.05f && e.y < cc->y1 + 0.05f && inside(*cc, e.x, e.z, -0.05f)) {
+            static uint32_t lastIn = 0;
+            if (g_carFrame - lastIn > 10) {   // FIX-CAMERA-19 probe: the lens inside a car's body
+                lastIn = g_carFrame;
+                Log("view: lens inside a car body (model %d, own %d driven %d, him inside %d, box y %.2f..%.2f, eye %.2f,%.2f,%.2f)", u.model, u.own ? 1 : 0,
+                    u.driven ? 1 : 0, inside(*cc, g_playerPosX, g_playerPosZ, -0.1f) ? 1 : 0, cc->y0, cc->y1, e.x, e.y, static_cast<float>(gta2::kMapHeight) - e.z);
+            }
+        }
         if (cc && !inside(*cc, g_playerPosX, g_playerPosZ, -0.1f)) {
             int lines = 0;
             for (const gta2::Vec3& to : {chest, head}) {
@@ -4947,6 +4965,9 @@ static void ChaseCarFades(std::vector<CarBodyUse>& cars) {
                 }
             }
             hides = lines == 2;
+            // FIX-CAMERA-19 (qaexp8 residual): a lens inside another body (a trailing carriage on the line the train
+            // lens rides, a bus beside a pocket) sees its hull from inside: it fades as one between the lens and him.
+            if (!hides && e.y > cc->y0 - 0.05f && e.y < cc->y1 + 0.1f && inside(*cc, e.x, e.z, -0.08f)) hides = true;
         }
         auto it = s_state.find(u.object);
         if (it == s_state.end()) {

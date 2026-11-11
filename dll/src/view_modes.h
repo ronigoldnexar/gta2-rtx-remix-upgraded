@@ -92,6 +92,10 @@ struct ViewModeSettings {
     // FIX-CAMERA-18 (qaexp32): the first street frame after a level load is cut to, not moved to from the classic camera.
     // [camera] level_start_cut.
     bool levelStartCut = true;
+    // FIX-CAMERA-18: in a vehicle a pivot inside a tunnel's roof goes down under it, not up through it. [camera] tunnel_pivot.
+    bool tunnelPivot = true;
+    // FIX-CAMERA-19: on a train the chase lens rides the line behind the carriage. [camera] train_trail.
+    bool trainTrail = true;
     float fpCarRate = 240.0f;       // first person at the wheel: fixed to the car, this is only a safety cap
     float fpFollowRate = 150.0f;    // first person on foot when the view follows the heading
     // First person: the view heading eases onto the game's over this long
@@ -273,7 +277,9 @@ ViewModeSettings& ViewModes();
 // GTA2DX9_CAM_TURN_BUDGET when set; 0 = off: the swing cut, the fast swing and the 300 deg/s cap as before).
 float CameraTurnBudgetDeg();
 bool CameraPocketLiftOn();
-bool CameraPedFadeOn();      // FIX-CAMERA-18: [camera] chase_ped_fade, GTA2DX9_CAM_PED_FADE   // FIX-CAMERA-18: [camera] pocket_lift, GTA2DX9_CAM_POCKET_LIFT
+bool CameraPedFadeOn();
+bool CameraTunnelPivotOn();
+bool CameraTrainTrailOn();   // FIX-CAMERA-19: [camera] train_trail, GTA2DX9_CAM_TRAIN_TRAIL  // FIX-CAMERA-18/19: [camera] tunnel_pivot, GTA2DX9_CAM_TUNNEL_PIVOT
 ViewMode CurrentViewMode();
 void SetViewMode(ViewMode mode);
 void CycleViewMode();
@@ -296,6 +302,7 @@ struct PlayerState {
     float dirX = 0.0f, dirY = 1.0f;   // facing, in the game's frame
     bool facingKnown = false;
     const char* source = "";          // how he was found, for the menu
+    bool train = false;               // FIX-CAMERA-19: he rides a train (the vehicle is its carriage)
 };
 
 // The global turning scale (turnSpeed / 100).
@@ -513,6 +520,10 @@ private:
     float pocket_ = 0.0f;             // FIX-CAMERA-15: the crane over a car stopped in a pocket (0..1)
     float carRaise_ = 0.0f;           // FIX-CAMERA-6: the shown eye's rise over his own roof with the boom pulled in
     float carLift_ = 0.0f;            // FIX-CAMERA-2: the shown eye's rise over a car or wreck beside it
+    // FIX-CAMERA-19 (qaexp8 residual): on a train the chase lens rides the line behind the carriage, on the path
+    // the carriage has just run (its floor and centre each frame, newest last).
+    float trailMix_ = 0.0f;
+    float trailBack_ = 0.0f;          // FIX-CAMERA-19: how far back along the trail the lens rides (eased)           // 0..1, the trail's share of the shown eye (eased in as the trail grows)
     bool boomInVehicle_ = false;      // the boom was last solved at the wheel (a change restarts it)
     float armDirX_ = 0.0f, armDirY_ = 0.0f, armDirZ_ = -1.0f;
     float rescueX_ = 0.0f, rescueY_ = 0.0f, rescueZ_ = 0.0f;   // the pivot rescue's offset, eased for the shown camera
