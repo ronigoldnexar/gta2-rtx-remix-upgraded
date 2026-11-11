@@ -683,3 +683,32 @@ this and skip it. Classic draws the lid as before. `GTA2DX9_GRATE_BACKING=0` = n
 upscale whose keyed outline matches the 64 px original; at the pm27 jammed-car chase eye (116.04,124.43 h 2.85) it
 reads as a teal wildstyle piece on the wall, about half the frame. What makes it fill half the frame is the chase
 eye a block from the wall (camera, not art).
+
+## 19. Street lamps at night, the wil footbridge corner, the ste classic water (FIX-WORLD-20, 11 Nov 2026)
+
+**qav101 (wil night rain, pale facades washed olive-lime).** A plain light-pass fault, not a tile: see
+docs/visuals-plain.md "Street lamps on posts at night". Lamp posts fitted for Remix carried the Remix emitter
+gain into the plain pass; fixed in dll/src/visuals.cpp (`[devtools] lamp_plain`).
+
+**qav31 (looking up at the wil footbridge corner: wall cut off, awning floating).** Not a mesh hole. Row y=175
+(x 112-116) is a building shell whose z2/z3 blocks carry only north faces (410/577/576/400, at the y=175 plane);
+the awning (579, lid of the lone slope-42 block at 114,174 z3) and the girder's end panel (tile 300, south face
+of 115,174 z3, same plane) hang on its street side. The filer's fixed eye 116.5,175.5,2.5 is inside that shell,
+so the one-sided facade is culled and the awning floats. From an eye 0.4 block north of the facade
+(out/qa_fw20q31b, the filer's 11 directions) the wall is closed to the roof and the awning stands out of it.
+FIX-WORLD-18's girder-cap/canopy design would not change the filer's frames; whether the player's own camera
+(orbit, boom, V descent) can get inside this shell is eye collision, routed to the camera seat.
+
+**pmq1 (ste river: flat green slab in classic, blue water in the street views).** Stopped by the order's own
+clause: the flat slab is this build's classic draw, not the game's tile. The ste water group (608-619, ANIM rate
+5) is textured (31-37 colours a frame, ripples, mean ~80,125,94), as are its HD copies (DXT1, texture down to the
+8 px mip); the classic frame over the river is one colour (stddev 0 in the filer's frame; 73,125,98 at
+128.5,29.5 in out/qa_fw20w), the tile's mean, and stays flat with the HD water tiles removed (out/qa_fw20wn). In
+takeover mode the classic world is drawn by this DLL's renderer. A classic-renderer defect for an owner decision
+(it changes classic pixels and the vreg golden); the street-view tint should then be matched to the textured tile.
+
+**ste road tiles 811/827 (FIX-WORLD-19, first live frames).** Map lookup: 811 at 100/102,136 and 100/102,143
+(car-park entry stubs), 827 at 14 cells (96,74 ... 130,121, 127,122, 177,162 ...). Third person, noon, fixed
+cameras (gamerun/keys_qa_fw20rt.sh, out/qa_fw20rt): t0 (811 at 100-102,136) two crisp white stub bars on grained
+asphalt; t2/t3 (827 at 130,121 / 127,122) a crisp white edge line with the faint yellow hatching beside it, no
+scribble. (t1's eye fell inside a wall.)
