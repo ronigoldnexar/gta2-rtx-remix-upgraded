@@ -5926,10 +5926,32 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
     }
     constexpr float kMoveOccWidth = 0.045f, kMoveOccWidthHeld = 0.035f, kMoveOccMastWidth = 0.004f, kMoveOccMastArea = 0.003f;
     const bool moving = s_moveOcc && s_overlapFade && ViewCameraMoving() && g_playerPosValid;
+    // FIX-WORLD-21 (qav105-wil-third-1645-lamp-mast-beside-lens): the move fade above covers camera
+    // moves only. Beside a STANDING third-person lens (the boom shortened by a wall, the hero walking
+    // past a lamp-lined kerb) a street lamp a fifth of a block from the lens filled a third of the
+    // frame as a dark faceted column, and the chase-line fade drew the column half see-through with
+    // its back faces and collars blended through its front (a ragged dark ghost over the hero) while
+    // its contact patch stayed on the pavement. Now, in the settled third-person view, a tall thin
+    // prop (lamp, stop/one-way sign, meter) within 1.2 blocks of the lens and nearer it than the hero whose nearest
+    // part would be drawn wider than 6 % of the frame's height (4.5 % to stay faded) where it crosses the middle of
+    // the frame, or 12 % (9 %) at its edge, fades out the same way; every faded prop is drawn depth
+    // first (one see-through surface, its nearest), and a prop faded under half takes its contact
+    // patch with it. [devtools] mast_fade=0: the old behaviour (live, for an A/B in one run).
+    static int s_mastFade = 1;
+    {
+        static uint32_t s_mastCalls = 0;
+        if (CarBodiesDevIni()[0] && (s_mastCalls++ % 30u) == 0) {
+            const int v = GetPrivateProfileIntA("devtools", "mast_fade", 1, CarBodiesDevIni());
+            if (v != s_mastFade) Log("devtools: mast_fade %d", v);
+            s_mastFade = v;
+        }
+    }
+    const bool standing = s_mastFade && s_overlapFade && !moving && g_playerPosValid && !g_playerInVehicle &&
+                          CurrentViewMode() == ViewMode::ThirdPerson && StreetPresentation();
     float viewDir[3] = {0.0f, 0.0f, 1.0f}, proj22 = 1.7f;
     float vp[4][4] = {};
     bool moveOccOk = false;
-    if (moving) {
+    if (moving || standing) {
         D3DMATRIX mv, mp;
         if (SUCCEEDED(device->GetTransform(D3DTS_VIEW, &mv)) && SUCCEEDED(device->GetTransform(D3DTS_PROJECTION, &mp))) {
             viewDir[0] = mv.m[0][2]; viewDir[1] = mv.m[1][2]; viewDir[2] = mv.m[2][2];
@@ -6010,6 +6032,32 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
         }
         return occ;
     };
+    static int s_standOccLogs = 0;
+    auto standingOccluder = [&](const Placed& p, bool held) -> bool {
+        if (!moveOccOk) return false;
+        if (!(p.model == lamp || p.model == meter || p.model == signStop || p.model == signOneWay)) return false;
+        const float r = p.model == lamp ? 0.08f
+                      : (std::min)(0.6f, (std::max)(0.08f, 0.5f * p.scale * (std::max)(p.model->Length(), p.model->Width())));
+        const float top = p.y + p.model->Height() * p.scale;
+        const float cy = (std::min)(top, (std::max)(p.y, eye.y));
+        const float dx = p.x - eye.x, dy = cy - eye.y, dz = p.z - eye.z;
+        if (dx * dx + dz * dz > 9.0f) return false;
+        const float depth = dx * viewDir[0] + dy * viewDir[1] + dz * viewDir[2];
+        if (depth >= heroDepth || depth < -0.5f) return false;
+        const float dn = (std::max)(0.02f, std::sqrt(dx * dx + dy * dy + dz * dz) - r);
+        const float width = r * proj22 / dn;
+        // A lens occluder stands at the lens (within 1.2 blocks): a sign beside the hero two blocks out is scenery.
+        if (width < 0.04f || dn > (held ? 1.35f : 1.2f)) return false;
+        const bool central = postSpan(p.x, p.y, top, p.z, 0.6f, 0.8f) > 0.0f;
+        const float need = central ? (held ? 0.045f : 0.06f) : (held ? 0.09f : 0.12f);
+        const bool occ = width > need;
+        if (occ && !held && s_standOccLogs < 200) {
+            ++s_standOccLogs;
+            Log("props: lens occluder %s at %.2f,%.2f faded in the settled third-person view (nearest %.2f from the lens, %.1f%% of the frame's height wide, %s, hero %.2f ahead)",
+                p.model->name.c_str(), p.x, static_cast<float>(gta2::kMapHeight) - p.z, dn, 100.0f * width, central ? "central" : "edge", heroDepth);
+        }
+        return occ;
+    };
     // Per-placement fade state for the overlap fade (alpha, last frame seen), see below.
     static std::unordered_map<uint64_t, std::pair<float, uint32_t>> s_fadeState;
     static uint32_t s_fadeFrame = 0;
@@ -6054,9 +6102,9 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
             float target = overlap < 0.5f ? 0.0f : 1.0f;
             auto it = s_fadeState.find(key);
             bool moveHidden = false;
-            if (target > 0.0f && moving) {
+            if (target > 0.0f && (moving || standing)) {
                 const bool held = it != s_fadeState.end() && s_fadeFrame - it->second.second <= 30 && it->second.first < 0.98f;
-                if (moveOccluder(p, held)) { target = 0.0f; moveHidden = true; }
+                if (moving ? moveOccluder(p, held) : standingOccluder(p, held)) { target = 0.0f; moveHidden = true; }
             }
             if (moveHidden) {
                 const int ci = contactOf[static_cast<size_t>(&p - placed.data())];
@@ -6085,6 +6133,12 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
                 }
             }
             if (s_partialRun.size() > 4096) s_partialRun.clear();
+            // FIX-WORLD-21: a prop faded under half (the chase line, the lens, a body) leaves no contact patch
+            // on the pavement where it no longer reads as standing.
+            if (s_mastFade && overlap < 0.5f) {
+                const int ci = contactOf[static_cast<size_t>(&p - placed.data())];
+                if (ci >= 0) contactProps_[static_cast<size_t>(ci)].radius = 0.0f;
+            }
         }
         if (overlap <= 0.02f) { ++hiddenNow; continue; }
         {
@@ -6165,6 +6219,22 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
             const DWORD a = static_cast<DWORD>((std::min)(1.0f, (std::max)(0.0f, f.alpha)) * 255.0f + 0.5f);
             device->SetRenderState(D3DRS_TEXTUREFACTOR, (a << 24) | 0x00FFFFFFu);
             LogLargeSeeThrough(device, "prop (overlap fade)", *f.model, f.m, f.alpha);
+            if (s_mastFade) {
+                // FIX-WORLD-21: depth first, then its colour where it is the nearest surface (ZFUNC LESSEQUAL
+                // against its own depth): one see-through skin, not its back faces and collars through its front.
+                DWORD cw = 0xF, zf = D3DCMP_LESSEQUAL;
+                device->GetRenderState(D3DRS_COLORWRITEENABLE, &cw);
+                device->GetRenderState(D3DRS_ZFUNC, &zf);
+                device->SetRenderState(D3DRS_COLORWRITEENABLE, 0);
+                device->SetRenderState(D3DRS_ZWRITEENABLE, TRUE);
+                ModelDraw(device, *f.model, f.m, nullptr, 0.0f);
+                device->SetRenderState(D3DRS_COLORWRITEENABLE, cw);
+                device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+                device->SetRenderState(D3DRS_ZFUNC, D3DCMP_LESSEQUAL);
+                ModelDraw(device, *f.model, f.m, nullptr, 0.0f);
+                device->SetRenderState(D3DRS_ZFUNC, zf);
+                continue;
+            }
             ModelDraw(device, *f.model, f.m, nullptr, 0.0f);
         }
         device->SetRenderState(D3DRS_ALPHABLENDENABLE, blend);

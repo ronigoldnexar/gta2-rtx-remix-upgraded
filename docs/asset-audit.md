@@ -728,3 +728,44 @@ distance was not framed (my two cameras for it landed in a wall and inside a str
 
 **Not attempted:** ste green stone in shade (FIX-WORLD-19's grey probe found the lighting right at 65 %; a
 per-class tone floor would be a tile fix, not lighting, and was left).
+
+## 20. Street lamp masts beside a standing third-person lens (FIX-WORLD-21, 11 Nov 2026)
+
+qav105 (wil 150.5,35.5, on foot, third person, 16:45 clear): a `street_lamp` prop a fifth of a block from the
+chase lens filled a third of the frame as a dark faceted column, and one step later the same mast was drawn half
+see-through over the hero with ragged dark edges and a dark flat band at his feet.
+
+**What drew it (A/B, same build, `[devtools] mast_fade` 0/1 live, fixed camera at the filer's eye by
+`GTA2DX9_REGRESS_CAM`, keys `gamerun/fw21_mastcam.py`):**
+- The column is the `street_lamp` prop (live_geometry.cpp DrawProps), not the map's lathed street-light poles
+  (renderer.cpp `UpdatePoleFades`): the filer's log names `street_lamp at 150.92,36.08` and `149.92,36.08`.
+- The move-occluder fade (FIX-TRANSITION-ART) acts only while the camera moves between views, so a settled lens
+  kept the mast opaque (`mast_fade=0`: the frame-filling column; the filer's frames _0/_1).
+- The ghost is the prop overlap fade's chase-line rule (pm20): a lamp across the line from the lens to the hero
+  goes to 0 over ~6 frames and comes back when the line clears. Walking or swaying along a kerb the line crosses
+  the mast again and again, so a frame often catches it mid-fade. The fade drew the whole lathe blended without
+  depth writes, so its back faces and collars showed through its front: dark bands with hard edges. The "flat
+  parallelogram" is one of those collars seen from above through the front skin. The lamp's own contact
+  patch (0.115 block) is not it: it stays under the post, a block from the hero.
+
+**Fix (live_geometry.cpp, `[devtools] mast_fade`, default 1):**
+- In the settled third-person view (on foot), a lamp, stop/one-way sign or parking meter within 1.2 blocks of
+  the lens, nearer it than the hero, whose nearest part would be drawn wider than 6 % of the frame's height
+  where it crosses the middle of the frame (12 % at the edge; 4.5 %/9 % and 1.35 blocks to stay faded) fades
+  out through the same six-frame fade as the move fade. Log line `props: lens occluder ...`.
+- Every faded street prop is drawn depth first, then its colour where it is the nearest surface: one
+  see-through skin, never its back faces or collars through its front.
+- A prop faded under half leaves no contact patch on the pavement.
+
+**Verified (wil, plain GL, cp -al stage e2e0a8f6 + this DLL):** at the filer's eye (out/qa_fw21c2 c0) the
+frame-filling mast with `mast_fade=0` is gone with `mast_fade=1`, and the hero and the shop front show. With
+the lens behind the mast on the line to the hero, a sweep of the eye ±0.5 block across the line (game.mp4)
+flips between an opaque column and half see-through ghosts at 0, and shows no mast and no ghost frame at 1.
+The free-camera walk (out/qa_fw21a1) logs the filer's two masts faded (27 % and 18 % of the frame's height wide,
+0.5 and 0.8 block from the lens). vreg: `spawn_classic` 0 tiles; the 3D shots differ from the stale golden by
+the same tile counts as FIX-WORLD-20's near-HEAD run, apart from `spawn_third`, where the HUD and the animated
+neon sign differ.
+
+**Untested:** ste and bil masts (same rule, same prop), night, first person (no change there: the rule is
+third-person only; the first person keeps QB-49's eye fade), RTX Remix (the fade is the plain prop draw's;
+Remix draws the same props).
