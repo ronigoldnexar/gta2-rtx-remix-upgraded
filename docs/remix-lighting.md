@@ -582,3 +582,11 @@ figure, its triangles flung sideways for one frame at the kill (shirt red, skin 
 pose that fails on the first frame of the knockdown or death, so it belongs to the figure code. Released to a figure seat
 with a probe plan. Two scripted run-overs at night in rain with 30 fps bursts (qa_fx10_ro1/ro2, two kills) did not repeat
 it: neither victim was struck square at the bonnet.
+
+**FIX-FX-10 residuals.** The bolt's joints: making each segment 6 % longer at each end so neighbours overlap (to fill the
+wedge gaps where the chain bends) was tried and rejected. The doubled additive haze showed as bright rectangular blocks at
+every joint, worse than the gaps (run qa_fx10_e10ov, 23:00, 3x crop). A real fix would draw the chain as one ribbon
+through the segment centres with the art tiled along it. ffx5 (the Remix backblast) was not started. The Remix API has no
+per-instance "cast no shadow" bit (only IGNORE_LIGHTS / PARTICLE and the like, `remix_c.h`), so FX-9's lead means an
+emissive API-mesh puff path for tone 3 plus several Remix takes. The fire-truck hose at night (an FX-9 residual) is
+untested: the probe did not board the truck (qa_fx10_hn2).
