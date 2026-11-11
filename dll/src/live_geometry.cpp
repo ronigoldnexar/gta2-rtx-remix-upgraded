@@ -14647,6 +14647,104 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
         // Recorded so the texture report can tell a fireball from a road tile
         // that happens to have a hole in it. See texture_store.h.
         NoteSpriteTexture(sprite.texture);
+        // FIX-FX-9 (qaexp65): the fire truck's water jet. The game draws the cannon's stream as code-object
+        // sprites 8:417-431 (one per drop, the number its age, flags a280) lying flat on the road ahead of the cab:
+        // classic shows a long teal stream; in the street views a flat strip on the road is edge-on (nothing, or one
+        // green dot), and the effect classifier takes the art for fire, so the drops over the truck's own footprint
+        // became FX-8's anchored flame tongues on its bonnet (orange bursts, a flamethrower on a fire engine). In the
+        // street views each drop is a soft puff of the artwork's own colour at the game's x/z, falling from the drawn
+        // 017's roof to the road by its age, and never a fire spot. GTA2DX9_HOSE_OLD=1: the old way (A/B).
+        if (sprite.object && sprite.corners == 4 && !sprite.pedestrian && !sprite.corpse && CurrentViewMode() != ViewMode::Classic) {
+            static const bool s_hoseOld = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_HOSE_OLD", b, sizeof b) && b[0] == '1'; }();
+            int hb = -1; unsigned hn = 0;
+            GTA2_TRY {
+                const uint8_t* obj = reinterpret_cast<const uint8_t*>(sprite.object);
+                hb = *reinterpret_cast<const int32_t*>(obj + game::kSpriteObjectBase);
+                hn = *reinterpret_cast<const uint16_t*>(obj + game::kSpriteObjectNumber);
+            } GTA2_EXCEPT { hb = -1; }
+            if (hb == 8 && hn >= 417 && hn <= 450 && g_logFire) {
+                static std::set<unsigned> meanLogged;
+                if (meanLogged.insert(hn).second)
+                    Log("hose: kind 8/%u flags %x effect %d mean colour %06x", hn, sprite.gameFlags, effect ? 1 : 0, TextureMeanColour(texture) & 0xFFFFFFu);
+            }
+            const bool hoseDrop = hn >= 417 && hn <= 431, hoseSplash = hn >= 437 && hn <= 450;
+            if (!s_hoseOld && hb == 8 && (hoseDrop || hoseSplash)) {
+                const float (*m)[4] = sprite.objectToWorld.m;
+                auto wp = [&](const Vertex& v, float* o) {
+                    for (int j = 0; j < 3; ++j) o[j] = v.x * m[0][j] + v.y * m[1][j] + v.z * m[2][j] + m[3][j];
+                };
+                float w0[3], w1[3], w3[3], c[3] = {0, 0, 0};
+                wp(sprite.local[0], w0); wp(sprite.local[1], w1); wp(sprite.local[3], w3);
+                for (int i = 0; i < 4; ++i) { float w[3]; wp(sprite.local[i], w); for (int j = 0; j < 3; ++j) c[j] += 0.25f * w[j]; }
+                auto dl = [](const float* a, const float* b) {
+                    return std::sqrt((a[0] - b[0]) * (a[0] - b[0]) + (a[1] - b[1]) * (a[1] - b[1]) + (a[2] - b[2]) * (a[2] - b[2]));
+                };
+                const float l01 = dl(w0, w1), l03 = dl(w0, w3);
+                const float len = (std::max)(l01, l03), wid = (std::min)(l01, l03);
+                // The drop's long axis (the jet's direction on the road), world x/z, unit.
+                float ax = l01 >= l03 ? w1[0] - w0[0] : w3[0] - w0[0], az = l01 >= l03 ? w1[2] - w0[2] : w3[2] - w0[2];
+                const float al = std::sqrt(ax * ax + az * az);
+                if (al > 1e-4f) { ax /= al; az /= al; } else { ax = 0.0f; az = 0.0f; }
+                // Water's colour: the hue of the game's first drop frame (8/417, mean 718e88: the art is additive, so its
+                // later frames' means are darker, not another colour), as a pale lit teal.
+                const uint8_t wr = 150, wg = 226, wb = 212;
+                const float angle = static_cast<float>((sprite.object >> 4) & 1023u) * 0.0061f;
+                if (hoseSplash) {
+                    // The spray where the jet lands: the game already lifts these off the road (2.1 -> 2.7 -> 2.0).
+                    const float t = static_cast<float>(hn - 437) / 13.0f;
+                    g_gamePuffs.push_back({c[0], c[1] + 0.05f, c[2], (std::max)(0.2f, len) * 1.1f, angle, wr, wg, wb, 0.50f - 0.30f * t, false});
+                    continue;
+                }
+                // The cannon's height: the roof of the drawn fire truck (017) the stream comes from, the nearest one
+                // whose nose the drop is ahead of; 0.75 block over the road when none is drawn.
+                float ground = c[1], muzzle = c[1] + 0.75f;
+                if (g_groundModels && !carBodies_.empty()) {
+                    if (fireFeetN < 0) fireFeetN = CarBodiesFootprints(fireFeet, 96);
+                    float best = 1e9f;
+                    for (const CarBodyUse& use : carBodies_) {
+                        if (use.model != 17) continue;
+                        for (int k = 0; k < fireFeetN; ++k) {
+                            const CarFootprint& f = fireFeet[k];
+                            if (f.object != use.object) continue;
+                            const float dx = c[0] - f.cx, dz = c[2] - f.cz;
+                            const float along = dx * f.fx + dz * f.fz, across = dx * f.rx + dz * f.rz;
+                            if (along < -f.hz || along > f.hz + 7.0f || std::fabs(across) > f.hx + 2.5f) continue;
+                            const float d = dx * dx + dz * dz;
+                            if (d >= best) continue;
+                            best = d;
+                            float deck = 0, roofY = 0, screen = 0, halfW = 0, el = 0, eh = 0, ehw = 0;
+                            const void* o = reinterpret_cast<const void*>(f.object);
+                            ground = f.cy;
+                            muzzle = f.cy + (CarBodiesCabin(o, &deck, &roofY, &screen, &halfW) ? roofY + 0.06f
+                                                                                                  : (CarBodiesExtent(o, &el, &eh, &ehw) ? eh : 0.75f));
+                        }
+                    }
+                }
+                const float t = static_cast<float>(hn - 417) / 14.0f;
+                // Lobbed, as a cannon throws water: up to 0.4 block over the cannon a third of the way out, then down onto
+                // the road where the game's last drop lies (from behind the truck the stream clears the cab and reads).
+                const float y = ground + 0.04f + (muzzle - ground - 0.04f) * (1.0f - t * t) + 2.7f * t * (1.0f - t) * (1.0f - t);
+                // A slim stream that spreads as it falls: three soft puffs along the drop's length, overlapping the next
+                // drop's (the game's drops are 0.2-0.3 block apart parked).
+                const float size = 0.13f + 0.20f * t;
+                const float alpha = 0.55f - 0.25f * t;
+                for (int k = -1; k <= 1; ++k) {
+                    const float s = 0.3f * len * static_cast<float>(k);
+                    g_gamePuffs.push_back({c[0] + ax * s, y, c[2] + az * s, size, angle + 0.7f * static_cast<float>(k), wr, wg, wb, alpha, false});
+                }
+                if (g_logFire) {
+                    static uint32_t lastF = 0;
+                    static int hoseLogged = 0;
+                    if (g_carFrame - lastF >= 30 && hoseLogged < 120) {
+                        lastF = g_carFrame;
+                        ++hoseLogged;
+                        Log("hose: f=%u drop 8/%u at %.2f,%.2f,%.2f (road %.2f, cannon %.2f) size %.2f len %.2f view %d", g_carFrame, hn, c[0], y, c[2], ground,
+                            muzzle, size, len, static_cast<int>(CurrentViewMode()));
+                    }
+                }
+                continue;
+            }
+        }
         // A tank's turret and a fire truck's water cannon are sprites of their own,
         // laid over the hull at its flat level with a heading of their own: the aim.
         // Over a 3D model (POLICE-3D) the model's own turret is turned to that

@@ -482,3 +482,37 @@ tone (0.55) are equally dark, so the soot look comes from the path tracer's ligh
 `[devtools] backblast_tone_old` = 0 dust (default), 1 the old light tone, 2 the mid tone (`GTA2DX9_BACKBLAST_TONE_OLD=1`).
 Probe: `KEYS=keys_fx8_bb.sh gamerun/rn_remix.sh <name> 600 wil 12 "154.5,129.5,3" -e 'GTA2DX9_REGRESS_CAM=Z:\tmp\va2_cam.txt'
 -e CAMD=1.5 -e AB_SETS=...`. Without the regression camera every "fixed" pose is the chase view from behind him.
+
+## FIX-FX-9 (11 Nov): the fire truck's water jet in the street views (qaexp65)
+
+**What the game draws.** The 017 fire truck's cannon (Ctrl) is a string of code-object sprites **8:417-431**, one per
+drop, the number its age (texture 4x32 growing to 16x28, flags a280, additive, mean colour 718e88 for 417 darkening to
+061810 for 431), lying flat on the road ahead of the cab: classic shows a long teal stream. Where it lands the game
+adds a splash, **8:437-450** (grey-teal, mean 7b857f..0c120e), which it lifts off the road itself (2.1 -> 2.7 -> 2.0).
+Found with `GTA2DX9_LOG_SPRITE_KINDS=1` + `GTA2DX9_LOG_FX=1` (run qa_fx9h1) and the new `hose: kind` lines of
+`GTA2DX9_LOG_FIRE=1` (they print each kind's mean colour once).
+
+**Why the street views showed nothing, a green dot or flames.** A flat strip on the road is edge-on from a street
+camera. Worse, the effect classifier (black fading to a cut-out edge = fire) takes most of these frames for fire art.
+The drops over the truck's own footprint then went through FX-7/FX-8's fire-over-a-3D-body path: anchored onto the
+bonnet, given the flame layers and the fire tint: the orange bursts out of the cab (`fire: flame over 3D body` lines
+on an unburnt truck, 24 in qa_fx9h1 and qa_fx9h2).
+
+**Now (street views only; classic is untouched).** Each drop is three soft puffs (`g_gamePuffs`, blended, not
+additive) along its own length at the game's x/z. The height comes from the drop's age `t = (n-417)/14`: from the
+roof of the drawn 017 the stream comes from (`CarBodiesFootprints` + `CarBodiesCabin`, the nearest 017 whose nose the
+drop is ahead of; 0.75 block over the road when none is drawn), lobbed up to 0.4 block over the cannon a third of the
+way out, then down onto the road where the game's last drop lies. They are 0.13 -> 0.33 block wide, alpha 0.55 -> 0.30,
+in a pale lit teal (150,226,212: the 417 frame's hue; the later frames' means are darker because the art is additive,
+not another colour). The splash 8:437-450 is a soft puff of the same water colour at the game's own 3D position. Neither
+kind is ever a fire spot. `GTA2DX9_HOSE_OLD=1`: the old way.
+
+| Run (ste truck at 229,123, noon, plain GL) | Frames (opened) |
+|---|---|
+| qa_fx9h1 (HEAD 240e3d2b stage, the old way) | third parked: a small green glow over the cab, no stream; first: a teal glow; third after the moving truck noses into the fence: orange flame bursts on the cab and a white-green ball at the front wheel; 24 `flame over 3D body` lines |
+| qa_fx9h5 (this change) | third parked: a teal stream rising over the cab and on ahead; fixed side camera: a lobbed teal arc from the cab roof onto the grass 3 blocks ahead; first: the stream rising past the windscreen's top and falling ahead; moving: the same, no flame; 0 `flame over 3D body` lines, 0 FAULT |
+
+Probe: `gamerun/fx9_hose.py` (`QA_DISTRICT=ste ... QA_ENV="-e GTA2DX9_STATE_EVERY=3 -e GTA2DX9_LOG_FIRE=1
+-e GTA2DX9_REGRESS_CAM=Z:\tmp\va2_cam.txt" gamerun/qa_run.sh <name> 220 fx9_hose`; `FX9_TRUCK=0|1` picks the ste truck,
+`FX9_SIDE=0` skips the fixed cameras). Untested: Remix (the blended game-puff pass is alpha-tested at 1, not the
+mode-4 soft puffs), the wil truck, night, 1440p, a burning car or ped being hosed.
