@@ -306,7 +306,7 @@ std::map<Key, Built> g_cache;
 // FIX-CAR-IDENTITY (pm33): the last body measured per sprite object, with the sprite and model it was
 // measured for: the game re-uses a sprite object for another car within seconds, and the stand-in must
 // never lend one car's body and paint to the next (a ped at the new car's door would have kept it).
-struct LastBuilt { Built* first = nullptr; uint32_t second = 0; int sprite = -1, model = -1; };
+struct LastBuilt { Built* first = nullptr; uint32_t second = 0; int sprite = -1, model = -1; uint32_t palSince = 0; };
 std::map<uintptr_t, LastBuilt> g_lastBuilt;
 IDirect3DDevice9* g_device = nullptr;
 
@@ -3234,10 +3234,34 @@ std::map<uintptr_t, DoorState> g_doors;
 std::map<uintptr_t, int> g_doorWarm;   // ANIM-VEHICLE-ENTRY: door splits built ahead for the driven car (bit 1 left, 2 right)
 int g_damageLogged = 0;
 
+bool CarArtPaletteOld() {
+    static const bool old = [] { char v[4] = {}; return GetEnvironmentVariableA("GTA2DX9_CAR_ART_PALETTE_OLD", v, sizeof v) && v[0] == '1'; }();
+    return old;
+}
+
 Built* Measured(IDirect3DDevice9* device, const CarBodyUse& use, IDirect3DTexture9* art, uint32_t frame) {
     (void)device;
     const Key key{use.sprite, art};
     auto found = g_cache.find(key);
+    // FIX-COCKPIT-CAB-7 (qaexp82): a device texture freed by the art cache can come back at the same address for the
+    // same sprite in another palette (a Pay'n'Spray respray: the car's sprite in the new remap), and the body measured
+    // for the old remap was handed back: the 3D car (and the first-person bonnet) kept the old paint until a dent
+    // made new artwork (19 s at bil, classic blue at once). A cached body measured in another palette is measured
+    // again. GTA2DX9_CAR_ART_PALETTE_OLD=1: the old cache (A/B).
+    const bool paletteOld = CarArtPaletteOld();
+    if (found != g_cache.end() && !paletteOld && found->second.measured && found->second.palette >= 0 && use.texture &&
+        static_cast<const TextureRecord*>(use.texture)->palette != found->second.palette) {
+        static int stale = 0;
+        if (stale++ < 40)
+            Log("car bodies: sprite %d's cached body was measured in palette %d, the art is now palette %d (a respray, or a reused texture): measured again",
+                use.sprite, found->second.palette, static_cast<int>(static_cast<const TextureRecord*>(use.texture)->palette));
+        // re-measured in place: the entry's address stays (g_lastBuilt holds it), now for the new palette
+        if (found->second.atlas) found->second.atlas->Release();
+        ReleaseBuffers(&found->second);
+        found->second = Built{};
+        found->second.used = frame;
+        found = g_cache.end();
+    }
     if (found != g_cache.end()) {
         found->second.used = frame;
         return found->second.measured ? &found->second : nullptr;
@@ -4780,11 +4804,31 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         const bool haveLast = last != g_lastBuilt.end() && frame - last->second.second < 90 && last->second.first->measured &&
                               last->second.sprite == use.sprite && last->second.model == use.model;
         Built* b = nullptr;
-        if (doorBusy && haveLast) {
+        // FIX-COCKPIT-CAB-7 (qaexp82): the held body is let go when the car's artwork has been in another palette than
+        // the one it was measured in for half a second: a respray, not a door frame (aee_k2front's were 8 frames). A
+        // boarding's door can stay "busy" long after he sits (cab7_82fp: held in third person at speed), and the bil
+        // Pay'n'Spray's new remap never reached the 3D car or the first-person bonnet while it was.
+        bool repaint = false;
+        if (doorBusy && haveLast && !CarArtPaletteOld()) {
+            const int artPal = use.texture ? static_cast<int>(static_cast<const TextureRecord*>(use.texture)->palette) : -1;
+            const int heldPal = last->second.first->palette;
+            if (artPal >= 0 && heldPal >= 0 && artPal != heldPal) {
+                if (!last->second.palSince) last->second.palSince = frame | 1u;
+                else if (frame - last->second.palSince > 15) repaint = true;
+            } else {
+                last->second.palSince = 0;
+            }
+            if (repaint) {
+                static int logged = 0;
+                if (logged++ < 40) Log("car bodies: sprite %d obj %08x: door busy, but its art has been palette %d (the held body's %d) for 15 frames: measured again",
+                                       use.sprite, static_cast<unsigned>(use.object), artPal, heldPal);
+            }
+        }
+        if (doorBusy && haveLast && !repaint) {
             b = last->second.first;
         } else {
             b = art ? Measured(device, use, art, frame) : nullptr;
-            if (b && !doorBusy) {
+            if (b && (!doorBusy || repaint)) {
                 g_lastBuilt[use.object] = {b, frame, use.sprite, use.model};
             } else if (!b && haveLast) {
                 b = last->second.first;
@@ -5010,9 +5054,9 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             if (lastObj != use.object || lastPx != rec->pixels || lastPal != rec->palette || lastB != b) {
                 static int n = 0;
                 if (n++ < 200)
-                    Log("identity: driven car art obj %08x sprite %d palette %d pixels %p art %p measured %.0f,%.0f,%.0f damage %d fire %d",
+                    Log("identity: driven car art obj %08x sprite %d palette %d pixels %p art %p measured %.0f,%.0f,%.0f (body palette %d%s) damage %d fire %d",
                         static_cast<unsigned>(use.object), use.sprite, rec->palette, rec->pixels, static_cast<const void*>(art), b->paint.r, b->paint.g,
-                        b->paint.b, use.damage, use.fireStage);
+                        b->paint.b, b->palette, doorBusy ? ", door busy: last body held" : "", use.damage, use.fireStage);
                 lastObj = use.object; lastPx = rec->pixels; lastPal = rec->palette; lastB = b;
             }
         }

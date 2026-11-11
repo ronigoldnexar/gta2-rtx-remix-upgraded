@@ -1812,3 +1812,40 @@ first frame can show the cab a half-step off at 4+ b/s; open tops, the train and
   (spawn_classic 0 tiles): a reseed for QA-REGRESSION with that drift in view.
 - Not attempted (FIX-CAMERA-20 residuals): the long kerb glide's railing posts at the lens and its far-figure end; a
   lattice more than a block from the lens still hiding him.
+## FIX-COCKPIT-CAB-7: the respray reaches the first-person bonnet and the 3D car within the hold (11 Nov 2026)
+
+### qaexp82: the bonnet stayed lime green 19-28 s after a Pay'n'Spray respray
+
+The first-person bonnet takes its paint from the same identity record as the third-person body
+(`car_bodies.cpp`, `DrawBonnet(..., tint)` with `ident.paintTint`), so the cab was not the cause:
+the record itself never saw the respray. The driven car's art line (`identity: driven car art ...`,
+now with the measured body's palette) showed it: after the bil shop (64.5,90.5) the game drew
+sprite 38 in palette 168 (blue) while the body handed to the identity was still the one measured in
+palette 190 (lime), `door busy: last body held`. The door-busy hold (ANIM-ENTRY-EXIT: a car keeps
+the body measured before a door animation, whose frames are unmeasurable or in another palette)
+was on for the driven car long after boarding (the seat's boarding record keeps the door "busy"),
+so the old body was held until the art changed for another reason (a dent: 05:33:00 in the filer's
+run, after the view cycle). Third person lagged the same way (same code).
+
+Two fixes, each with an A/B:
+
+- The door-busy hold lets go when the car's art has been in another palette than the held body's for
+  15 frames (aee_k2front's door frames were 8): the body is measured again and kept as the car's last
+  body. A cached body (keyed by sprite and device texture) measured in another palette than the art
+  now in that texture is measured again too (a freed device texture can come back at the same
+  address). `GTA2DX9_CAR_ART_PALETTE_OLD=1`: both off (log lines `car bodies: ... measured again`).
+- `identity.cpp`: a new palette holds 30 frames (a paint drift in one palette still 45), so the two
+  together stay inside the documented 45-frame hold. `GTA2DX9_PAINT_HOLD_PALETTE=<frames>` (45 = before).
+
+Verified (plain GL, bil, model 44 Arachnid, $5000 respray to blue; repro gamerun/cab7_spray.py, the
+filer's qaexp82_spray.py with a waypoint creep into the shop and a stuck-escape; `keys_qa_cab7_spray.sh`):
+
+| run | view | art palette 168 | body re-measured | identity CHANGED | bonnet / body pixel |
+|---|---|---|---|---|---|
+| before (first fix only) cab7_82fp2 | first | 06:23:02.7 | 06:23:30.8 (a dent) | 06:23:30.8 | in shop (103,134,38) lime, out09 (67,87,26) lime |
+| after cab7_82fp6 (hold 45) | first | 06:36:00.9 | 06:36:01.5 | 06:36:03.0 | in shop (42,53,96), out03 (68,87,157) blue |
+| after cab7_82tp (hold 30) | third | 06:38:57.6 | 06:38:58.1 | 06:38:59.1 (1.5 s) | body (61,83,163) blue one shot after the shop's message |
+
+The player's car logged no other `CHANGED` line over the ~45 s drive to the shop in any run (no flicker:
+the hold still holds dents and lamps). Classic is untouched (vreg spawn_classic). Untested: Remix, the
+other shops (wil, ste), other models, a respray while a ped is at the door.

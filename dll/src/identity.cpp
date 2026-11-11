@@ -368,6 +368,17 @@ constexpr uint32_t kPaintHoldFrames = 45;
 // record not drawn for kStaleFrames whose palette differs is re-derived at once; a car seen all along that changes
 // palette (a respray) holds the new one for kPaintHoldFrames like any paint change.
 constexpr uint32_t kStaleFrames = 30;
+// FIX-COCKPIT-CAB-7 (qaexp82): a new palette (a Pay'n'Spray respray: the game's own remap, the classic car recoloured
+// at once) holds 30 frames, not 45: car_bodies.cpp lets a held body go only after 15 frames of the new palette, so the
+// 3D car and the first-person bonnet follow the respray within the 45-frame hold in all. A paint drift in one palette
+// (a dent, a lamp) still holds 45. GTA2DX9_PAINT_HOLD_PALETTE=<frames>: A/B (45 = before).
+uint32_t PaletteHoldFrames() {
+    static const uint32_t n = [] {
+        char v[16] = {};
+        return GetEnvironmentVariableA("GTA2DX9_PAINT_HOLD_PALETTE", v, sizeof v) ? static_cast<uint32_t>((std::max)(1, atoi(v))) : 30u;
+    }();
+    return n;
+}
 struct CarEntry { IdentityRecord rec; uint32_t seen = 0; int whole = -1; float cand[3] = {0, 0, 0}; int candPalette = -1; uint32_t candSince = 0; bool candOn = false; };
 float PaintDiff(const float* a, const float* b) {
     return (std::max)({std::fabs(a[0] - b[0]), std::fabs(a[1] - b[1]), std::fabs(a[2] - b[2])});
@@ -587,7 +598,7 @@ const IdentityRecord& IdentityForVehicle(uintptr_t cacheKey, const SpriteRef& re
         } else if (!e.candOn || e.candPalette != ref.palette || PaintDiff(e.cand, ref.paint) > kPaintHoldTol) {
             e.candOn = true; e.candSince = g_frame; e.candPalette = ref.palette;
             for (int k = 0; k < 3; ++k) e.cand[k] = ref.paint[k];
-        } else if (g_frame - e.candSince >= kPaintHoldFrames) {
+        } else if (g_frame - e.candSince >= (e.candPalette != o.palette ? PaletteHoldFrames() : kPaintHoldFrames)) {
             derive = true;   // held long enough: a respray, not a flash
         }
     }
