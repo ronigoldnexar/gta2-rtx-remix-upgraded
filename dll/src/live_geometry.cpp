@@ -9858,6 +9858,26 @@ bool SepJointOn() {
     }
     return dev >= 0 ? dev != 0 : env == 1;
 }
+// FIX-FIGURE-19 (pm24): [devtools] sep_flip=N (live, re-read every 0.25 s; a probe, 0 = off by default): N drawn frames
+// place each figure and its contact shadow WITHOUT its separation offset (where the game has him), the next N as
+// usual, and so on (N=1: every odd frame). The solve itself runs every frame unchanged, so two consecutive video frames (33 ms apart) show
+// the same close pair at the same pose with and without the separation: the before/after crop of one pair.
+bool SepFlipOffFrame() {
+    static int dev = 0;
+    static ULONGLONG readAt = 0;
+    static uint32_t loggedFrame = 0;
+    if (CarBodiesDevIni()[0] && GetTickCount64() - readAt > 250) {
+        readAt = GetTickCount64();
+        const int v = GetPrivateProfileIntA("devtools", "sep_flip", 0, CarBodiesDevIni());
+        if (v != dev) Log("devtools: sep_flip %d", v);
+        dev = v;
+    }
+    if (dev < 1) return false;
+    const uint32_t period = static_cast<uint32_t>((std::min)(dev, 90));   // sep_flip=N: N frames without, N with
+    const bool off = ((g_carFrame / period) & 1u) != 0;
+    if (loggedFrame != g_carFrame && (g_carFrame % period) == 0) { loggedFrame = g_carFrame; Log("sep flip: f=%u %s for %u frames", g_carFrame, off ? "WITHOUT the separation" : "with it", period); }
+    return off;
+}
 // FIX-FIGURE-18 (pm24): the joint solve keeps a close pair's drawn order (GTA2DX9_SEP_SIDE_KEEP=0: along their points).
 bool SepSideKeepOn() {
     static const bool on = [] { char v[8] = {}; return !(GetEnvironmentVariableA("GTA2DX9_SEP_SIDE_KEEP", v, sizeof v) && v[0] == '0'); }();
@@ -12063,6 +12083,26 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                             }
                             if (closeRun.size() > 256) closeRun.clear();
                         }
+                        // FIX-FIGURE-19 (pm24): two people STANDING closer than 0.10 (a knot), for 15 frames running: the
+                        // pair a probe can film at leisure (GTA2DX9_LOG_FIGURES=1 or LOG_PED_FRAMES=1).
+                        if ((g_logFigures || g_logPedFrames) && rdx * rdx + rdz * rdz < 0.01f && sepSeen[i].speed < 0.15f && sepSeen[j].speed < 0.15f &&
+                            !sepSeen[i].player && !sepSeen[j].player) {
+                            static std::map<uint64_t, std::pair<uint32_t, int>> standRun;
+                            const uint64_t key = (static_cast<uint64_t>((std::min)(sepSeen[i].object, sepSeen[j].object)) << 32) |
+                                                 static_cast<uint64_t>((std::max)(sepSeen[i].object, sepSeen[j].object) & 0xFFFFFFFFu);
+                            auto& sr = standRun[key];
+                            sr.second = sr.first + 1 == g_carFrame ? sr.second + 1 : 1;
+                            sr.first = g_carFrame;
+                            static int standLogs = 0;
+                            if (sr.second % 15 == 0 && standLogs < 300) {
+                                ++standLogs;
+                                Log("figure close standers: f=%u %08x %08x %d frames at %.2f,%.2f dir %.2f,%.2f game %.3f drawn %.3f joint %d", g_carFrame,
+                                    static_cast<unsigned>(sepSeen[i].object), static_cast<unsigned>(sepSeen[j].object), sr.second,
+                                    0.5f * (sepSeen[i].rx + sepSeen[j].rx), static_cast<float>(gta2::kMapHeight) - 0.5f * (sepSeen[i].rz + sepSeen[j].rz),
+                                    sepSeen[i].fx, -sepSeen[i].fz, std::sqrt(rdx * rdx + rdz * rdz), std::sqrt(gdx * gdx + gdz * gdz), SepJointOn() ? 1 : 0);
+                            }
+                            if (standRun.size() > 256) standRun.clear();
+                        }
                         if (sepSeen[i].speed > 0.4f && sepSeen[j].speed > 0.4f && sepSeen[i].fx * sepSeen[j].fx + sepSeen[i].fz * sepSeen[j].fz > 0.8f) {
                             const float ra = std::fabs(rdx * sepSeen[i].fx + rdz * sepSeen[i].fz), ga = std::fabs(gdx * sepSeen[i].fx + gdz * sepSeen[i].fz);
                             if (rdx * rdx + rdz * rdz < 0.16f * 0.16f && ra * ra > 0.36f * (rdx * rdx + rdz * rdz)) ++fileRawPairs;
@@ -12445,6 +12485,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 placed.m[1][0] = -hz * sr * cp + hx * sp; placed.m[1][1] = cr * cp;  placed.m[1][2] = hx * sr * cp + hz * sp;
                 placed.m[2][0] = hx * cp + hz * sr * sp;  placed.m[2][1] = -cr * sp; placed.m[2][2] = hz * cp - hx * sr * sp;
                 placed.m[3][0] = gx + track.pivX; placed.m[3][1] = cy - 0.01f - boardSink; placed.m[3][2] = gz + track.pivZ;
+                if (SepFlipOffFrame()) { placed.m[3][0] -= track.sepX; placed.m[3][2] -= track.sepZ; }   // FIX-FIGURE-19: same-pair A/B
                 gta2::Mat4 fit;
                 fit.m[0][0] = scale * look.width * typeWidth * model->forward; fit.m[1][1] = scale; fit.m[2][2] = scale * look.width * typeWidth * model->forward;
                 fit.m[3][1] = -model->boundsMin.y * scale; fit.m[3][3] = 1.0f;
@@ -13473,6 +13514,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     world.m[3][1] -= track.soleDrop;
                 }
                 track.shadowX = gx; track.shadowZ = gz; track.shadowY = cy; track.shadowFrame = g_carFrame;
+                if (SepFlipOffFrame()) { track.shadowX -= track.sepX; track.shadowZ -= track.sepZ; }   // FIX-FIGURE-19
                 // ANIM-WEAPONS: the weapon rig (weapon_rig.h): the gun placed from the body, the
                 // hands on its grips, the fingers closed, the recoil through the body and a
                 // push of the whole figure back along the line of fire. Not while boarding IK has the hands.

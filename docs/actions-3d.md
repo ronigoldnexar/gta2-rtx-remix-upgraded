@@ -2289,3 +2289,18 @@ A/B: `GTA2DX9_SPENT_HOLD_OLD=1` restores the old hold (27 frames for every gun, 
 **Not tested**: the other guns run dry in a frame (pistol, shotgun, electro gun, flamethrower). They share the code
 path, but no frame of them was taken. The launcher's last rocket at 5 fps, where the 0.9 s wall cap now cuts it to
 about 5 frames. Remix. 1440p.
+
+### FIX-FIGURE-19: a same-pair A/B for the figure separation (pm24, probe only)
+
+`[devtools] sep_flip=N` (live; 0 = off by default) draws N frames of every figure and its contact shadow WITHOUT the
+draw-only separation offset (where the game has him), then N frames with it, and repeats. The solve runs every frame
+unchanged; the log says `sep flip: f=... WITHOUT the separation | with it`. With N=1, consecutive video frames show one
+pair at one pose both ways. A new `figure close standers` line (LOG_FIGURES / LOG_PED_FRAMES) names two people standing
+closer than 0.10 for 15 frames.
+
+The probe `gamerun/fig19_pair.py` (keys `keys_fig19_pair.sh`, grun with REGRESS_CAM) aims the regress camera tight at
+each logged pair. It takes P_GAME_MAX, P_CAMPOS, P_FOV, P_FLIP, P_SECS and P_N.
+
+Runs fig19_pair1-3 at the wil loony spots found no standing knot. Walking pairs part within 0.2-0.5 s, so no readable
+crop came out of them. They did show two identical avatars walking in file, kept 0.11 apart, drawn as one body with two
+heads: the open head-variety half of pm24.
