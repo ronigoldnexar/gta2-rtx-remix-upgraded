@@ -564,3 +564,21 @@ only in the street views): vreg `spawn_classic` 0 of 144 tiles.
 Runs: qa_fx10_e1 (old, sprite kinds), qa_fx10_e4new / qa_fx10_e4old (same probe `gamerun/fx10_electro.py`, noon, A/B),
 qa_fx10_e5night (23:00). Still short of AAA: where the chain bends, adjacent segments leave small wedge gaps and seams at
 the joins (square segment ends). Remix is untested.
+
+**The "flying birds" (pt-third-first-flying-birds): there are none.** At the filer's spot (ste 147.5,120.5) the only
+sprites above street level sit on the roof 11-13 blocks south, at height 6. They are code objects 4:42-49 (the Electro gun
+weapon pickup, drawn as the authored `pickup_electro_gun` model, spinning) and 4:183-190 (a power-up token). The new probe
+`GTA2DX9_LOG_SPRITE_TRACK="4:34-57,4:159-190"` (where those sprites are, every 10th frame) shows they never move: each
+cycles its 8 frames in place (run qa_fx10_b2). On the filer's build the tokens were still flat sprites: a token at a roof
+edge seen from the street was a horizontal sliver against the sky, and a horizontal gun pickup shows its underside (a bar
+with the grip and fore grip as two stubs). FIX-WORLD-14 (f887557d, later than the filer's build) made the tokens upright
+medallions. On HEAD a full first-person turn at the spot shows no sliver (qa_fx10_b1), and a fixed camera below the roof
+shows the token standing over the edge under its POWER-UP label (qa_fx10_b4). No code changed for it.
+
+**qav65's red-orange streaks ahead of the car: a figure, not a sprite.** The filer's run recorded video, and the streaks
+are in exactly one 15 fps frame (qav65A game.mp4 at 85.4 s). In the frames before it a pedestrian in a red top is hit at
+the bonnet (the +$20 kill); in the streak frame he is gone; in the next the frame is clean. The bands are his skinned
+figure, its triangles flung sideways for one frame at the kill (shirt red, skin orange, ragged triangle edges). That is a
+pose that fails on the first frame of the knockdown or death, so it belongs to the figure code. Released to a figure seat
+with a probe plan. Two scripted run-overs at night in rain with 30 fps bursts (qa_fx10_ro1/ro2, two kills) did not repeat
+it: neither victim was struck square at the bonnet.

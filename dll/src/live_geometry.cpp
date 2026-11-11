@@ -6881,6 +6881,41 @@ void LiveGeometry::AddSprite(unsigned flags, const void* texture, const float* v
         }
     }
 
+    {
+        // FIX-FX-10 probe, GTA2DX9_LOG_SPRITE_TRACK="b:n0-n1[,b:n0-n1]": where each sprite of those kinds is, every
+        // 10th frame (corner 0, world size, view, the player's spot), 400 lines at most. Off by default.
+        static int ranges = -1;
+        static int rb[4], r0[4], r1[4];
+        if (ranges < 0) {
+            ranges = 0;
+            char buf[128] = {};
+            if (GetEnvironmentVariableA("GTA2DX9_LOG_SPRITE_TRACK", buf, sizeof buf)) {
+                const char* q = buf;
+                while (*q && ranges < 4) {
+                    int b = 0, a = 0, c = 0;
+                    if (sscanf(q, "%d:%d-%d", &b, &a, &c) == 3) { rb[ranges] = b; r0[ranges] = a; r1[ranges] = c; ++ranges; }
+                    const char* comma = std::strchr(q, ',');
+                    if (!comma) break;
+                    q = comma + 1;
+                }
+            }
+        }
+        if (ranges > 0 && corners == 4 && g_carFrame % 10 == 0) {
+            static int lines = 0;
+            const uint8_t* obj = static_cast<const uint8_t*>(GameObjectBeingDrawn());
+            int base = -1; unsigned num = 0;
+            GTA2_TRY {
+                if (obj) { base = *reinterpret_cast<const int32_t*>(obj + game::kSpriteObjectBase); num = *reinterpret_cast<const uint16_t*>(obj + game::kSpriteObjectNumber); }
+            } GTA2_EXCEPT { base = -2; }
+            for (int i = 0; i < ranges && lines < 400; ++i) {
+                if (base != rb[i] || static_cast<int>(num) < r0[i] || static_cast<int>(num) > r1[i]) continue;
+                ++lines;
+                Log("sprite track: f=%u obj %p base %d number %u at %.2f,%.2f,%.2f view %d", g_carFrame, static_cast<const void*>(obj), base, num,
+                    out[0].x, out[0].y, out[0].z, static_cast<int>(CurrentViewMode()));
+            }
+        }
+    }
+
     // A car's lamps, laid on its body.
     //
     // The game draws them as a second quad with exactly the body's corners - the
