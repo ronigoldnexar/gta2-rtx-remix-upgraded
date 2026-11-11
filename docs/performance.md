@@ -1927,6 +1927,7 @@ The spot of `perf8_pre_f1`'s fault: a wall the six-star army keeps on fire. One 
 | `perf8_spot` (c50a42f7) | 1.0x, square | 158 | 188 / 257 | 379 / 469 | 111 of 243 | no |
 | `perf8_spot2` (this commit) | 1.0x, the game's own shape | 269 | 308 / 352 | 299 / 381 | 0 of 248 | no |
 | `perf8_spot_cls` (classic, the game as shipped) | the game's | 350 | 391 / 425 | 216 / 288 | 0 of 248 | no |
+| `perf8_rb2` (this commit rebased, 90 s) | 1.0x, the game's own shape | 190 | - / 351 | 296 / - | | no |
 
 Cars and people are the same in all three (car nodes 430-443, people 31-33). The square window's extra area kept ~80
 particle nodes more, and the game-shaped one still keeps ~80 more than classic (one run each: the army's fire differs run to
@@ -1948,5 +1949,17 @@ The ordinary drive keeps its traffic and people: the raised budgets are in force
 window went to 1.0x and the far streets emptied for that time). Frames over 50 ms are within the host's swing of each
 other and of FIX-PERF-7's drives (7.2-13.1 %); FIX-PERF-6's reference soak was 20.0 %.
 
-Untested: ste and wil at six stars (ORDER 2 below if run), night, rain, Remix, and a long on-foot rampage that earns
-six stars by play rather than `force_wanted`.
+### Other districts (on foot at the level start, first person, six stars, 2 minutes)
+
+| run | free (idle at six stars) | lowest | particle nodes max | FAULT |
+|---|---|---|---|---|
+| `perf8_ste6` (ste) | ~1 350 | 1 034 | 298 | no (out of lives at 72 s: the game's R.I.P. screen) |
+| `perf8_wil6` (wil) | ~1 430 | 1 246 | 218 | no |
+
+Downtown and Residential hold about half Industrial's map objects in the pool. The +0x47352 risk is an Industrial one.
+
+What is still short: at bil at six stars the pool still dips to 160-270 at a blast or in the army's sustained fire,
+with the renderer's share (budgets, window size and shape) gone. The classic game dips to ~170 at one car blast too
+(`perf8_cls_f1`), but at the fire spot the street view still holds ~80 particle nodes more than classic in a run each
+(cause not found: the game's camera height in the street views is the next suspect). Untested: night, rain, Remix, and
+a long rampage that earns six stars by play rather than `force_wanted`.
