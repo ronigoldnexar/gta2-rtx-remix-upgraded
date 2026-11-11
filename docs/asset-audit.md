@@ -560,3 +560,9 @@ between glow on and off). After the fix (out/qa_fw17g, ste, the same cameras at 
 blob and the lintel line are gone, and ste 384's real windows still glow the same (the control).
 Not framed in-game: the other bil and ste tiles whose simulated lit texels are on real glass (the dark broken panes
 of the bil terraces, 32/33/327/484/491/495); wil (FIX-WORLD-16's district) was not re-audited this way.
+
+**qav65 (ste night rain, first person seated: red-orange streaks beside a +$20 popup): not fixed, released.** The
+filer's log shows a pedestrian killed (+$20) just before the frame. One rerun of the repro with
+`GTA2DX9_LOG_SPRITE_KINDS=1` (out/qa_fw17k) ended BUSTED and showed no streak in 36 frames, so the sprite is not
+identified. The likely cause, not proven, is a blood or gore effect quad straddling the first-person near plane.
+The notes and next step are on the work order.
