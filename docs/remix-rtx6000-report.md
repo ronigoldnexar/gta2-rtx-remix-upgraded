@@ -13,7 +13,7 @@ Operator report. Every line below is backed by a run directory on gta2-rtx6000 (
 | Frame Generation | REFUSED by the Windows dlssg ("requires GPU hardware scheduling") | module loads; DEVICE LOST on engage | ngx30/43/44: VK_ERROR_DEVICE_LOST, zero CUDA calls; host vulkaninfo: 0 x VK_NV_optical_flow (L4: 8) |
 | Neural Radiance Cache | FAILS: "Could not initialize SDK API" | FAILS: "Could not check GPU device capabilities" | ngx35 relay: NRC_Vulkan loads nvapi64, GetProcAddress("nvapi_Direct_GetMethod") = NULL; dxvk-nvapi lacks it, NVIDIA's Windows nvapi64 has it |
 | Game input / gameplay | works (scripted tours, 20-min soak clean) | works once Remix user_settings are seeded for steamuser (first-run dialog ate keys) | soak2; ngx40/41 traces |
-| Stability | 0 FAULT, 0 device loss over the scripted tour; one 10 s shader-compile stall at level load | FG off: clean | soak2, verify1 |
+| Stability | 0 FAULT, 0 device loss over the scripted tour; one 10 s shader-compile stall at level load | FG off: clean | soak2, verify1, verify2 (stage 13ddc23b: all required PASS) |
 | Performance | classic ~7.5 ms, street 20-32 ms present (DLSS+RR), VRAM peak 4.6 GB of 24 | — | soak2.smi.csv |
 
 Verdicts: Frame Generation is unsupported on this vGPU profile by hardware exposure (no optical-flow engine) — it would
@@ -48,3 +48,5 @@ private NVIDIA NVAPI entry that only the Windows driver's nvapi64.dll provides; 
 /gta2/soak6000.sh name secs           — extended run with GPU sampling (KEYS=/work/keys_remix_playtest.sh for a tour).
 Proton path (for a pass-through GPU): image gta2-remix-gpu3:night1-i386, GE-Proton11-12 at /gta2/dl/geproton_x64,
 runner /gta2/gamerun/run_game_remix_proton.sh with PROTON_DIR=/proton, host nvidia_icd.json bound, ~/runngx43.sh as example.
+
+Verification history: verify1 (stage c4cd943b) and verify2 (stage 13ddc23b, 16:03 UTC) both: every required line PASS, FG and NRC n/a with the reasons above.
