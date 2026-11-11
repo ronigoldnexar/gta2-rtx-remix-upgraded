@@ -641,3 +641,26 @@ bil has none. The four regenerated tiles are `assets/textures_hd/roads/{wil,ste}
 in the street views only, and classic keeps the hash-locked HD tile (still the worm-noise bar under 0z, owner item).
 Same-build A/B, fixed regress camera at the stub, noon and 20:30, third and first person: before = the stage without
 the four files, after = with them: a ragged grey band with glyph noise becomes a solid worn white bar at both hours.
+
+**qav7, the shaded ste walls at 90.5,170.5 (plain GL, noon).** One-grey probe first (every ste tile in the HD,
+photo and roads sets replaced by one mid grey, 128, in a private stage; five fixed regress cameras around the spot):
+shaded wall 82, sunlit wall 127-128, shaded ground 55-59, sunlit ground 131. Shade/sun on a wall is 65 % in display
+luma, inside the 55-70 % the filer asked for, so the plain renderer's light on vertical faces is right and no ambient
+term changes. The same cameras on the normal stage give the green stone (shaded 40-41, sunlit 63-64, the same 64 %)
+and the tan plaster across the street (shaded 86): the "4x" of the filing compared dark green stone in shade with
+tan plaster in sun. What was still wrong is the art: the game's 64 px green stone (ste 105, and the wall around the
+windows of 102/103/104/106/108/109) is a speckled stone with light grey flecks; the HD and photo copies smoothed it
+into one flat green, so a whole first-person frame of it read as a painted slab, and FIX-WORLD-13's tone floor had
+reached only 103/105/109 (the others stayed at 50-54 beside 68, a patchwork on one facade).
+`tools/photo_wall_grain.py` rebuilds the grain in the photo copies: a wall mask from the stone palette of the 64 px
+art (window frames, sills, pilasters and glass untouched), the art's own fleck layout upscaled plus a fine two-octave
+grain and sparse light flecks, contrast matched to the art's speckle; every tile scaled so its stone reaches one mean
+luma (70, WORLD-13's floor), so the family is one tone. 110 (stone under 10 % of the tile) is left alone. Regenerated:
+`assets/textures_hd/photo/ste/tile_{0102,0103,0104,0105,0106,0108,0109}.dds` (outside git; the next restage carries
+them). Street set only: classic draws the HD set and a Remix device never loads photo/.
+
+    photo_wall_grain.py <64 px dump>/ste assets/textures_hd/photo/ste <out> --tiles 102,103,104,105,106,108,109,110 --stone-mean 70
+
+Not done: a Remix take at this pose (Remix keeps MATERIALS-9's own floor for 160-178/556; the green stone family
+under Remix draws the HD tile), dusk (the twilight fill of WORLD-13 is unchanged), other districts (wil and bil walls
+were measured right and are untouched).
