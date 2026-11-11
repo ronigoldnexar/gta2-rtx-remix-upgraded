@@ -2428,6 +2428,29 @@ DWORD g_remixTintReadAt = 0;
 void ModelSetDevIni(const char* ini) {
     if (ini) { strncpy(g_modelDevIni, ini, sizeof(g_modelDevIni) - 1); g_modelDevIni[sizeof(g_modelDevIni) - 1] = 0; }
 }
+// VEHICLE-ART-28: the kit bodies' glass by day. Their "_glass" panes are a dark tint (30,38,46 at alpha ~0.6-0.75)
+// lit like paint: a vertical pane comes out ~(14,17,21) over a near-black cabin, so cabins and the limousines' long
+// glasshouses read as black bands next to the x4 sprite's grey glass (~(52,50,56)). A pane by day is mostly the
+// sky it reflects: [devtools] glass_lift adds that reflection, in percent of the renderer's time-of-day ambient
+// (car_bodies' D3DRS_AMBIENT, 0x5A x the hour's tint: it fades by itself at dusk and night); glass_alpha scales the
+// pane's opacity in percent (lower: more of the seat rows behind it). Plain renderer only (Remix draws its own glass
+// material). Re-read once a second.
+int g_glassLift = 70, g_glassAlpha = 100;
+DWORD g_glassLiftReadAt = 0;
+static bool GlassLiftOn() {
+    if (g_modelDevIni[0]) {
+        const DWORD now = GetTickCount();
+        if (g_glassLiftReadAt == 0 || now - g_glassLiftReadAt > 1000) {
+            g_glassLiftReadAt = now ? now : 1;
+            const int lift = GetPrivateProfileIntA("devtools", "glass_lift", 70, g_modelDevIni);
+            const int alpha = GetPrivateProfileIntA("devtools", "glass_alpha", 100, g_modelDevIni);
+            if (lift != g_glassLift || alpha != g_glassAlpha) Log("models: kit glass lift %d %%, alpha %d %%", lift, alpha);
+            g_glassLift = (std::max)(0, (std::min)(lift, 400));
+            g_glassAlpha = (std::max)(0, (std::min)(alpha, 100));
+        }
+    }
+    return (g_glassLift != 0 || g_glassAlpha != 100) && !RemixApiAvailable();
+}
 static DWORD PaintFactor(const float* t) {
     const bool remix = RemixApiAvailable();
     static bool s_logged = false;
@@ -3398,6 +3421,25 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
                 device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
             }
         }
+        // VEHICLE-ART-28: the kit glass lift (GlassLiftOn): stage 1 adds the sky's reflection (the ambient x the lift)
+        // to the lit pane and scales its alpha. Glass carries no paint tint, so stage 1 is free here.
+        bool glassLifted = false;
+        if (carSurf == kCarSurfGlass && !g_modelGhost && GlassLiftOn()) {
+            DWORD amb = 0;
+            device->GetRenderState(D3DRS_AMBIENT, &amb);
+            auto ch = [&](int sh) { return static_cast<DWORD>((std::min)(255, static_cast<int>((amb >> sh) & 0xFF) * g_glassLift / 100)); };
+            const DWORD a = static_cast<DWORD>(g_glassAlpha * 255 / 100);
+            device->SetRenderState(D3DRS_TEXTUREFACTOR, (a << 24) | (ch(16) << 16) | (ch(8) << 8) | ch(0));
+            device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_ADD);
+            device->SetTextureStageState(1, D3DTSS_COLORARG1, D3DTA_CURRENT);
+            device->SetTextureStageState(1, D3DTSS_COLORARG2, D3DTA_TFACTOR);
+            device->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
+            device->SetTextureStageState(1, D3DTSS_ALPHAARG1, D3DTA_CURRENT);
+            device->SetTextureStageState(1, D3DTSS_ALPHAARG2, D3DTA_TFACTOR);
+            device->SetTextureStageState(2, D3DTSS_COLOROP, D3DTOP_DISABLE);
+            device->SetTextureStageState(2, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+            glassLifted = true;
+        }
         const bool skinned = mesh.skin >= 0 && posed && posed->meshes.size() > static_cast<size_t>(mi) &&
                              posed->meshes[mi].size() == mesh.vertices.size();
         const gta2::Mat4 world = skinned ? placement : Multiply(worlds[i], placement);
@@ -3518,6 +3560,10 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
                 cd.tint = g_paintTintOn && (cd.paint || softPaint) ? g_paintTint : nullptr;
                 CarCoatOverlay(device, world, cd);
             }
+        }
+        if (glassLifted) {
+            device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+            device->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
         }
         if (glassStage) {
             device->SetTextureStageState(glassStage, D3DTSS_COLOROP, D3DTOP_DISABLE);

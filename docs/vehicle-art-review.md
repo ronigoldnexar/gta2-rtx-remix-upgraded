@@ -1489,3 +1489,53 @@ model files (out/va27_a1). Frames opened, each sheet beside the x4 sprite (`/mnt
 - Model files: `031_jefferson*`, `032_stretch_limousine*`, `033_sports_limousine*`, `023_hot_dog_van*` in
   repo/assets/models since 04:51 UTC 11 Nov (outside git; shells backed up in `/mnt/gta2/gta2-linux/backup_va27`): they
   reach the page with the next restage from 84899c4d or later.
+
+## VEHICLE-ART-28 (11 Nov 2026): 023 / 027 rear arches (qav108); the kit glass by day
+
+**qav108 (023 Hot Dog Van: body-coloured shards at the rear wheel, a slab over the tyre, a box under the chassis): fixed
+in 023 and in 027, which it was built from (commit b77a8dc3).**
+- Cause: the van box's floor (0.82 m) sat 0.10 m inside the rear tyres' circle (tyre top 0.92 m). `car_bodies.cpp`'s
+  wheel split hands every triangle within the tyre radius of the axle and outboard of |x| - 1.2 r to the wheel, so 136
+  box-floor faces spun and steered with the rear wheels: orange wedges on top of the tyre and lying under it. 027 had
+  the same 136 faces (same code; `wheel_split_check.py`).
+- `car_023.py` / `car_027.py`: the box's floor and the bottom of its wall are lifted round the tyre (`rear_arch`, radius
+  tyre + 0.10, keyed into the tessellation; the wall above keeps its heights, so the hatch and the belt band, drawn in
+  v, do not move); the box floor is `underbody`. The outboard skirt over the rear wheels (the "frame-rail slab" over
+  the tyre's top) and the 3.2 m wide underbody slab are gone; the rails run up to the floor and back to the rear
+  bumper (it hung in the air), with leaf springs, axles, a differential, a propshaft and a fuel tank on the right rail.
+  The shared floor pan is not hung under the vans any more (`underpan.SKIP` += 023, 027: its silencer hung under the
+  rails). The serving hatch's back wall has its own crisp picture (tiles, a steel splashback, a shelf with jars; it was
+  the box's paint stretched over 1.8 m).
+- The filer's "small dark box floating between the axles" is not the van: it is the base of the street lamp post behind
+  it, seen under the chassis (the front34 pose shows the post; the same box sits at the same screen spot under 027; the
+  mesh has no part there).
+- Checks: wheel split takes only the wheels' own back plates; hole scan 023 10.0 -> 1.8 %, 027 6.5 -> 4.0 % (max
+  back-face share). Game (out/va28_q108a against triage's out/tri68_va27, the filer's five poses, 0 FAULT): side and
+  rear34 show the rear wheel in a clean arch, nothing body-coloured outside it, nothing over the tyre.
+- `tools/vehicle_art2/side_view.py <models dir> <name> <out.png> [z0 z1 y1]`: an offline side view of a shipped .mesh
+  with its pan (painter's order, flat shade, the camera on +x): the underbody, arches and anything hanging in one look.
+
+**The kit glass by day (fleet-wide).** The kit bodies' `_glass` panes (`tex_glass`, tint 30,38,46, alpha ~0.6-0.75
+plus streaks) are lit like paint: a vertical pane at noon came out ~(9-11, 11-13, 13-15) over the near-black cabin,
+while the x4 sprites' glass is a grey (001 (52,50,51), 005 (65,64,73), 050 (51,48,57); paint medians 119-164). The
+glasshouses read as black bands. A pane by day is mostly the sky it reflects, so `model_store.cpp` (one place, the
+car-surface glass branch) adds that reflection on texture stage 1: `D3DTOP_ADD` of the renderer's time-of-day ambient
+(`car_bodies`' `D3DRS_AMBIENT` = 0x5A x the hour's tint) x `[devtools] glass_lift` (70 %, default), alpha x
+`glass_alpha` (100 %). It fades by itself with the ambient at dusk and night; the streaks stay (no new sparkle); the
+plain renderer only (`RemixApiAvailable()`: Remix draws its own glass material); the classic view draws no 3D bodies.
+`glass_lift=0` = the glass as before (A/B in one run through `VA6_SETS`).
+- Pane medians (the pixels the lift changes, `tools/vehicle_art2/glass_measure.py`), noon, same pose, lift 0 -> 70 (-> 100):
+
+  | body | side | front34 |
+  |---|---|---|
+  | 050 B-Type | (9,11,13) -> (52,56,62) -> (65,69,76) | (7,9,12) -> (44,47,53) |
+  | 001 Wellard | (11,13,15) -> (52,57,63) -> (65,70,77) | (7,9,12) -> (45,49,54) |
+  | 005 Beamer | (9,12,15) -> (53,58,65) -> (65,71,79) | (7,9,11) -> (44,47,53) |
+  | 032 Stretch Limousine | (10,12,14) -> (52,56,63) -> (65,69,77) | (7,9,12) -> (51,55,61) |
+
+  70 % puts the pane on the sprites' glass grey; the pane reads as tinted glass with the sky gradient, the seals and
+  pillars, no longer a black band (out/va28_g2, frames opened). The cabins behind stay dark (the seats are barely
+  visible: the interior is near-black under the pane).
+- Night (wil 22:00, weather on, out/va28_gn2): 050 side (2,3,5) -> (13,15,21), 032 front34 (5,6,9) -> (17,19,27);
+  the panes stay darker than the paint, no glow. Remix (out/va28_rx2, noon, 050): lift 0 and 70 frames identical
+  but for a walking pedestrian and path-tracing noise (gated off); Remix's own glass is still dark there.
