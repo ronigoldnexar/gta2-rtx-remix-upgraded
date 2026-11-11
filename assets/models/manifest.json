@@ -1068,15 +1068,42 @@
   },
   {
    "name": "007_box_truck",
-   "glb": "cars/models3d/007_box_truck.glb",
+   "glb": "cars/vehicle_art2/007_box_truck.glb",
    "scale": 1.0,
    "paint_rgb": [
-    84.3,
-    65.0,
-    57.2
+    235.0,
+    235.0,
+    235.0
    ],
    "texture_max": 512,
-   "paint_split": true
+   "material_textures": {
+    "seal": "cars/vehicle_art2/007_box_truck/seal.png",
+    "chrome": "cars/vehicle_art2/007_box_truck/chrome.png",
+    "grille_back": "cars/vehicle_art2/007_box_truck/grille_back.png",
+    "underbody": "cars/vehicle_art2/007_box_truck/underbody.png",
+    "paint_body": "cars/vehicle_art2/007_box_truck/paint_body.png",
+    "grille": "cars/vehicle_art2/007_box_truck/grille.png",
+    "interior_dark": "cars/vehicle_art2/007_box_truck/interior_dark.png",
+    "paint_wheel": "cars/vehicle_art2/007_box_truck/paint_wheel.png",
+    "chrome_disc": "cars/vehicle_art2/007_box_truck/chrome_disc.png",
+    "lamp_head": "cars/vehicle_art2/007_box_truck/lamp_head.png",
+    "trim_dark": "cars/vehicle_art2/007_box_truck/trim_dark.png",
+    "seat": "cars/vehicle_art2/007_box_truck/seat.png",
+    "paint_box": "cars/vehicle_art2/007_box_truck/paint_box.png",
+    "lamp_amber": "cars/vehicle_art2/007_box_truck/lamp_amber.png",
+    "lamp_tail": "cars/vehicle_art2/007_box_truck/lamp_tail.png",
+    "rubber": "cars/vehicle_art2/007_box_truck/rubber.png",
+    "tyre_side": "cars/vehicle_art2/007_box_truck/tyre_side.png",
+    "tyre_tread": "cars/vehicle_art2/007_box_truck/tyre_tread.png",
+    "glass": "cars/vehicle_art2/007_box_truck/glass.png"
+   },
+   "generator": "tools/vehicle_art2/car_007.py",
+   "driver_seat": [
+    0.092,
+    0.248,
+    0.24,
+    0.482
+   ]
   },
   {
    "name": "008_bug",
@@ -8471,13 +8498,30 @@
   },
   {
    "name": "007_box_truck",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 11166,
+   "nodes": 23,
+   "meshes": 19,
+   "vertices": 16400,
    "animations": [],
    "textures": [
-    "007_box_truck_0.tga",
-    "007_box_truck_0_paint.tga"
+    "007_box_truck_chrome.tga",
+    "007_box_truck_chrome_disc.tga",
+    "007_box_truck_glass.tga",
+    "007_box_truck_grille.tga",
+    "007_box_truck_grille_back.tga",
+    "007_box_truck_interior_dark.tga",
+    "007_box_truck_lamp_amber.tga",
+    "007_box_truck_lamp_head.tga",
+    "007_box_truck_lamp_tail.tga",
+    "007_box_truck_paint_body_paint.tga",
+    "007_box_truck_paint_box_paint.tga",
+    "007_box_truck_paint_wheel_paint.tga",
+    "007_box_truck_rubber.tga",
+    "007_box_truck_seal.tga",
+    "007_box_truck_seat.tga",
+    "007_box_truck_trim_dark.tga",
+    "007_box_truck_tyre_side.tga",
+    "007_box_truck_tyre_tread.tga",
+    "007_box_truck_underbody.tga"
    ],
    "skins": 0,
    "forward": "",

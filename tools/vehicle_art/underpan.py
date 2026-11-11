@@ -38,7 +38,8 @@ WHEELS = json.load(open(os.path.join(HERE, "underpan_wheels.json")))
 # at floor level like the shell bodies' does, not the kit's fixed 0.80 rectangle (that stood ~0.3 m out past 028's tail
 # as a hard-edged dark slab, out/va24_a4 rear34). 029 has the same shape but is not rebuilt here.
 FOLLOW = {"028"}
-SKIP = {"063", "006", "054", "055", "059", "060", "061", "065", "066"} | {f"{n:03d}" for n in range(72, 82)}
+# (007, VEHICLE-ART-24: an open high truck chassis like 063; its pan measured a 0.16 m floor and hung as a slab)
+SKIP = {"063", "007", "006", "054", "055", "059", "060", "061", "065", "066"} | {f"{n:03d}" for n in range(72, 82)}
 
 # ------------------------------------------------------------------------------------------------------------------
 # The shared texture: a 256 px atlas, four regions (u0, v0, u1, v1 in image space, v down)
