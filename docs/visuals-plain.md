@@ -248,6 +248,27 @@ pool is a few pixels, so its flicker shows in the log more than in a still.
 Not covered: rain, other districts, high and low quality (their budgets are set by proportion but not
 measured), and RTX Remix (this pass does not run under Remix).
 
+### A faded car's contact patch (fw21 near-lens car, FIX-WORLD-22)
+
+The chase view fades a car standing between the lens and the hero, or around the lens (live_geometry
+`ChaseCarFades`, FIX-CAMERA-18), but its contact patch (`DrawContactShadows`) stayed at full strength. A dark,
+car-shaped patch slid along the road under a body that was not there. Now a car faded under half draws no body
+patch and no tyre patches, and a car faded above half draws them at the patch opacity x its alpha, as a second
+draw after the rest (the rule `mast_fade` gives props). `[devtools] car_fade_shadow=0` is the old behaviour
+(live A/B). Whenever a faded car was seen, the log gets one line per 300 frames: how many faded cars' patches
+were dropped or scaled.
+
+Probe: out/qa_fw22s5 (`gamerun/fw22_shadow.py`). wil 13:00, sun shadows off so only contact patches darken
+the road. Every traffic car is held at 40 % alpha (`GTA2DX9_CAM_FADE_TEST=40`), at a fixed eye over the
+lane. car_fade_shadow 0/1 alternates every 2 s. Pair s3: with 0, a large dark patch lies under the car at the
+lens, whose body is invisible. With 1, no patch, and the 40 % truck in view stands on clean road. The log
+counted 500-2100 faded-car patches dropped per 300 frames.
+
+Not covered: the 50-100 % band (the fade test holds one alpha a run; 40 % was filmed). A faded car's **sun
+shadow** (the post pass's shadow map) still falls (out/qa_fw22s3 pair s8, the 40 % truck). Small staggered
+tyre patches with no body over them appear after a truck passes, in both modes. They belong to a vehicle
+whose body is not drawn (probably the truck's trailer), not to a faded one, so this rule does not touch them.
+
 ## Smooth car panels under the AO (coord82, FIX-CAR-SHADING-2, 11 Nov 2026)
 
 With the AO on, a pale car's flank, bonnet and boot carried grey clouds 10-30 cm across: a hammered-metal mottle

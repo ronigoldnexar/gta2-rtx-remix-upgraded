@@ -10144,8 +10144,35 @@ void LiveGeometry::DrawContactShadows(IDirect3DDevice9* device) {
     };
     const bool firstPerson = CurrentViewMode() == ViewMode::FirstPerson;
     int cars = 0, peds = 0, props = 0, tyres = 0;
+    // FIX-WORLD-22 (fw21 near-lens car): a car the chase fade (ChaseCarFades, FIX-CAMERA-18) takes under half leaves no
+    // contact patch, one above half a patch at its own alpha (drawn after the rest, below), so no dark car-shaped patch
+    // slides along the road under a see-through body: the rule b2e32194 gave the props. [devtools] car_fade_shadow=0: as
+    // before (live A/B, re-read once a second).
+    static int carFadeShadow = 1;
+    {
+        static uint32_t polls = 0;
+        if (CarBodiesDevIni()[0] && (polls++ % 30u) == 0) {
+            const int v = GetPrivateProfileIntA("devtools", "car_fade_shadow", 1, CarBodiesDevIni());
+            if (v != carFadeShadow) Log("devtools: car_fade_shadow %d", v);
+            carFadeShadow = v;
+        }
+    }
+    struct FadedRun { size_t from, to; float alpha; };
+    std::vector<FadedRun> faded;
     for (const ContactCar& c : contactCars_) {
         if (c.own && firstPerson) continue;   // seen from the seat: the cockpit is over it
+        float carFade = 1.0f;
+        if (carFadeShadow && c.object)
+            for (const CarBodyUse& b : carBodies_)
+                if (b.object == reinterpret_cast<uintptr_t>(c.object)) { carFade = b.fade; break; }
+        static int fadedSkipped = 0, fadedScaled = 0, fadeFrames = 0;
+        if (carFade < 0.5f) ++fadedSkipped; else if (carFade < 0.999f) ++fadedScaled;
+        if (&c == &contactCars_.back() && ++fadeFrames >= 300) {
+            if (fadedSkipped || fadedScaled) Log("contact shadows: faded cars over 300 frames: %d without a patch (under half), %d at their alpha", fadedSkipped, fadedScaled);
+            fadedSkipped = fadedScaled = fadeFrames = 0;
+        }
+        if (carFade < 0.5f) continue;
+        const size_t carFrom = verts.size();
         const float cx = (c.x[0] + c.x[1] + c.x[2] + c.x[3]) * 0.25f, cz = (c.z[0] + c.z[1] + c.z[2] + c.z[3]) * 0.25f;
         if (!nearEye(cx, cz)) continue;
         // Half edges 0->1 and 1->2, a little past the body (the wheels stand at its edge).
@@ -10186,6 +10213,7 @@ void LiveGeometry::DrawContactShadows(IDirect3DDevice9* device) {
                 ++tyres;
             }
         }
+        if (carFade < 0.999f) faded.push_back({carFrom, verts.size(), carFade});
     }
     for (const Sprite& sprite : sprites_) {
         if (!sprite.pedestrian || sprite.ghost || sprite.boardUi || sprite.corners != 4 || sprite.hidden || sprite.climbing ||
@@ -10286,7 +10314,29 @@ void LiveGeometry::DrawContactShadows(IDirect3DDevice9* device) {
     device->SetRenderState(D3DRS_CLIPPLANEENABLE, 0);
     device->SetRenderState(D3DRS_SCISSORTESTENABLE, FALSE);
     device->SetTexture(0, texture);
-    const HRESULT hr = device->DrawPrimitiveUP(D3DPT_TRIANGLELIST, static_cast<UINT>(verts.size() / 3), verts.data(), sizeof(V));
+    // FIX-WORLD-22: the faded cars' patches last, each at the patch opacity times its car's fade.
+    std::vector<V> fadedVerts;
+    std::vector<std::pair<size_t, float>> fadedRuns;   // vertex count, alpha
+    if (!faded.empty()) {
+        std::vector<char> take(verts.size(), 0);
+        for (const FadedRun& r : faded) {
+            for (size_t k = r.from; k < r.to; ++k) { take[k] = 1; fadedVerts.push_back(verts[k]); }
+            fadedRuns.push_back({r.to - r.from, r.alpha});
+        }
+        size_t o = 0;
+        for (size_t k = 0; k < verts.size(); ++k) if (!take[k]) verts[o++] = verts[k];
+        verts.resize(o);
+    }
+    HRESULT hr = verts.empty() ? S_OK : device->DrawPrimitiveUP(D3DPT_TRIANGLELIST, static_cast<UINT>(verts.size() / 3), verts.data(), sizeof(V));
+    {
+        const float base = g_contactShadows * 2.55f * day * extras;
+        size_t at = 0;
+        for (const auto& r : fadedRuns) {
+            device->SetRenderState(D3DRS_TEXTUREFACTOR, D3DCOLOR_ARGB(static_cast<int>(base * r.second + 0.5f), 0, 0, 0));
+            if (r.first >= 3 && SUCCEEDED(hr)) hr = device->DrawPrimitiveUP(D3DPT_TRIANGLELIST, static_cast<UINT>(r.first / 3), fadedVerts.data() + at, sizeof(V));
+            at += r.first;
+        }
+    }
     static int hrLogs = 0;
     if (FAILED(hr) && hrLogs < 5) { ++hrLogs; Log("contact shadows: draw failed 0x%08lx", static_cast<unsigned long>(hr)); }
     if (saved) { saved->Apply(); saved->Release(); }
