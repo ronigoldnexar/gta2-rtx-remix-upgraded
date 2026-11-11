@@ -909,15 +909,39 @@
   },
   {
    "name": "001_wellard",
-   "glb": "cars/models3d/001_wellard.glb",
+   "glb": "cars/vehicle_art2/001_wellard.glb",
    "scale": 1.0,
    "paint_rgb": [
-    138.2,
-    104.7,
-    87.9
+    235.0,
+    235.0,
+    235.0
    ],
    "texture_max": 512,
-   "paint_split": true
+   "material_textures": {
+    "seal": "cars/vehicle_art2/001_wellard/seal.png",
+    "chrome": "cars/vehicle_art2/001_wellard/chrome.png",
+    "grille_back": "cars/vehicle_art2/001_wellard/grille_back.png",
+    "underbody": "cars/vehicle_art2/001_wellard/underbody.png",
+    "paint_body": "cars/vehicle_art2/001_wellard/paint_body.png",
+    "grille": "cars/vehicle_art2/001_wellard/grille.png",
+    "interior_dark": "cars/vehicle_art2/001_wellard/interior_dark.png",
+    "paint_wheel": "cars/vehicle_art2/001_wellard/paint_wheel.png",
+    "chrome_disc": "cars/vehicle_art2/001_wellard/chrome_disc.png",
+    "lamp_head": "cars/vehicle_art2/001_wellard/lamp_head.png",
+    "lamp_tail": "cars/vehicle_art2/001_wellard/lamp_tail.png",
+    "seat": "cars/vehicle_art2/001_wellard/seat.png",
+    "tyre_side": "cars/vehicle_art2/001_wellard/tyre_side.png",
+    "tyre_tread": "cars/vehicle_art2/001_wellard/tyre_tread.png",
+    "whitewall": "cars/vehicle_art2/001_wellard/whitewall.png",
+    "glass": "cars/vehicle_art2/001_wellard/glass.png"
+   },
+   "generator": "tools/vehicle_art2/car_001.py",
+   "driver_seat": [
+    0.076,
+    0.14,
+    -0.26,
+    0.278
+   ]
   },
   {
    "name": "002_aniston_bd4",
@@ -990,15 +1014,40 @@
   },
   {
    "name": "005_beamer",
-   "glb": "cars/models3d/005_beamer.glb",
+   "glb": "cars/vehicle_art2/005_beamer.glb",
    "scale": 1.0,
    "paint_rgb": [
-    152.8,
-    114.9,
-    92.0
+    235.0,
+    235.0,
+    235.0
    ],
    "texture_max": 512,
-   "paint_split": true
+   "material_textures": {
+    "seal": "cars/vehicle_art2/005_beamer/seal.png",
+    "rubber_top": "cars/vehicle_art2/005_beamer/rubber_top.png",
+    "chrome": "cars/vehicle_art2/005_beamer/chrome.png",
+    "grille_back": "cars/vehicle_art2/005_beamer/grille_back.png",
+    "underbody": "cars/vehicle_art2/005_beamer/underbody.png",
+    "paint_body": "cars/vehicle_art2/005_beamer/paint_body.png",
+    "grille": "cars/vehicle_art2/005_beamer/grille.png",
+    "interior_dark": "cars/vehicle_art2/005_beamer/interior_dark.png",
+    "paint_wheel": "cars/vehicle_art2/005_beamer/paint_wheel.png",
+    "chrome_disc": "cars/vehicle_art2/005_beamer/chrome_disc.png",
+    "lamp_head": "cars/vehicle_art2/005_beamer/lamp_head.png",
+    "lamp_tail": "cars/vehicle_art2/005_beamer/lamp_tail.png",
+    "seat": "cars/vehicle_art2/005_beamer/seat.png",
+    "tyre_side": "cars/vehicle_art2/005_beamer/tyre_side.png",
+    "tyre_tread": "cars/vehicle_art2/005_beamer/tyre_tread.png",
+    "whitewall": "cars/vehicle_art2/005_beamer/whitewall.png",
+    "glass": "cars/vehicle_art2/005_beamer/glass.png"
+   },
+   "generator": "tools/vehicle_art2/car_005.py",
+   "driver_seat": [
+    0.082,
+    0.128,
+    -0.148,
+    0.251
+   ]
   },
   {
    "name": "006_box_car",
@@ -8272,13 +8321,27 @@
   },
   {
    "name": "001_wellard",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 8234,
+   "nodes": 20,
+   "meshes": 16,
+   "vertices": 18866,
    "animations": [],
    "textures": [
-    "001_wellard_0.tga",
-    "001_wellard_0_paint.tga"
+    "001_wellard_chrome.tga",
+    "001_wellard_chrome_disc.tga",
+    "001_wellard_glass.tga",
+    "001_wellard_grille.tga",
+    "001_wellard_grille_back.tga",
+    "001_wellard_interior_dark.tga",
+    "001_wellard_lamp_head.tga",
+    "001_wellard_lamp_tail.tga",
+    "001_wellard_paint_body_paint.tga",
+    "001_wellard_paint_wheel_paint.tga",
+    "001_wellard_seal.tga",
+    "001_wellard_seat.tga",
+    "001_wellard_tyre_side.tga",
+    "001_wellard_tyre_tread.tga",
+    "001_wellard_underbody.tga",
+    "001_wellard_whitewall.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -8332,13 +8395,28 @@
   },
   {
    "name": "005_beamer",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 14904,
+   "nodes": 21,
+   "meshes": 17,
+   "vertices": 19439,
    "animations": [],
    "textures": [
-    "005_beamer_0.tga",
-    "005_beamer_0_paint.tga"
+    "005_beamer_chrome.tga",
+    "005_beamer_chrome_disc.tga",
+    "005_beamer_glass.tga",
+    "005_beamer_grille.tga",
+    "005_beamer_grille_back.tga",
+    "005_beamer_interior_dark.tga",
+    "005_beamer_lamp_head.tga",
+    "005_beamer_lamp_tail.tga",
+    "005_beamer_paint_body_paint.tga",
+    "005_beamer_paint_wheel_paint.tga",
+    "005_beamer_rubber_top.tga",
+    "005_beamer_seal.tga",
+    "005_beamer_seat.tga",
+    "005_beamer_tyre_side.tga",
+    "005_beamer_tyre_tread.tga",
+    "005_beamer_underbody.tga",
+    "005_beamer_whitewall.tga"
    ],
    "skins": 0,
    "forward": "",
