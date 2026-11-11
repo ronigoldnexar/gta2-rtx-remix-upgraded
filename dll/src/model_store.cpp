@@ -3087,9 +3087,14 @@ void ModelDraw(IDirect3DDevice9* device, const Model& model, const gta2::Mat4& p
     ModelDrawBlend(device, model, placement, animation, time, nullptr, 0.0f, 0.0f);
 }
 
+namespace { bool g_modelDrawsHeld = false; }   // FIX-PERF-7
+void ModelHoldDraws(bool on) { g_modelDrawsHeld = on; }
+bool ModelDrawsHeld() { return g_modelDrawsHeld; }
+
 void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Mat4& placement,
                     const ModelAnimation* animation, float time, const ModelAnimation* second,
                     float secondTime, float weight) {
+    if (g_modelDrawsHeld) return;   // FIX-PERF-7: a car the view cull found unseen
     if (!second || weight <= 1e-3f) { second = nullptr; secondTime = 0.0f; weight = 0.0f; }
     LARGE_INTEGER t0, t1, t2;
     QueryPerformanceCounter(&t0);

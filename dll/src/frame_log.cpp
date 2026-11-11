@@ -205,6 +205,11 @@ void FrameLogStage(FrameLogStageId stage) {
     g_stageLastPrims = g_c.prims;
 }
 
+void FrameLogCounts(int* draws, int* prims) {
+    *draws = g_enabled == 1 ? g_c.draws : 0;
+    *prims = g_enabled == 1 ? g_c.prims : 0;
+}
+
 void FrameLogNote(FrameCounter counter, int n) {
     if (g_enabled != 1 || counter < 0 || counter >= kFcCount) return;
     g_c.notes[counter] += n;

@@ -58,6 +58,11 @@ bool SegmentHitWalls(const gta2::Vec3& a, const gta2::Vec3& b, float* t);
 // sheet's plane): what the chase boom may not pass at all, as against what it eases in at.
 bool SegmentHitSolid(const gta2::Vec3& a, const gta2::Vec3& b, float* t);
 
+// FIX-PERF-7: whether any one-sided face (a wall, a lid) crossed from its front lies on the segment a->b, more than
+// `skipA` from a: the car view cull's occlusion ray. A cell walk along the segment that stops at the first such face
+// (SegmentHitWalls scans every cell of the segment's bounding box and looks for the nearest).
+bool SegmentBlocked(const gta2::Vec3& a, const gta2::Vec3& b, float skipA);
+
 // FIX-CAMERA-7 (pfeel3 residual): while set (> 0), SegmentHit and its variants ignore a two-sided sheet or a
 // railing's bar crossed within `distance` of the segment's start. The chase boom's segments start at his
 // centre, and the plaza fence's sheet lies on a cell edge his body overlaps: 2 cm past it, every line from

@@ -310,6 +310,10 @@ bool LampPostHead(const Model& lamp, const gta2::Vec3& at, float floor, LampHead
 // Draws a model with `placement` (row-vector D3D convention: the model's own
 // space into the world), posed by `animation` at `time` seconds (null for the
 // rest pose). Textures are created on first use and kept.
+// FIX-PERF-7: while held, ModelDraw/ModelDrawBlend submit nothing (car_bodies: a car its view cull found unseen,
+// body and shadow; the car's own logic still runs). Off again before anything else draws.
+void ModelHoldDraws(bool on);
+bool ModelDrawsHeld();
 void ModelDraw(IDirect3DDevice9* device, const Model& model, const gta2::Mat4& placement,
                const ModelAnimation* animation, float time);
 // The same, blended: `animation` at `time` weighted (1 - weight) with `second`

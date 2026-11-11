@@ -380,6 +380,41 @@ bool SegmentHit(const Vec3& a, const Vec3& b, float* tOut) {
     return true;
 }
 
+bool SegmentBlocked(const Vec3& a, const Vec3& b, float skipA) {
+    if (!g_ready) return false;
+    const Vec3 d = Sub(b, a);
+    const float len = Len(d);
+    if (len < 1e-4f) return false;
+    const float tSkip = skipA / len;
+    auto cellHit = [&](int cx, int cz) {
+        if (cx < 0 || cz < 0 || cx >= kGrid || cz >= kGrid) return false;
+        const size_t cell = static_cast<size_t>(cz) * kGrid + cx;
+        for (uint32_t k = g_cellStart[cell]; k < g_cellStart[cell + 1]; ++k) {
+            const Tri& t = g_tris[g_cellTris[k]];
+            if (t.flags & (kTwoSided | kPanel | kBar)) continue;
+            if (gta2::Dot(d, N(t)) >= 0.0f) continue;   // from behind: no wall
+            float tt;
+            if (SegTri(a, d, g_pos[t.v[0]], g_pos[t.v[1]], g_pos[t.v[2]], &tt) && tt > tSkip) return true;
+        }
+        return false;
+    };
+    // Amanatides-Woo over the one-block cells of the segment's ground track.
+    int cx = static_cast<int>(std::floor(a.x)), cz = static_cast<int>(std::floor(a.z));
+    const int ex = static_cast<int>(std::floor(b.x)), ez = static_cast<int>(std::floor(b.z));
+    const int sx = d.x > 0.0f ? 1 : -1, sz = d.z > 0.0f ? 1 : -1;
+    const float inf = 1e30f;
+    const float dtx = std::fabs(d.x) > 1e-9f ? std::fabs(1.0f / d.x) : inf, dtz = std::fabs(d.z) > 1e-9f ? std::fabs(1.0f / d.z) : inf;
+    float tx = std::fabs(d.x) > 1e-9f ? ((sx > 0 ? (cx + 1.0f - a.x) : (a.x - cx)) * dtx) : inf;
+    float tz = std::fabs(d.z) > 1e-9f ? ((sz > 0 ? (cz + 1.0f - a.z) : (a.z - cz)) * dtz) : inf;
+    for (int guard = 0; guard < 2 * kGrid; ++guard) {
+        if (cellHit(cx, cz)) return true;
+        if (cx == ex && cz == ez) break;
+        if (tx < tz) { if (tx > 1.0f) break; cx += sx; tx += dtx; }
+        else { if (tz > 1.0f) break; cz += sz; tz += dtz; }
+    }
+    return false;
+}
+
 bool SegmentHitSolid(const Vec3& a, const Vec3& b, float* t) {
     g_solidOnly = true;
     const bool hit = SegmentHit(a, b, t);

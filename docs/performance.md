@@ -1725,3 +1725,37 @@ keys to 0 in gta2dx9.ini and send the two logs.
 What this leaves for the memory order on this host: with the Wine defaults the growth is HEAD's (minute 10 -> 22
 +20 MB/min, the derived car copies and their buffers, bounded by the 48/64/64 MB copy budgets and the district's
 car set); with both switches on (Windows defaults) +4.3 MB/min and 382 MB less at minute 22.
+
+## The wedged-truck spot: 500-750 car draws a frame for cars nobody can see (11 Nov 2026, FIX-PERF-7)
+
+QA-STRESS pass 18 (25-minute wil soak) found the 3D over-50 ms excess is not spread evenly: one 5-minute bucket held
+17 % of frames over 50 ms, and that bucket was one spot, the seated 063 truck wedged against the wall corner at wil
+x 70-72, y 147-149 for two minutes: 3D frames 55-56 ms on average (35 elsewhere), the cars stage 22 ms (5-6 elsewhere),
+675 car draws / 845 k car triangles a frame (326 / 405 k elsewhere), 1 213 shadow-pass draws (862 elsewhere),
+71 % of the frames there over 50 ms (3.2-3.7 % elsewhere in the same run). The filer's frames at the spot
+(`qa_s18_080_first`, `qa_s18_088_third`) show a wall corner and his own truck: not one other car on screen.
+
+### The census (`GTA2DX9_CAR_CENSUS=N`)
+
+New probe: every N frames, one line per car handed to the car stage (model, distance from the eye, behind the eye,
+outside the view frustum, behind walls from the eye, the D3D draws and triangles it submitted, its CPU ms) and a
+summary line; with it the shadow pass logs `shadow census:` (casters recorded, replays per cascade). The draw counts
+come from the frame log's counters (`FrameLogCounts`), so it needs `GTA2DX9_FRAME_LOG`. Run `perf7_cen1`: on foot at
+wil 70.8,147.8 (the truck's spot), the regression camera at the filer's two poses (third: eye 71.9,149.2,3.0 toward
+69.0,145.0,2.0; first: eye 70.6,147.6,2.6 toward 68.4,144.3,2.45, game frame), 45 s each, census every 30 frames:
+
+| pose | cars handed to the stage | behind the eye (already skipped) | outside the frustum | in it, behind walls | seen | car draws a frame |
+|---|---|---|---|---|---|---|
+| third (33 samples) | 19.9 | 5.1 | 8.6 (317 draws) | 6.0 (152 draws) | 0.2 (3 draws) | 473 |
+| first (46 samples) | 19.5 | 4.7 | 5.7 (207 draws) | 9.1 (300 draws) | 0 | 507 |
+
+**The cause, named:** the spot sits beside a depot and a street of parked and passing cars (model 63 trucks, 36, 68,
+69, 0, 12...), 20 of them within 10-26 blocks; the street view's traffic cap (29/29 at the time) fills it. The only
+cull the car stage had was "behind the eye" (`BehindView`, 2.5-block margin). Every other car was drawn in full: a
+model car costs **9 to 53 D3D draws** (body meshes, the clear-coat pass over each body mesh, four wheels and their
+rims, glass and cabin, lamps) and 14-51 k triangles, and each of those draws is recorded as a shadow caster and
+replayed into both cascades (`shadow census`: 670-735 casters, 590-650 replays in the near cascade and 670-735 in the
+far one). So at a wall corner the frame paid for ~15 cars that are outside the view or behind the building, ~500 car
+draws plus ~600 caster replays, through wined3d's single command thread (FIX-PERF-6's fit: 5.8 us a draw), and
+nothing of it reached the screen. It is the same class as FIX-PERF-6's "cars in view" (over 50 ms rises with the
+cars stage's draws), with the twist that "in view" meant "near the eye", not "visible".

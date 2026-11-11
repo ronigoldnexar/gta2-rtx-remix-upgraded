@@ -102,6 +102,9 @@ struct PostStats {
     double cpuShadowMs = 0.0, cpuPostMs = 0.0;   // this frame
     double gpuShadowMs = -1.0, gpuPostMs = -1.0; // a few frames late; -1 unknown
     int casters = 0, casterDraws = 0, worldDraws = 0, lights = 0, cascades = 0, cascadesReused = 0;
+    // FIX-PERF-7: caster replays per cascade, and of them those whose centre lies more than 12 blocks of view depth
+    // outside the cascade's slice (the census's measure of what a slice test would save).
+    int casterDrawsK[3] = {}, casterOffSliceK[3] = {};
 };
 
 class PostFx {

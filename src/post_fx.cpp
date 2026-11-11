@@ -650,9 +650,11 @@ void PostFx::RenderShadows(int cascades, const Vec3& sunDirIn) {
 
     stats_.cascades = cascades;
     float nearZ = 0.05f;
+    for (int k = 0; k < 3; ++k) stats_.casterDrawsK[k] = stats_.casterOffSliceK[k] = 0;
     for (int k = 0; k < cascades; ++k) {
         Cascade& cs = cascades_[k];
         const float f = kSplits[q][k];
+        const float sliceNear = nearZ;   // FIX-PERF-7: this cascade's slice of view depth
         float c = (nearZ + f) * (1.0f + k2) * 0.5f, r;
         if (c >= f) { c = f; r = f * std::sqrt(k2); }
         else r = std::sqrt((f - c) * (f - c) + f * f * k2);
@@ -832,9 +834,22 @@ void PostFx::RenderShadows(int cascades, const Vec3& sunDirIn) {
                 device_->DrawPrimitive(m.type, m.start, m.prims);
             }
             ++stats_.casterDraws;
+            ++stats_.casterDrawsK[k];
+            if (!m.anywhere) {
+                const float depth = Dot(m.centre - eye_, fwd);
+                if (depth < sliceNear - 12.0f || depth > f + 12.0f) ++stats_.casterOffSliceK[k];
+            }
         }
     }
     device_->SetTexture(0, nullptr);
+    {   // FIX-PERF-7: the shadow side of the car census (GTA2DX9_CAR_CENSUS=N)
+        static int every = -1;
+        if (every < 0) { const char* e = getenv("GTA2DX9_CAR_CENSUS"); every = e ? std::max(0, atoi(e)) : 0; }
+        if (every > 0 && frames_ % static_cast<uint32_t>(every) == 0)
+            RendererTrace("shadow census: %d casters recorded (cap %d), replays by cascade %d/%d/%d, of them off the slice by 12+ blocks %d/%d/%d",
+                          static_cast<int>(casters_.size()), kMaxCasters, stats_.casterDrawsK[0], stats_.casterDrawsK[1],
+                          stats_.casterDrawsK[2], stats_.casterOffSliceK[0], stats_.casterOffSliceK[1], stats_.casterOffSliceK[2]);
+    }
 }
 
 void PostFx::Resolve() {

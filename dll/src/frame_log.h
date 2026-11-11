@@ -30,6 +30,8 @@ enum FrameLogStageId {
     kFlStageCount
 };
 void FrameLogStage(FrameLogStageId stage);
+// FIX-PERF-7: the frame's draws and primitives so far (0 with the log off): the car census's per-car counts.
+void FrameLogCounts(int* draws, int* prims);
 // The game's side of the frame: gbh_BeginScene stamps the start of its draw stream, and
 // the draw exports add their own time (a scope at their top) so "game" splits into the
 // game's simulation, its draw stream, and our code inside that stream.
