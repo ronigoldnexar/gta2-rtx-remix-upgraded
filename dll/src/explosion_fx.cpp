@@ -533,6 +533,8 @@ void DevtoolsBlast(const gta2::Vec3& view) {
     GetPrivateProfileStringA("devtools", "force_blast_car", "near", mode, sizeof mode, ini);
     const float want = (std::max)(2.0f, GetPrivateProfileIntA("devtools", "force_blast_dist", 40, ini) / 10.0f);
     bool own = !strcmp(mode, "own");
+    // FIX-FX-8 (qav79 probe): force_blast_car=driven sets the car he sits in alight (a burning car seen from its seat).
+    const bool drivenCar = !strcmp(mode, "driven") && driving;
     // The aim point: want blocks ahead along the view, in the game's frame (y south = -z).
     float ax = view.x, ay = -view.z;
     const float al = std::hypot(ax, ay);
@@ -555,7 +557,7 @@ void DevtoolsBlast(const gta2::Vec3& view) {
     GTA2_TRY {
         int guard = 0;
         for (const uint8_t* v = game::VehicleListHead(); v && guard < 1024; v = game::NextInList(v, game::kVehicleNext), ++guard) {
-            if (v == driving) continue;
+            if (drivenCar ? v != driving : v == driving) continue;
             if (own && v != g_lastDriven) continue;
             const int16_t dmg = *reinterpret_cast<const int16_t*>(v + kCarDamageWord);
             if (dmg < 0 || dmg > 31999) continue;   // a wreck
@@ -564,8 +566,8 @@ void DevtoolsBlast(const gta2::Vec3& view) {
             float x = 0, y = 0, z = 0;
             if (!game::ReadPlacement(v, game::kVehiclePlacementPtr, &x, &y, &z)) continue;
             const float d = std::hypot(x - px, y - py);
-            if (std::fabs(z - pz) > 1.5f || d < kMinBlastDist || d > 30.0f) continue;
-            const float score = own ? 0.0f : std::hypot(x - tx, y - ty);
+            if (!drivenCar && (std::fabs(z - pz) > 1.5f || d < kMinBlastDist || d > 30.0f)) continue;
+            const float score = own || drivenCar ? 0.0f : std::hypot(x - tx, y - ty);
             if (score < bestScore) { bestScore = score; best.car = v; best.x = x; best.y = y; best.z = z; best.dist = d; }
             const bool inCone = al > 1e-3f && ((x - px) * ax + (y - py) * ay) > 0.766f * d;
             if (!own && inCone && score < bestConeScore) { bestConeScore = score; bestCone = {v, x, y, z, d}; }

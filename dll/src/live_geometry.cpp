@@ -629,6 +629,24 @@ void SetPlayerPosition(float x, float y, float z, bool valid) {
 }
 struct OwnCarFire { bool on = false; float x = 0, y = 0, z = 0, dx = 0, dz = 1; int stage = 0; };
 OwnCarFire g_ownFire;
+// FIX-FX-8 (qav79) probe: [devtools] fire_ab, a live mask for same-pose A/B of a burning car's fire
+// (re-read every 15 frames): 1 = the game's flame sprites over a car (base + layers) left out, 2 = the
+// flame tongues left out, 4 = first person's own-car bonnet tongues left out, 8 = the fire smoke left
+// out. GTA2DX9_LOG_FIRE=1 logs where each car flame is drawn (centre, size, eye distance) twice a second.
+int g_fireAb = 0;
+bool g_logFire = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_LOG_FIRE", b, sizeof b) && b[0] == '1'; }();
+// GTA2DX9_FIRE_ANCHOR_OLD=1 (or fire_ab bit 16, live): FIX-FX-8's anchoring and near fade off, for A/B.
+bool FireAnchorOld() {
+    static const bool env = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_FIRE_ANCHOR_OLD", b, sizeof b) && b[0] == '1'; }();
+    return env || (g_fireAb & 16) != 0;
+}
+void FireAbPoll() {
+    static uint32_t calls = 0;
+    if (!CarBodiesDevIni()[0] || (calls++ % 15u) != 0) return;
+    const int v = GetPrivateProfileIntA("devtools", "fire_ab", 0, CarBodiesDevIni());
+    if (v != g_fireAb) Log("devtools: fire_ab %d", v);
+    g_fireAb = v;
+}
 void SetOwnCarFire(bool on, float x, float y, float z, float dirX, float dirZ, int stage) {
     const float l = std::sqrt(dirX * dirX + dirZ * dirZ);
     g_ownFire = {on && l > 1e-4f, x, y, z, l > 1e-4f ? dirX / l : 0.0f, l > 1e-4f ? dirZ / l : 1.0f, stage};
@@ -1840,12 +1858,37 @@ void DrawFlames(IDirect3DDevice9* device, bool blending, DWORD alphaRef) {
     device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
     device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
     device->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_TFACTOR);
+    DWORD zWas = TRUE;
+    if (g_fireAb & 32) { device->GetRenderState(D3DRS_ZENABLE, &zWas); device->SetRenderState(D3DRS_ZENABLE, FALSE); }   // FIX-FX-8 probe: are the wedges a depth cut?
     device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
     device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
     device->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
     device->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
     device->SetTexture(0, texture);
     const float now = static_cast<float>(SkidNowSeconds());
+    // FIX-FX-8 (qav79): a tongue that stands in a wall (a car nosed into it) was cut by the wall's depth into a
+    // straight-edged wedge (fx8w2: gone with the depth test off, fire_ab 32). Each tongue is drawn 0.15 block
+    // nearer the eye in depth only (D3DRS_DEPTHBIAS worked out from the projection at the tongue's own depth), so
+    // a surface just behind it no longer cuts it, while the cab, the wheel and anything 0.15 block in front of it
+    // still hide it.
+    D3DMATRIX view = {}, proj = {};
+    device->GetTransform(D3DTS_VIEW, &view);
+    device->GetTransform(D3DTS_PROJECTION, &proj);
+    const bool biasOn = !FireAnchorOld() && !(g_fireAb & 128) && PuffsUpright() && proj._34 > 0.5f && proj._43 < 0.0f;
+    if (g_logFire && (g_carFrame % 60u) == 0)
+        Log("fire: tongues %zu, depth pull %d (proj 33 %.4f 34 %.2f 43 %.4f)", g_flames.size(), biasOn ? 1 : 0, proj._33, proj._34, proj._43);
+    bool biased = false;
+    auto depthPull = [&](float x, float y, float z) {
+        if (!biasOn) return;
+        const float w = x * view._13 + y * view._23 + z * view._33 + view._43;
+        const float pull = 0.15f;
+        float bias = 0.0f;
+        if (w > pull + 0.02f) bias = (std::max)(-0.5f, proj._43 / (w - pull) - proj._43 / w);
+        if (bias != 0.0f || biased) {
+            device->SetRenderState(D3DRS_DEPTHBIAS, *reinterpret_cast<const DWORD*>(&bias));
+            biased = bias != 0.0f;
+        }
+    };
 
     auto drawOne = [&](const Puff& p, bool ember) {
         const float t = p.age / p.life;
@@ -1869,8 +1912,17 @@ void DrawFlames(IDirect3DDevice9* device, bool blending, DWORD alphaRef) {
         world._44 = 1.0f;
         if (PuffsUpright()) {
             level *= PuffFacing(world._41, world._42 + grow * 0.25f, world._43, grow, angle, &world);
+            if (!FireAnchorOld() && !(g_fireAb & 64)) {
+                // FIX-FX-8 (qav79): a tongue fades out over its last 0.3 block before the eye (its near edge, not its
+                // middle), so none is ever cut by the near plane into a straight-edged sheet at the windscreen.
+                const float ex = world._41 - g_puffEye.x, ey = world._42 - g_puffEye.y, ez = world._43 - g_puffEye.z;
+                const float k = (std::sqrt(ex * ex + ey * ey + ez * ez) - 0.5f * grow - 0.08f) / 0.30f;
+                const float t = k < 0.0f ? 0.0f : (k > 1.0f ? 1.0f : k);
+                level *= t * t * (3.0f - 2.0f * t);
+            }
             if (level < 0.01f) return;
         }
+        depthPull(world._41, world._42, world._43);
         device->SetTransform(D3DTS_WORLD, &world);
         // Cools towards red as it rises; a spark stays hot and just goes out.
         const float g = ember ? 0.72f : 1.0f - 0.5f * t, b = ember ? 0.30f : 1.0f - 0.85f * t;
@@ -1880,6 +1932,8 @@ void DrawFlames(IDirect3DDevice9* device, bool blending, DWORD alphaRef) {
     };
     for (const Puff& p : g_flames) drawOne(p, false);
     for (const Puff& p : g_embers) drawOne(p, true);
+    if (g_fireAb & 32) device->SetRenderState(D3DRS_ZENABLE, zWas);
+    if (biased) { const float zero = 0.0f; device->SetRenderState(D3DRS_DEPTHBIAS, *reinterpret_cast<const DWORD*>(&zero)); }
 
     D3DMATRIX identity = {};
     identity._11 = identity._22 = identity._33 = identity._44 = 1.0f;
@@ -14410,6 +14464,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
         }
     } fireSpotsKeeper{fireSpots};
     const double fxTime = SkidNowSeconds();
+    FireAbPoll();
     // Flicker diagnostic: follows each pedestrian from frame to frame and logs, a few times only,
     // one that changes how it is drawn again and again (the flags below, smoothed or not) or that
     // drops out of the draw list for a few frames and comes back. The log line says which, and
@@ -14889,6 +14944,8 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
             centre.x = cx; centre.y = cy; centre.z = cz;
             float cw[3];
             toWorld(centre, cw);
+            float fireShift[2] = {0.0f, 0.0f};   // FIX-FX-8: game flame -> drawn body's bonnet (world x, z)
+            bool ownBodyFire = false;            // FIX-FX-8: the flame is on the car he sits in, first person
             const Roof* over = nullptr;
             for (const Roof& roof : roofs) {
                 const float (*m)[4] = roof.shell->objectToWorld.m;
@@ -14915,14 +14972,39 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
                     if (std::fabs(across) > f.hx * 1.25f + 0.05f || std::fabs(along) > f.hz * 1.25f + 0.05f) continue;
                     float deck = 0.0f, roofY = 0.0f, screen = 0.0f, halfW = 0.0f;
                     const void* obj = reinterpret_cast<const void*>(f.object);
-                    if (CarBodiesCabin(obj, &deck, &roofY, &screen, &halfW)) {
+                    const bool cabin = CarBodiesCabin(obj, &deck, &roofY, &screen, &halfW);
+                    float onAlong = along;
+                    if (!FireAnchorOld()) {
+                        // FIX-FX-8 (qav79): the game lays its flames off the car it knows, and the drawn body can sit
+                        // apart from it (pushed off a wall, the draw-only separation): the open roadster 036 nosed into
+                        // the wil wall corner had its flames 0.06 block past its side and behind the windscreen, a
+                        // column up the wall beside the car. The flame is anchored on the drawn body: spread over the
+                        // bonnet (the engine bay) where the body has one, kept inside the body where it has none
+                        // (a cab-over van burns on its roof), never wider than 0.6 of the body.
+                        const float u = (std::max)(0.0f, (std::min)(1.0f, (along + f.hz) / (std::max)(0.05f, 2.0f * f.hz)));
+                        const float nose = f.hz - 0.08f;
+                        if (cabin && nose - (screen + 0.04f) >= 0.10f) onAlong = screen + 0.04f + (nose - screen - 0.04f) * u;
+                        else onAlong = (std::max)(-nose, (std::min)(nose, along));
+                        const float onAcross = (std::max)(-0.6f * f.hx, (std::min)(0.6f * f.hx, across));
+                        fireShift[0] = f.cx + f.rx * onAcross + f.fx * onAlong - cw[0];
+                        fireShift[1] = f.cz + f.rz * onAcross + f.fz * onAlong - cw[2];
+                    }
+                    if (cabin) {
                         // Ahead of the windscreen's base the flame stands on the bonnet, behind it on the roof.
-                        overTop = f.cy + (along > screen ? deck : roofY);
+                        overTop = f.cy + (onAlong > screen ? deck : roofY);
                     } else {
                         float len = 0.0f, height = 0.0f, hw = 0.0f;
                         overTop = f.cy + (CarBodiesExtent(obj, &len, &height, &hw) ? height * 0.8f : 0.5f);
                     }
                     overCar = obj;
+                    // FIX-FX-8 (qav79): first person at the wheel, his own car's flames are the bonnet tongues below
+                    // (g_ownFire, spawned on the drawn bonnet ahead of the eye); the game's sprites over it stood
+                    // round the eye.
+                    if (CurrentViewMode() == ViewMode::FirstPerson && g_playerInVehicle && !FireAnchorOld()) {
+                        const gta2::Vec3 e = camera.Position();
+                        const float ex = e.x - f.cx, ez = e.z - f.cz;
+                        if (std::fabs(ex * f.rx + ez * f.rz) < f.hx + 0.05f && std::fabs(ex * f.fx + ez * f.fz) < f.hz + 0.05f) ownBodyFire = true;
+                    }
                     static int bodyLogged = 0;
                     if (bodyLogged < 24) {
                         ++bodyLogged;
@@ -14932,7 +15014,10 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
                     break;
                 }
             }
+            if (overCar && ownBodyFire) continue;
             if (overCar) {
+                cw[0] += fireShift[0];
+                cw[2] += fireShift[1];
                 float w0[3], w1[3], w3[3];
                 toWorld(sprite.local[0], w0);
                 toWorld(sprite.local[1], w1);
@@ -14962,6 +15047,8 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
                 fxSprites.push_back(sprite);
                 Sprite& base = fxSprites.back();
                 base.objectToWorld.m[3][1] += need;
+                base.objectToWorld.m[3][0] += fireShift[0];
+                base.objectToWorld.m[3][2] += fireShift[1];
                 if (flame) {
                     const float flick = 1.0f + g_fire.flicker * 0.5f *
                                                    std::sin(static_cast<float>(fxTime) * g_fire.flickerHz + phase);
@@ -14971,6 +15058,24 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
                     const float spotY = over ? cw[1] + need : (std::max)(cw[1], overTop + 0.08f);
                     fireSpots.push_back({cw[0], spotY, cw[2], baseSize * g_fire.sizeScale, overCar});
                 }
+                if (g_logFire) {
+                    static uint32_t lastFrame = 0;
+                    static int perFrame = 0;
+                    if (g_carFrame != lastFrame) { perFrame = 0; lastFrame = g_carFrame; }
+                    if ((g_carFrame % 15u) == 0 && perFrame++ < 6) {
+                        float lx = 0, ly = 0, lz = 0;
+                        for (int i = 0; i < 4; ++i) { lx += sprite.local[i].x * 0.25f; ly += sprite.local[i].y * 0.25f; lz += sprite.local[i].z * 0.25f; }
+                        const float r0 = std::sqrt(sm[0][0] * sm[0][0] + sm[0][1] * sm[0][1] + sm[0][2] * sm[0][2]);
+                        const gta2::Vec3 e = camera.Position();
+                        Log("fire: f=%u car %p flame centre %.2f,%.2f,%.2f size %.3f%s top %.2f need %.2f local centre %.3f,%.3f,%.3f row0 %.3f "
+                            "origin %.2f,%.2f,%.2f eye %.2f,%.2f,%.2f dist %.2f view %d",
+                            g_carFrame, overCar, cw[0], cw[1], cw[2], baseSize, flame ? "" : " (blast)", overTop, need, lx, ly, lz, r0,
+                            sm[3][0], sm[3][1], sm[3][2], e.x, e.y, e.z,
+                            std::sqrt((cw[0] - e.x) * (cw[0] - e.x) + (cw[1] - e.y) * (cw[1] - e.y) + (cw[2] - e.z) * (cw[2] - e.z)),
+                            static_cast<int>(CurrentViewMode()));
+                    }
+                }
+                if (flame && (g_fireAb & 1)) { fxSprites.pop_back(); continue; }
                 {
                     uint32_t dim = 0;
                     if (flame && g_fire.flames && g_fire.spriteBright < 0.999f) {
@@ -14988,6 +15093,8 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
                                 std::sin(static_cast<float>(fxTime) * g_fire.flickerHz * (1.0f + 0.17f * li) + phase * li);
                         scaleAbout(layer, g_fire.sizeScale * (1.0f + g_fire.layerGrow * li) * flick);
                         layer.objectToWorld.m[3][1] += need + g_fire.layerRise * li;
+                        layer.objectToWorld.m[3][0] += fireShift[0];
+                        layer.objectToWorld.m[3][2] += fireShift[1];
                         const float bright = std::pow(g_fire.layerBright, static_cast<float>(li));
                         auto chan = [&](float t) {
                             return static_cast<int>((std::max)(0.0f, (std::min)(1.0f, t * bright)) * 255.0f + 0.5f);
@@ -16159,16 +16266,49 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
     // round the eye (left out there, fxAtEye) or under a bonnet the cab hides, so the burning car
     // showed nothing at all. Tongues and smoke come off the bonnet's front edge, two spots across
     // it, where they rise into the bottom of the windscreen.
-    if (g_ownFire.on && g_fire.flames && fxUpright && CurrentViewMode() == ViewMode::FirstPerson) {
-        const float fwd = 0.52f, up = 0.22f, side = 0.16f;
-        const float rx = g_ownFire.dz, rz = -g_ownFire.dx;
+    if (g_ownFire.on && g_fire.flames && fxUpright && CurrentViewMode() == ViewMode::FirstPerson && !(g_fireAb & 4)) {
+        float fwd = 0.52f, up = 0.22f, side = 0.16f, size = 0.55f;
+        float ox = g_ownFire.x, oy = g_ownFire.y, oz = g_ownFire.z, dx = g_ownFire.dx, dz = g_ownFire.dz;
+        if (!FireAnchorOld() && g_groundModels) {
+            // FIX-FX-8 (qav79): 0.52 block ahead of the car's middle is past the nose of a short car (the roadster
+            // 036 is 0.84 long): nosed into a wall, the tongues stood inside it and the wall cut them into
+            // straight-edged wedges across the windscreen. They come off the drawn body's bonnet instead (the
+            // body the eye sits in, its cabin's deck and windscreen base), at least 0.30 block ahead of the eye
+            // and 0.10 inside the nose, a little smaller; a cab-over van with no bonnet burns at its nose.
+            if (fireFeetN < 0) fireFeetN = CarBodiesFootprints(fireFeet, 96);
+            const gta2::Vec3 e = camera.Position();
+            for (int k = 0; k < fireFeetN; ++k) {
+                const CarFootprint& f = fireFeet[k];
+                const float ex = e.x - f.cx, ez = e.z - f.cz;
+                const float eAcross = ex * f.rx + ez * f.rz, eAlong = ex * f.fx + ez * f.fz;
+                if (std::fabs(eAcross) > f.hx + 0.05f || std::fabs(eAlong) > f.hz + 0.05f) continue;
+                float deck = 0.0f, roofY = 0.0f, screen = 0.0f, halfW = 0.0f;
+                const bool cabin = CarBodiesCabin(reinterpret_cast<const void*>(f.object), &deck, &roofY, &screen, &halfW);
+                const float nose = f.hz - 0.10f;
+                // fx8w4: half way up the bonnet the tongues stood 0.30 from the eye and filled the windscreen's top;
+                // at the nose they rise into it from the bonnet's front.
+                const float along = (std::max)(nose, eAlong + 0.30f);
+                if (g_logFire && (g_carFrame % 30u) == 0)
+                    Log("fire: own bonnet: eye along %.2f across %.2f y %.2f, half %.2f x %.2f, cabin %d deck %.2f roof %.2f screen %.2f, "
+                        "flames at along %.2f y %.2f (ground %.2f)", eAlong, eAcross, e.y, f.hz, f.hx, cabin ? 1 : 0, deck, roofY, screen,
+                        along, f.cy + (cabin ? (std::max)(0.12f, (std::min)(0.22f, deck - 0.03f)) : 0.22f), f.cy);
+                ox = f.cx; oz = f.cz; oy = f.cy; dx = f.fx; dz = f.fz;
+                fwd = along;
+                // The cabin's deck is the sill line, at the eye (fx8w3: 0.25 over the road, the eye 0.30): flames spawned
+                // there started at the horizon. 0.22 over the road is the bonnet as the first-person view shows it.
+                up = cabin ? (std::max)(0.12f, (std::min)(0.22f, deck - 0.03f)) : 0.22f;
+                side = (std::min)(0.16f, 0.45f * f.hx);
+                size = 0.45f;
+                break;
+            }
+        }
+        const float rx = dz, rz = -dx;
         const float share = g_ownFire.stage >= 2 ? 0.9f : 0.6f;
         for (int k = -1; k <= 1; k += 2) {
-            SpawnFlames(g_ownFire.x + g_ownFire.dx * fwd + rx * side * k, g_ownFire.y + up,
-                        g_ownFire.z + g_ownFire.dz * fwd + rz * side * k, 0.55f, share);
+            SpawnFlames(ox + dx * fwd + rx * side * k, oy + up, oz + dz * fwd + rz * side * k, size, share);
         }
         if (g_fire.smoke && SkidRand() < 0.5f)
-            SpawnFireSmoke(g_ownFire.x + g_ownFire.dx * (fwd + 0.1f), g_ownFire.y + up + 0.1f, g_ownFire.z + g_ownFire.dz * (fwd + 0.1f), 0.5f);
+            SpawnFireSmoke(ox + dx * (fwd + 0.1f), oy + up + 0.1f, oz + dz * (fwd + 0.1f), 0.5f);
     }
     if (g_fire.flames && !fireSpots.empty()) {
         // The rate is per burning car, shared out over the spots the game shows flame at.
@@ -16200,8 +16340,8 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
         for (int c = 0; c < 3; ++c) g_puffShade[c] = (std::min)(1.0f, level * (0.75f + 0.25f * fc[c] / fm));
     }
     DrawScorch(device, blending, blending ? 1u : static_cast<DWORD>(gta2::GetAlphaRef()));
-    DrawFlames(device, blending, blending ? 1u : static_cast<DWORD>(gta2::GetAlphaRef()));
-    DrawFireSmoke(device, blending, blending ? 1u : static_cast<DWORD>(gta2::GetAlphaRef()));
+    if (!(g_fireAb & 2)) DrawFlames(device, blending, blending ? 1u : static_cast<DWORD>(gta2::GetAlphaRef()));
+    if (!(g_fireAb & 8)) DrawFireSmoke(device, blending, blending ? 1u : static_cast<DWORD>(gta2::GetAlphaRef()));
     if (fxUpright) {
         DrawGamePuffs(device);   // FIX-FX-2 (pm10)
         device->SetRenderState(D3DRS_ALPHABLENDENABLE, blending ? TRUE : FALSE);
