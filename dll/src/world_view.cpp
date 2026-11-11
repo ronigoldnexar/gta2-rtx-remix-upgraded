@@ -3918,7 +3918,29 @@ void WorldView::RenderFrame() {
                 clipCm = v;
             }
             const bool fp = worldUploaded_ && g_presentStreet && CurrentViewMode() == ViewMode::FirstPerson;
-            renderer_.SetSeeThroughNearClip(fp ? static_cast<float>(clipCm) * 0.01f : 0.0f);
+            // FIX-CAMERA-20 (qaexp52: driving under the ste Army Base rail truss the chase lens stood inside its steel lattice
+            // for ~1.3 s, the truck a red smear behind the girders): in third person the same clip stands between the lens and
+            // him, so every sparse lattice face (sides and decks) nearer the lens than him less a margin (0.45 on foot, 1.2 at
+            // the wheel: the car's body) is not drawn; the lattice behind him and beside the picture's far part stays.
+            // [camera] chase_lattice_clip=0 or GTA2DX9_CAM_LATTICE_CLIP=0: off (A/B). Plain renderer only (Remix: no clip planes).
+            float chaseClip = 0.0f;
+            const PlayerState& lp = g_viewPlayer;
+            if (worldUploaded_ && g_presentStreet && CurrentViewMode() == ViewMode::ThirdPerson && transitionT_ >= 1.0f && lp.valid && clipCm > 0 &&
+                CameraLatticeClipOn()) {
+                const gta2::Mat4 view = camera_.ViewMatrix();
+                const gta2::Vec3 e = camera_.Position();
+                const gta2::Vec3 h{lp.x, lp.z + 0.4f, static_cast<float>(gta2::kMapHeight) - lp.y};
+                const float depth = (h.x - e.x) * view.m[0][2] + (h.y - e.y) * view.m[1][2] + (h.z - e.z) * view.m[2][2];
+                const float ahead = depth - (lp.inVehicle ? 1.2f : 0.45f);
+                // at most a block from the lens: a lattice there fills the frame; further out it is part of the picture (a balcony's
+                // railing in the foreground of the vreg cityinfo_chase pose went with a deeper clip)
+                if (ahead > 0.3f) chaseClip = (std::min)(ahead, 1.0f);
+                static int every = 0, logOn = -1;
+                if (logOn < 0) { char b[8] = {}; logOn = GetEnvironmentVariableA("GTA2DX9_LOG_CAMERA", b, sizeof b) && atoi(b) ? 1 : 0; }
+                if (chaseClip > 0.0f && logOn && (++every % 30) == 1)
+                    Log("view: chase lattice clip %.2f ahead of the lens (him at %.2f)", chaseClip, depth);
+            }
+            renderer_.SetSeeThroughNearClip(fp ? static_cast<float>(clipCm) * 0.01f : chaseClip, chaseClip > 0.0f);
         }
         {
             // FIX-WORLD-17: [devtools] window_glow=0/1 overrides [renderer] window_glow live (re-read once a

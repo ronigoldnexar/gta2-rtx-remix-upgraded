@@ -1745,6 +1745,13 @@ float CameraTurnBudgetDeg() {
     return v > 0.0f ? (std::max)(1.0f, v) : 0.0f;
 }
 
+// FIX-CAMERA-20 (qaexp52): [camera] chase_lattice_clip, GTA2DX9_CAM_LATTICE_CLIP (0 = off).
+bool CameraLatticeClipOn() {
+    static int env = -2;
+    if (env < -1) { char b[8] = {}; env = GetEnvironmentVariableA("GTA2DX9_CAM_LATTICE_CLIP", b, sizeof b) ? atoi(b) : -1; }
+    return env >= 0 ? env != 0 : ViewModes().chaseLatticeClip;
+}
+
 bool CameraPocketGlideOn() {
     static int env = -2;
     if (env < -1) { char b[8] = {}; env = GetEnvironmentVariableA("GTA2DX9_CAM_POCKET_GLIDE", b, sizeof b) ? atoi(b) : -1; }

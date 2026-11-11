@@ -106,6 +106,8 @@ struct ViewModeSettings {
     // mesh), it glides round instead along a path the walls leave open (railings see-through, shortened or lifted as
     // the path needs). [camera] pocket_glide.
     bool pocketGlide = true;
+    // FIX-CAMERA-20 (qaexp52): third person clips the sparse lattices between the lens and him. [camera] chase_lattice_clip.
+    bool chaseLatticeClip = true;
     float fpCarRate = 240.0f;       // first person at the wheel: fixed to the car, this is only a safety cap
     float fpFollowRate = 150.0f;    // first person on foot when the view follows the heading
     // First person: the view heading eases onto the game's over this long
@@ -287,7 +289,8 @@ ViewModeSettings& ViewModes();
 // GTA2DX9_CAM_TURN_BUDGET when set; 0 = off: the swing cut, the fast swing and the 300 deg/s cap as before).
 float CameraTurnBudgetDeg();
 bool CameraPocketLiftOn();
-bool CameraPocketGlideOn();   // FIX-CAMERA-20: [camera] pocket_glide, GTA2DX9_CAM_POCKET_GLIDE
+bool CameraPocketGlideOn();
+bool CameraLatticeClipOn();   // FIX-CAMERA-20: [camera] chase_lattice_clip, GTA2DX9_CAM_LATTICE_CLIP   // FIX-CAMERA-20: [camera] pocket_glide, GTA2DX9_CAM_POCKET_GLIDE
 bool CameraPedFadeOn();
 bool CameraTunnelPivotOn();
 bool CameraTrainTrailOn();   // FIX-CAMERA-19: [camera] train_trail, GTA2DX9_CAM_TRAIN_TRAIL  // FIX-CAMERA-18/19: [camera] tunnel_pivot, GTA2DX9_CAM_TUNNEL_PIVOT

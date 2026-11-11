@@ -1765,7 +1765,7 @@ void Renderer::DrawWorld(const Camera& camera) {
     for (const TileBatch& batch : batches_) {
         if (latticeClip) {
             const bool want = batch.needsAlphaTest && batch.tile >= 0 && batch.tile < static_cast<int>(sparseLattice_.size()) &&
-                              sparseLattice_[static_cast<size_t>(batch.tile)] && !batch.lidFaces;
+                              sparseLattice_[static_cast<size_t>(batch.tile)] && (!batch.lidFaces || seeThroughClipLids_);
             if (want != latticeClipOn) {
                 device_->SetRenderState(D3DRS_CLIPPLANEENABLE, want ? D3DCLIPPLANE0 : 0);
                 latticeClipOn = want;

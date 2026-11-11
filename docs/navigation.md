@@ -1740,3 +1740,27 @@ first frame can show the cab a half-step off at 4+ b/s; open tops, the train and
   lens (2-3 frames of bars) and can end on a far, small figure against the dark railing; the see-through pocket shows him
   through bars; the boom filter's own one-frame pull-in at a wall (0.6-0.9) still happens outside glides (pk7: 2, pk9: 0);
   Remix untested (the glide is camera-only, so it should not differ); night untested; districts other than wil untested.
+
+### The chase lens clips the lattice at its lens (FIX-CAMERA-20, qaexp70 and qaexp52)
+
+- **qaexp70** (bil NE dock crate/gantry maze, on foot at 164.5,21.5: the third-person lens behind an opaque near-black
+  slab, the hero out of the picture). Probe `gamerun/cam20_dock.py` (`keys_cam20_dock.sh`, `SWAP_LEVEL=bil`,
+  `GTA2DX9_SCENE_NO_CAR=1`: warp, third view, turns and walking loops beside the crates, 45 s burst b_dock.mp4). Before (this
+  build with `GTA2DX9_CAM_POCKET_GLIDE=0 GTA2DX9_CAM_LATTICE_CLIP=0`, run cam20_d0): 4 swing cuts, and in 16 of 45 one-a-second
+  frames he is not visible (the lens past the dock's lattice fence, he behind it: 25-28, 31-33, 38-39, 42-44 s; behind a crate's
+  edge 0-3 s). The fence is a sparse lattice tile (FIX-WORLD-16's list of keyed tiles under 30 % opaque).
+- **The clip** (`[camera] chase_lattice_clip`, default 1; `GTA2DX9_CAM_LATTICE_CLIP=0` off): FIX-WORLD-16's first-person near
+  clip of the sparse lattices (a user clip plane on those batches) now also runs in third person, decks and lids included,
+  at his depth along the view less 0.45 on foot or 1.2 at the wheel, at most 1 block from the lens: a lattice right at the
+  lens is not drawn. Plain renderer only (Remix has no clip planes). Log `view: chase lattice clip D ahead of the lens`.
+  Uncapped (cam20_d1) he was visible in 41 of 45 frames, but a balcony's ironwork in the foreground of the vreg
+  cityinfo_chase pose went too; capped at 1 block (cam20_d2, shipped): 0 cuts (12 glides), not visible in 8 of 45 frames
+  (0-3 s the crate edge as before, 20 s the lens inside the orange lattice crate, 24-25 s the fence more than a block off).
+  vreg: spawn_classic 0 tiles; cityinfo_chase changes (78 tiles: that pose's lens stands within a block of the balcony's
+  railing, which is not drawn now; intended by this key, for review); every other shot as before.
+- **qaexp52** (ste Army Base rail truss at ~232,117, the chase lens inside the steel lattice for ~1.3 s): not reproduced on
+  this build. The filer's recipe (qaexp52_ramp.py, VIEWS=third, 30 fps game.mp4) with the clip off (qa_cam20_t0) and on
+  (qa_cam20_t1): the fire truck drives under the truss with the lens below it and the truck whole in every frame of the
+  passage. The clip covers that case if it comes back (the truss is a sparse lattice); not demonstrated on the filed spot.
+- Short of a shipping frame: the clip is a cut through the lattice by a plane, not a fade; a lattice more than a block from
+  the lens still hides him (the dock fence at 24-25 s); Remix, night untested.
