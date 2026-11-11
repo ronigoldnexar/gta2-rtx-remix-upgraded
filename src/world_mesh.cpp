@@ -3287,6 +3287,62 @@ bool AddFireFlight(MeshBuilder* builder, const Map& map, const Style& style, int
 }  // namespace
 
 int LastUprightBoards() { return g_boards; }
+// FIX-WORLD-19 (wil gable noise): a roof grate (Downtown 87, a louvred skylight: 26 % of its texels keyed in
+// one-texel diagonal slats) is the see-through lid of the 43/44 slope pairs of a pitched roof. Not a sign
+// (BoardProfile finds no solid band), so the street views keep the tilted lid, and from the kerb the slats
+// let the sky through: at a distance the one-texel slats alias into a field of sky-blue specks on the roof.
+// The street views lay a black plate a little under each such lid and one a little over it (the attic behind
+// the louvres, one-sided each way), so the slats read as a vent over a dark interior from either side. Fire-escape flights are built before this and
+// skip it. The classic view draws the lid as before. GTA2DX9_GRATE_BACKING=0: no backing.
+int g_grateBackings = 0;
+bool GrateBackingEnabled() {
+    static int s_on = -1;
+    if (s_on < 0) { const char* e = getenv("GTA2DX9_GRATE_BACKING"); s_on = (e && e[0] == '0') ? 0 : 1; }
+    return s_on == 1;
+}
+// A grate rather than a cut-out shape: holes spread over the tile (8-60 % keyed) with no row empty, all small.
+bool GrateTile(const Style& style, int tile) {
+    if (tile <= 0 || tile >= style.TileCount()) return false;
+    const Tile& art = style.GetTile(tile);
+    if (art.pixels.size() != static_cast<size_t>(kTilePixels) || !art.hasTransparency) return false;
+    int open = 0, emptyRows = 0, emptyCols = 0;
+    for (int r = 0; r < kTileSize; ++r) {
+        int rowOpaque = 0, colOpaque = 0;
+        for (int c = 0; c < kTileSize; ++c) {
+            const bool o = (art.pixels[static_cast<size_t>(r) * kTileSize + c] >> 24) != 0;
+            open += !o; rowOpaque += o;
+            colOpaque += (art.pixels[static_cast<size_t>(c) * kTileSize + r] >> 24) != 0;
+        }
+        emptyRows += rowOpaque < kTileSize / 8;
+        emptyCols += colOpaque < kTileSize / 8;
+    }
+    if (!(open * 100 >= kTilePixels * 8 && open * 100 <= kTilePixels * 60 && emptyRows == 0 && emptyCols == 0)) return false;
+    // Slats or mesh, not a frame: every keyed hole small (8-connected, at most 32 texels). Planks with gaps,
+    // girders, lattices, fences and railings on ramps (bil 556, ste 470/492/564, wil 200/213/321) have holes of
+    // 46+ texels and stay see-through; Downtown 87 (louvre), 95 (vent slats) and 193 (fine grate) qualify.
+    std::vector<uint8_t> seen(static_cast<size_t>(kTilePixels), 0);
+    std::vector<int> stack;
+    for (int i = 0; i < kTilePixels; ++i) {
+        if (seen[static_cast<size_t>(i)] || (art.pixels[static_cast<size_t>(i)] >> 24)) continue;
+        int size = 0;
+        stack.assign(1, i); seen[static_cast<size_t>(i)] = 1;
+        while (!stack.empty()) {
+            const int p = stack.back(); stack.pop_back(); ++size;
+            const int px = p % kTileSize, py = p / kTileSize;
+            for (int dy = -1; dy <= 1; ++dy)
+                for (int dx = -1; dx <= 1; ++dx) {
+                    const int qx = px + dx, qy = py + dy;
+                    if (qx < 0 || qy < 0 || qx >= kTileSize || qy >= kTileSize) continue;
+                    const int q = qy * kTileSize + qx;
+                    if (seen[static_cast<size_t>(q)] || (art.pixels[static_cast<size_t>(q)] >> 24)) continue;
+                    seen[static_cast<size_t>(q)] = 1; stack.push_back(q);
+                }
+        }
+        if (size > 32) return false;
+    }
+    return true;
+}
+int LastGrateBackings() { return g_grateBackings; }
 int LastFireEscapeFlights() { return g_fireFlights; }
 int LastFireEscapeLandings() { return g_fireLandings; }
 int LastFireEscapeLadders() { return g_fireLadders; }
@@ -3499,6 +3555,8 @@ void BuildWorldMesh(const Map& map, const Style& style, const SlopeInfo* slopes,
     int lampArmFaces = 0;
     g_lampArms = 0;
     g_fireFlights = g_fireLandings = g_fireLadders = 0;
+    g_grateBackings = 0;
+    const bool grateBacking = g_streetFill && GrateBackingEnabled();
     std::set<std::tuple<int, int, int>> fireLandings;
     const bool fireEscapes = g_streetFill && FireEscapesEnabled();
     int fireFaces = 0;
@@ -3578,7 +3636,38 @@ void BuildWorldMesh(const Map& map, const Style& style, const SlopeInfo* slopes,
                         builder.SetStreetMode(0);
                         ++boards;
                     } else {
+                        std::array<Vertex, 4> lid;
+                        const bool haveLid = builder.LastHiddenLid(&lid);
                         builder.UnhideLastLid();
+                        if (grateBacking && haveLid && GrateTile(style, block.lid.Tile())) {
+                            // Plates a texel off the lid along its own normal, inset toward its centre, so none shows
+                            // past the lid's outline (a plain y offset stood above the ridge as a black sliver).
+                            constexpr float kOff = 0.02f, kInset = 0.03f;
+                            const Vec3 e1{lid[1].x - lid[0].x, lid[1].y - lid[0].y, lid[1].z - lid[0].z};
+                            const Vec3 e2{lid[3].x - lid[0].x, lid[3].y - lid[0].y, lid[3].z - lid[0].z};
+                            Vec3 n{e1.y * e2.z - e1.z * e2.y, e1.z * e2.x - e1.x * e2.z, e1.x * e2.y - e1.y * e2.x};
+                            const float nl = std::sqrt(n.x * n.x + n.y * n.y + n.z * n.z);
+                            if (nl > 1e-6f) { n.x /= nl; n.y /= nl; n.z /= nl; }
+                            if (n.y < 0.0f) { n.x = -n.x; n.y = -n.y; n.z = -n.z; }
+                            const float cx = 0.25f * (lid[0].x + lid[1].x + lid[2].x + lid[3].x);
+                            const float cy = 0.25f * (lid[0].y + lid[1].y + lid[2].y + lid[3].y);
+                            const float cz = 0.25f * (lid[0].z + lid[1].z + lid[2].z + lid[3].z);
+                            // One plate under the lid facing up (seen through the slats from above the slope) and one
+                            // over it facing down (seen from under a lone slope, whose underside the street faces):
+                            // each is one-sided, so neither ever covers the grate from the side it is seen from.
+                            builder.SetStreetMode(1);
+                            for (const float d : {-kOff, kOff}) {
+                                std::array<Vec3, 4> p;
+                                for (int k = 0; k < 4; ++k) {
+                                    const Vertex& v = lid[static_cast<size_t>(k)];
+                                    p[static_cast<size_t>(k)] = {v.x + (cx - v.x) * kInset + n.x * d, v.y + (cy - v.y) * kInset + n.y * d,
+                                                                 v.z + (cz - v.z) * kInset + n.z * d};
+                                }
+                                builder.AddSealQuad(p, d < 0.0f ? n : Vec3{-n.x, -n.y, -n.z});
+                            }
+                            builder.SetStreetMode(0);
+                            ++g_grateBackings;
+                        }
                     }
                 }
                 builder.SetStreetHidden(false);

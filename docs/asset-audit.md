@@ -664,3 +664,22 @@ them). Street set only: classic draws the HD set and a Remix device never loads 
 Not done: a Remix take at this pose (Remix keeps MATERIALS-9's own floor for 160-178/556; the green stone family
 under Remix draws the HD tile), dusk (the twilight fill of WORLD-13 is unchanged), other districts (wil and bil walls
 were measured right and are untouched).
+
+**The sky-coloured specks in a wil roof gable (qaexp63, 165.5,149.5).** Named by `tools/world_raycast` rays from the
+filer's eye (mesh 165.5, 2.6, 106.5, heading ~50, pitch 12-15): wil tile 87, the see-through lid of the slope-43/44
+pairs along the teal pitched roof at 177-178, y 128-138, level 6 (lone 43s at 178,137-138, whose underside faces the
+street). 87 is the game's own louvred skylight grate: 26 % of the 64 px texels keyed in one-texel diagonal slats, and
+the HD (512) and photo copies key the same 26 %, so this is not the grate-193 case (an upscaler alpha). It is not a
+sign either (BoardProfile finds no solid band), so the street views keep the tilted lid, and from the kerb the sky
+shows through the slats; at a distance they alias into a field of sky-blue specks. The street views now lay two black
+plates per such lid (`GrateTile`: 8-60 % keyed, no empty row or column, every hole at most 32 texels: wil 87, 95, 193; planks, girders, lattices and fences on ramps have bigger holes and stay see-through; ste and bil have none), a texel off the lid along its normal and
+inset toward its centre: one under it facing up, one over it facing down, each one-sided, so from either side the
+slats read as a vent over a dark attic and neither plate covers the grate nor shows past its outline (a first try
+with a plain y offset stood above the ridge as a black sliver). 72 lids in wil; fire-escape flights are built before
+this and skip it. Classic draws the lid as before. `GTA2DX9_GRATE_BACKING=0` = no plates (A/B). Log line
+`roof grates (street views, FIX-WORLD-19): N see-through slope lid(s) backed by a dark attic`.
+
+**ste graffiti 355 (the "blue whirl", art half).** No new art needed: the photo set's 1024 px copy of 355 is a crisp
+upscale whose keyed outline matches the 64 px original; at the pm27 jammed-car chase eye (116.04,124.43 h 2.85) it
+reads as a teal wildstyle piece on the wall, about half the frame. What makes it fill half the frame is the chase
+eye a block from the wall (camera, not art).

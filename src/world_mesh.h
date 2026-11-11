@@ -177,6 +177,7 @@ OverheadDecalStats LastOverheadDecalStats();
 // Sloped see-through lids the street views stand up as boards (UprightBoard in world_mesh.cpp).
 int LastUprightBoards();
 // FIX-WORLD-18 (qav5): fire-escape flights, landings and ladders the street views build (GTA2DX9_FIRE_ESCAPES=0: none).
+int LastGrateBackings();
 int LastFireEscapeFlights();
 int LastFireEscapeLandings();
 int LastFireEscapeLadders();
