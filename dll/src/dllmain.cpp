@@ -144,6 +144,23 @@ const char* OwnModuleLeaf() {
     return leaf;
 }
 
+// FIX-INI-2: an integer ini key with a legal range. Out of range (a typo, "wide" or an empty value reads as 0,
+// a negative that wraps unsigned) falls back to the shipped default with ONE log line naming key, value read and
+// value used, so no ini value can blank the classic view or break the clock.
+int IniIntRange(const char* section, const char* key, int def, int lo, int hi, const char* ini) {
+    const int v = GetPrivateProfileIntA(section, key, def, ini);
+    if (v >= lo && v <= hi) return v;
+    Log("ini: [%s] %s=%d is outside %d..%d, using %d", section, key, v, lo, hi, def);
+    return def;
+}
+// hhmm clock values: 0..2359 with minutes under 60.
+int IniHhmm(const char* section, const char* key, int def, const char* ini) {
+    const int v = GetPrivateProfileIntA(section, key, def, ini);
+    if (v >= 0 && v <= 2359 && v % 100 < 60) return v;
+    Log("ini: [%s] %s=%d is not a clock time (0..2359, minutes under 60), using %d", section, key, v, def);
+    return def;
+}
+
 void LoadConfig() {
     char ini[MAX_PATH];
     PathBesideGame("gta2dx9.ini", ini, sizeof(ini));
@@ -160,15 +177,26 @@ void LoadConfig() {
             wearingD3dName ? "d3ddll_orig.dll" : "3dfx.dll");
         strcpy(g_backendName, wearingD3dName ? "d3ddll_orig.dll" : "3dfx.dll");
     }
+    // FIX-INI-2: mode. No ini file at all: proxy, the documented old behaviour (the renderer sits behind the
+    // original). An ini that exists but has no usable mode= (zero bytes, a [camera] line only, mode=banana) is
+    // someone using this renderer, so it lands in takeover; proxy only when asked for by name.
     char mode[32] = {};
-    GetPrivateProfileStringA("renderer", "mode", "proxy", mode, sizeof(mode), ini);
-    g_mode = _stricmp(mode, "takeover") == 0 ? Mode::Takeover : Mode::Proxy;
+    const bool iniExists = GetFileAttributesA(ini) != INVALID_FILE_ATTRIBUTES;
+    GetPrivateProfileStringA("renderer", "mode", "", mode, sizeof(mode), ini);
+    if (_stricmp(mode, "takeover") == 0) g_mode = Mode::Takeover;
+    else if (_stricmp(mode, "proxy") == 0) g_mode = Mode::Proxy;
+    else if (!iniExists) g_mode = Mode::Proxy;
+    else {
+        g_mode = Mode::Takeover;
+        Log("ini: [renderer] mode='%s' %s, using takeover", mode, mode[0] ? "not understood" : "absent");
+    }
 
-    // Tenths of a degree, because the ini API only reads integers.
-    const int pitch = GetPrivateProfileIntA("camera", "pitch_tenths", -900, ini);
-    const int fov = GetPrivateProfileIntA("camera", "fov_tenths", 150, ini);
+    // Tenths of a degree, because the ini API only reads integers. Out of range falls back to the shipped value
+    // (fov 0 projected the whole classic world to black).
+    const int pitch = IniIntRange("camera", "pitch_tenths", -900, -900, -100, ini);
+    const int fov = IniIntRange("camera", "fov_tenths", 400, 100, 1200, ini);
     const bool gameTiles = GetPrivateProfileIntA("renderer", "use_game_tiles", 1, ini) != 0;
-    const int ownWindow = GetPrivateProfileIntA("renderer", "own_window", 1, ini);
+    const int ownWindow = IniIntRange("renderer", "own_window", 2, 0, 2, ini);
     g_keepGameWindowRestored = GetPrivateProfileIntA("renderer", "keep_game_window_restored", 1, ini) != 0;
     g_world.Configure(pitch / 10.0f, fov / 10.0f, gameTiles,
                       static_cast<gta2dx9::PresentWindow>(ownWindow));
@@ -202,13 +230,13 @@ void LoadConfig() {
         // For a recording: switch by itself this many seconds into a level.
         vm.demoSwitchSeconds =
             static_cast<float>(GetPrivateProfileIntA("camera", "demo_switch_seconds", 0, ini));
-        vm.demoSwitchTo = GetPrivateProfileIntA("camera", "demo_switch_to", 2, ini);
+        vm.demoSwitchTo = IniIntRange("camera", "demo_switch_to", 2, 0, 2, ini);
         // The feel of the street views; the F4 menu's saved settings override these.
         vm.mouseLook = GetPrivateProfileIntA("camera", "mouse_look", 1, ini) != 0;
-        vm.turnSpeed = static_cast<float>(GetPrivateProfileIntA("camera", "turn_speed", 100, ini));
-        vm.turnRateFoot = static_cast<float>(GetPrivateProfileIntA("camera", "turn_rate_foot", 120, ini));
-        vm.turnRateCar = static_cast<float>(GetPrivateProfileIntA("camera", "turn_rate_car", 90, ini));
-        vm.turnBudget = static_cast<float>(GetPrivateProfileIntA("camera", "turn_budget", 8, ini));   // FIX-CAMERA-17
+        vm.turnSpeed = static_cast<float>(IniIntRange("camera", "turn_speed", 100, 0, 2000, ini));
+        vm.turnRateFoot = static_cast<float>(IniIntRange("camera", "turn_rate_foot", 120, 0, 2000, ini));
+        vm.turnRateCar = static_cast<float>(IniIntRange("camera", "turn_rate_car", 90, 0, 2000, ini));
+        vm.turnBudget = static_cast<float>(IniIntRange("camera", "turn_budget", 8, 0, 2000, ini));   // FIX-CAMERA-17
         vm.chaseHideNearPeds = GetPrivateProfileIntA("camera", "chase_hide_near_peds", 1, ini) != 0;   // FIX-CAMERA-17
         vm.pocketLift = GetPrivateProfileIntA("camera", "pocket_lift", 1, ini) != 0;   // FIX-CAMERA-18
         vm.chasePedFade = GetPrivateProfileIntA("camera", "chase_ped_fade", 1, ini) != 0;   // FIX-CAMERA-18
@@ -228,7 +256,7 @@ void LoadConfig() {
             vm.switchDissolve = static_cast<float>(d < 0 ? 0 : (d > 100 ? 100 : d)) / 100.0f;
         }
         vm.navTurnSign = GetPrivateProfileIntA("camera", "nav_turn_sign", 1, ini) < 0 ? -1 : 1;
-        vm.fpTurnKeyRate = static_cast<float>(GetPrivateProfileIntA("camera", "first_turn_key_rate", 70, ini));
+        vm.fpTurnKeyRate = static_cast<float>(IniIntRange("camera", "first_turn_key_rate", 70, 0, 2000, ini));
         vm.tpOrbitFollow = GetPrivateProfileIntA("camera", "orbit_follow", 0, ini) != 0;
         vm.carImpactShake = static_cast<float>(GetPrivateProfileIntA("camera", "car_impact_shake", 100, ini)) / 100.0f;
         vm.fpBodyRide = static_cast<float>(GetPrivateProfileIntA("camera", "first_body_ride", 100, ini)) / 100.0f;
@@ -284,8 +312,8 @@ void LoadConfig() {
     // is. Its own resolution only lays the HUD out, and the overlay pass scales
     // that to whatever it is drawn into - so 640x480 in the game's options does
     // not have to mean 640x480 of path traced image. 0 means the desktop.
-    g_world.SetRenderSize(GetPrivateProfileIntA("renderer", "render_width", 0, ini),
-                          GetPrivateProfileIntA("renderer", "render_height", 0, ini));
+    g_world.SetRenderSize(IniIntRange("renderer", "render_width", 0, 0, 16384, ini),
+                          IniIntRange("renderer", "render_height", 0, 0, 16384, ini));
 
     // Thousandths of a block, for the same reason the camera angles are tenths
     // of a degree: the ini API only reads integers.
@@ -519,13 +547,13 @@ void LoadConfig() {
     // simulation one step per frame, so this sets the speed as well as the
     // smoothness - see frame_limiter.h.
     gta2dx9::FrameLimitSet(
-        static_cast<float>(GetPrivateProfileIntA("renderer", "fps_cap", 30, ini)));
+        static_cast<float>(IniIntRange("renderer", "fps_cap", 30, 0, 1000, ini)));
 
     // The day/night cycle. Hours and minutes rather than a float, because the ini
     // API only reads integers; 0200 is 2 am.
     gta2dx9::TimeOfDaySettings& tod = gta2dx9::TimeOfDay();
     tod.enabled = GetPrivateProfileIntA("timeofday", "enabled", 1, ini) != 0;
-    const int start = GetPrivateProfileIntA("timeofday", "start_hhmm", 200, ini);
+    const int start = IniHhmm("timeofday", "start_hhmm", 200, ini);
     tod.startHour = static_cast<float>(start / 100) + static_cast<float>(start % 100) / 60.0f;
     // The clock stopped: every level then starts and stays at start_hhmm, for
     // anyone who would rather play at one time of day.
@@ -533,13 +561,13 @@ void LoadConfig() {
     // Tenths, like the camera angles: the ini API only reads integers, and 10 is
     // the default one real second to one game minute.
     tod.minutesPerSecond =
-        GetPrivateProfileIntA("timeofday", "game_minutes_per_second_tenths", 10, ini) / 10.0f;
+        IniIntRange("timeofday", "game_minutes_per_second_tenths", 10, 0, 10000, ini) / 10.0f;
     tod.latitudeDeg =
-        GetPrivateProfileIntA("timeofday", "latitude_tenths", 400, ini) / 10.0f;
+        IniIntRange("timeofday", "latitude_tenths", 400, -900, 900, ini) / 10.0f;
     tod.declinationDeg =
-        GetPrivateProfileIntA("timeofday", "declination_tenths", 0, ini) / 10.0f;
-    const int lightsOff = GetPrivateProfileIntA("timeofday", "lights_off_hhmm", 600, ini);
-    const int lightsOn = GetPrivateProfileIntA("timeofday", "lights_on_hhmm", 1800, ini);
+        IniIntRange("timeofday", "declination_tenths", 0, -300, 300, ini) / 10.0f;
+    const int lightsOff = IniHhmm("timeofday", "lights_off_hhmm", 600, ini);
+    const int lightsOn = IniHhmm("timeofday", "lights_on_hhmm", 1800, ini);
     tod.lightsOffHour =
         static_cast<float>(lightsOff / 100) + static_cast<float>(lightsOff % 100) / 60.0f;
     tod.lightsOnHour =

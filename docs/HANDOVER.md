@@ -366,3 +366,15 @@ in `gta2dx9.log`), the level renders in all three views (`out/play_interface_she
 the cut clips and archives (`textures_hd_dds.zip`), `~/gta2-linux/assets-src/` the
 generator inputs/outputs, `~/gta2-linux/gen3d/` the TRELLIS environment. They are
 not in git; copy what you need.
+
+## FIX-INI-2: ini robustness (qaexp80)
+
+- Mode: no `gta2dx9.ini` at all = proxy (the header's documented old behaviour). An ini that exists but has no
+  usable `[renderer] mode=` (zero bytes, `[camera]` only, `mode=banana`) = takeover plus one log line. Proxy only by
+  name. The filer's "no ini file runs takeover" was an artefact: `run_game.sh` copies upstream's ini from
+  `/release` into the game dir, so a stage without an ini still ran with upstream's `mode=takeover`.
+- The black window / wined3d fault of the zero-byte ini was the code defaults differing from the shipped ini
+  (`own_window` 1 vs 2, `fov` 15 vs 40 deg) on top of proxy; `own_window` now defaults to 2, fov to 400.
+- `IniIntRange` / `IniHhmm` in dllmain.cpp: an out-of-range value (also `wide` or empty, which read as 0) falls
+  back to the shipped default with one line `ini: [camera] fov_tenths=0 is outside 100..1200, using 400`.
+  Ranges are listed in the header of `package/gta2dx9.ini`. A valid ini behaves as before.
