@@ -1409,3 +1409,16 @@ on the far wall of the opening's cabin box (FIX-SEAT-ENTRY-3), which now shows t
   1 and 0 in one run), `gamerun/va26_door3.py` (`keys_qa_va26door3.sh`: the lens fixed beside the driver's door by
   `GTA2DX9_REGRESS_CAM`, Return, a burst while the door swings toward it). `force_car_door` cannot open a seated
   player's door (the boarding hold shuts it), and a scripted exit loses the scene car, so neither films a held door.
+- Verified (frames opened, private HEAD stage, wil noon, forced models, `door_trim` 1 vs 0 in one run): first-person
+  exits out/qa_va26_fpx7 (063: a grey card with the crank and a thick edge against the white mirrored skin; 068: grey
+  against the flat white board; 023: a grey card against the big stretched orange slab; 036 / 069 / 001 filmed), third
+  person beside the door out/qa_va26_door3 (068: the inside reads as a door card with crank, pleats, kick plate and the
+  van's paint as its frame) and out/qa_va26_door4 (the pushed, rebased build). 0 FAULT. Classic vreg
+  out/vreg_stage_VA26_1111_041553: spawn_classic PASS, 0 tiles; the 3D FAILs are HUD tiles against older goldens.
+- Not verified: the outside face from in front of the open door (unchanged by construction: the outer triangles are
+  not touched; not filmed), Remix (a generated texture, no PBR prim), night, other remaps, bodies beyond the six.
+- Still short of a shipping-AAA frame: the first-person eye passes 10-20 cm from the door, so it fills a third of the
+  view for ~0.3 s (the camera seat's path, tri60); 068's door top is a sawtooth with trim on and off (the split's cut
+  through the shell's window region); 023 is an image-to-3D shell whose outer skin (stretched awning stripes) still
+  crosses the view (needs its kit body); by noon sun the card is bright with faint detail; 069's door span sits
+  behind its cab (VEHICLE-ART-20's arch clamp moves the front edge from 0.347 to 0.105): unchanged.
