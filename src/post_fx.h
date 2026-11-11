@@ -41,6 +41,8 @@ struct VisualsSettings {
     float shadowStrength = 1.35f;   // 1 = the sun's share of the fixed-function light
     float aoStrength = 0.75f;
     bool aoDenoise = true;    // FIX-CAR-SHADING-2: [devtools] ao_denoise (4x4 stratified rotations + 4x4 blur; 0 = the old hash + 3x3 pass)
+    int lightRank = 1;        // FIX-WORLD-22: [devtools] light_rank (1: map lights and moving lights budgeted apart, by contribution, eased; 0: the nearest 16/32/64)
+    int lightBudget = 0;      // FIX-WORLD-22: [devtools] light_budget (map lights kept a frame; 0: by quality)
     float bloomStrength = 0.55f;
     float bloomThreshold = 0.80f;
     float exposure = 1.0f;
@@ -65,6 +67,7 @@ struct VisualLight {
     float dir[3];        // spot direction, unit
     float coneDeg;       // spot half angle
     float day;           // share kept in full daylight (0: a night light; a fire keeps some)
+    bool fixed;          // FIX-WORLD-22: a map light that never moves (street lamp, lantern, sign, lit window): its own budget
 };
 // The DLL side (dll/src/visuals.cpp) supplies the lights and re-reads the ini; the
 // renderer calls these once per street-view frame. Either may be null.
@@ -265,6 +268,10 @@ private:
     Cascade cascades_[3];
     int cascadeCount_ = 0;
     std::vector<VisualLight> lights_;
+    // FIX-WORLD-22: last frame's lights in view (position, weight, kept), to ease a light in and out of the budget.
+    struct LightTrack { float pos[3]; float w; bool fixed; bool kept; };
+    std::vector<LightTrack> lightTrack_, lightTrackNext_;
+    int lightChurn_ = 0, lightChurnFrames_ = 0;
 
     // Timing.
     IDirect3DQuery9* tsQuery_[4][4] = {};

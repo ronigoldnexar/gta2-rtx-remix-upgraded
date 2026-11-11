@@ -196,6 +196,58 @@ pales a strong light toward grey). A (255,190,110) light therefore landed paler 
 - 19:30 is already full night on the game's clock at this spot (stars, lamps at full strength); a true dusk
   (sun just set, sky still lit) was not framed.
 
+## The night light budget: map lamps apart from traffic (fw21 light cap, FIX-WORLD-22, 11 Nov 2026)
+
+The plain pass drew the 16/32/64 lights nearest the eye (quality low/medium/high). At night in wil traffic,
+100 to 200 lights are in view: each car brings two head-lamp beams and two tail lamps, and each map lamp brings
+its lantern and its pool. Round a third-person eye most of the nearest 32 were car lamps. At the fixed eye
+`58.3 50.5 3.0 -> 58.3 71.0` (game coords, wil 23:00 clear, `GTA2DX9_REGRESS_CAM`), the nearest-32 cut kept
+only 10 to 30 map lights, and it dropped the junction lamp heads and pools 15-16 blocks down the street. Which
+lights it dropped changed with every passing car: map lights switched between drawn and not drawn **53 times
+in a 20 s traffic pass** (54 at the reverse eye).
+
+`src/post_fx.cpp` now does three things (`[devtools] light_rank=1`, the default):
+
+1. The map's own lights (`VisualLight::fixed`: game lights that never move, and lit windows) and the
+   moving ones (car lamps, sirens, fire, muzzle flashes) each get a budget of their own: low 12 + 4,
+   medium 40 + 16, high 64 + 24. Traffic can no longer take a lamp's light.
+2. Inside each budget, a light ranks by what it adds to the frame: strength x min(1, reach^2 / distance^2).
+   A beam is measured at the middle of its throw, and ranks at 5 % when that point lies behind the eye. A
+   far beam ranks under a lantern's pool, and a car's beams behind the lens give way to the beams on the
+   road ahead.
+3. A light kept last frame ranks x1.5 (hysteresis). A light crossing the budget eases in or out over 10
+   frames, smoothstepped. Every light in view is tracked: map lights by their spot, moving ones by the
+   nearest spot within 0.6 blocks. A light that has just come into view is drawn at once, as before.
+
+`light_rank=0` is the old nearest cut (live A/B, re-read every ~2 s). `light_budget=N` overrides the map
+share. `GTA2DX9_LOG_LAMPS=1` now logs, every 60 frames: map/moving kept of budget, how many lights are
+easing, how many times map lights switched since the last line, and the six nearest map lights in view that
+were not drawn (distance, place, screen pixel). Light positions in that log are renderer coordinates
+(x, up, 256 - game y); the regress camera takes game coordinates.
+
+Measured (out/qa_fw22c3, out/qa_fw22d1; L4, medium, `visuals: quality` 256-frame lines):
+
+| eye | mode | map kept | map switches / 20 s | GPU post p50 |
+|---|---|---|---|---|
+| c1 (down the street) | nearest 32 | 17-30 of 32 | 53 | 1.74-2.45 ms (mean 2.03) |
+| c1 | ranked 40 + 16 | 40 of 40 | 0 | 1.03-1.69 ms (mean 1.25) |
+| c2 (reverse) | nearest 32 | 10-18 of 32 | 54 | 0.45-1.91 ms (mean 1.30) |
+| c2 | ranked 40 + 16 | 40 of 40 | 0 | 0.67-1.22 ms (mean 0.98) |
+
+The ranked 56 lights cost less GPU time than the nearest 32. The nearest-first cut kept the screen-filling
+beams round the eye, and the cost of each light is the screen area of its quad. A map budget of 56 (64
+lights) measured 2.7 ms against 0.3-0.6 ms for 40 (out/qa_fw22c1), so medium stops at 40 + 16. With the
+ranked budget, the map lights not drawn at c1 are small (r 2.0, i 0.32) lights 15.7+ blocks out. With the
+nearest cut they were lamp heads and pools at 15-16 blocks.
+
+Video check: 2 fps sheets of the four 20 s passes (`feel_tools/fw22/pass_sheet.py`, crops of the near
+lantern, the median lamp and the far junction). The lamp crops' mean luma holds flat through both modes,
+apart from cars driving through the crop. Most of the nearest cut's drops were 15+ blocks out, where a
+pool is a few pixels, so its flicker shows in the log more than in a still.
+
+Not covered: rain, other districts, high and low quality (their budgets are set by proportion but not
+measured), and RTX Remix (this pass does not run under Remix).
+
 ## Smooth car panels under the AO (coord82, FIX-CAR-SHADING-2, 11 Nov 2026)
 
 With the AO on, a pale car's flank, bonnet and boot carried grey clouds 10-30 cm across: a hammered-metal mottle

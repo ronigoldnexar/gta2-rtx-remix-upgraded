@@ -60,6 +60,12 @@ void ReadSettings(bool first) {
     // FIX-CAR-SHADING-2 (coord82): the AO's noise integrated (4x4 stratified rotations, 4x4 blur); 0 = the old
     // pass (per-pixel hash, 3x3 blur: grey clouds over pale car panels). A/B key, so it lives in devtools.
     v.aoDenoise = GetPrivateProfileIntA("devtools", "ao_denoise", 1, g_ini) != 0;
+    // FIX-WORLD-22: the night light budget ranked by what a light adds to the frame, the map's lamps apart from the
+    // moving car lamps (0 = the nearest 16/32/64 as before), and the map lights' share (0 = by quality).
+    v.lightRank = static_cast<int>(GetPrivateProfileIntA("devtools", "light_rank", 1, g_ini));
+    v.lightBudget = static_cast<int>(GetPrivateProfileIntA("devtools", "light_budget", 0, g_ini));
+    if (first || before.lightRank != v.lightRank || before.lightBudget != v.lightBudget)
+        Log("visuals: light_rank %d light_budget %d", v.lightRank, v.lightBudget);
     {
         const int lp = static_cast<int>(GetPrivateProfileIntA("devtools", "lamp_plain", 1, g_ini));
         if (lp != g_lampPlain || first) Log("visuals: lamp_plain %d", lp);
@@ -251,6 +257,8 @@ void ProvideLights(std::vector<gta2::VisualLight>* out) {
         }
         // The game's radius is a reach in tiles that Remix turns into brightness; here it
         // is a distance with a soft end, a little wider so a lamp makes a pool.
+        // FIX-WORLD-22: the map's own lights (lamps, lanterns, signs, lit windows) ranked apart from moving ones.
+        l.fixed = !t.moving && (d.source == kLightSourceGame || d.source == kLightSourceWindow);
         float r = d.radius * 1.35f;
         r = r < 1.5f ? 1.5f : (r > 6.0f ? 6.0f : r);
         l.radius = r;
