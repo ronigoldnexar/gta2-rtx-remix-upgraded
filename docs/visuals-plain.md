@@ -189,7 +189,12 @@ pales a strong light toward grey). A (255,190,110) light therefore landed paler 
   within ~5 blocks (car beams and brake lights among them), and the facade lantern ~10 blocks out is dropped
   in both settings: no pool at all (GTA2DX9_LOG_LAMPS=1, out/qa_fw21l2). Ranking the cap by a light's reach
   over its distance, or keeping map lamps ahead of car beams, is the next step; untried.
-- Remix: not taken (this pass is the plain renderer's; Remix lights the scene itself).
+- Remix, one take (out/fw21rx, `gamerun/rn_remix.sh`, wil 60.5,60.5 at 23:00, Ultra rig defaults): no lime
+  wash. The post lantern lays a small warm pool on the road, the facade beside the lens reads warm tan, and the
+  far lamps are warm-white points; with the DLL's lights off (`remix_lights_off=1`) the street goes near-black.
+  Remix's lamps read warm-white rather than sodium; that is Remix's light colour (remix_lights.cpp), untouched here.
+- 19:30 is already full night on the game's clock at this spot (stars, lamps at full strength); a true dusk
+  (sun just set, sky still lit) was not framed.
 
 ## Smooth car panels under the AO (coord82, FIX-CAR-SHADING-2, 11 Nov 2026)
 

@@ -769,3 +769,23 @@ neon sign differ.
 **Untested:** ste and bil masts (same rule, same prop), night, first person (no change there: the rule is
 third-person only; the first person keeps QB-49's eye fade), RTX Remix (the fade is the plain prop draw's;
 Remix draws the same props).
+
+**Family (rebased build 07906de2 + FIX-INI-2, `gamerun/fw21_family.py`, 16:45 walks):** bil 49.5,62.5
+(out/qa_fw21fb: a parking meter 1.16 blocks from the lens, 11.8 % wide, faded) and ste 99.5,96.5 (out/qa_fw21fs:
+the street lamps at 99.50,96.08 and 101.92,96.50 faded at 1.06-1.19 blocks, 11.6-12.9 % wide; the walk's frames
+show no frame-filling mast and no ghost, masts further out stand as before). 0 faults in both.
+
+**Roof/ground grates after ca181474 (FIX-WORLD-20 order 4a, framed for it):** the wil ground-grate strip
+186-187 x 71-73 (tile 193 lids at street level, open street to the north), fixed cameras 3 and 8 blocks north at
+eye and boom height, 12:00 and 16:45 (out/qa_fw21g1, `gamerun/fw21_grate.py`, stage b77a8dc3 which carries the
+regenerated photo tiles): at 3 blocks the lattice is crisp with the dark backing and the slats under it; at 8
+blocks the strip is one calm dark slatted panel, no black-dot noise or shimmer. The classic frame of the spot is
+the game's.
+
+**ste green stone in shade (FIX-WORLD-20 order 4c, not changed):** FIX-WORLD-19's probe measured shade/sun on
+the green stone at 64 %, the same ratio as a neutral grey probe wall at the same spot (65 %): the lighting treats
+it as it treats everything, and the dark reading is the stone's own albedo (mean ~70 after photo_wall_grain.py).
+A per-class floor in the plain pass would light this one stone unlike the plaster beside it in the same shade,
+which is the inconsistency the order rules out; an albedo decision for the art (photo_wall_grain.py
+`--stone-mean`), not a lighting fix.
+
