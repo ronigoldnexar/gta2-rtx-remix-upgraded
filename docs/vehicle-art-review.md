@@ -1539,3 +1539,13 @@ plain renderer only (`RemixApiAvailable()`: Remix draws its own glass material);
 - Night (wil 22:00, weather on, out/va28_gn2): 050 side (2,3,5) -> (13,15,21), 032 front34 (5,6,9) -> (17,19,27);
   the panes stay darker than the paint, no glow. Remix (out/va28_rx2, noon, 050): lift 0 and 70 frames identical
   but for a walking pedestrian and path-tracing noise (gated off); Remix's own glass is still dark there.
+
+**049 Hachura as a kit body: tried, not shipped.** A DS-idiom kit body (generator kept outside git:
+`/mnt/gta2/gta2-linux/backup_va28/car_049_wip.py`) passed the offline gates (wheel split clean, hole scan 5.7 %) but,
+filmed at the sprite's paint beside the old shell (out/va28_h49b before, out/va28_h49a after), it reads as a boxier
+generic saloon: the old shell's DS silhouette (low pointed nose, faired lamps, thin roof) carries the identity better,
+despite its grey bonnet patch and pale roof. The next take needs a lower, thinner roof set further back, a longer
+pointed nose, a wider front track than rear, rear spats kept out of the tyre circle, and faired twin lamps.
+- Not done this seat: 071 / 021 / 003 / 019 / 022 / 037 / 045 / 054 shells; qaexp11 (the mirrored plate) untouched.
+- Still short of a shipping-AAA frame: the cabins behind the lifted glass stay near-black (seats barely read); Remix's
+  kit glass is still dark; 023's bun and sausage are smooth capsules.
