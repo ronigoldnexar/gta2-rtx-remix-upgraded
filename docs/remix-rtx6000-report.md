@@ -50,3 +50,5 @@ Proton path (for a pass-through GPU): image gta2-remix-gpu3:night1-i386, GE-Prot
 runner /gta2/gamerun/run_game_remix_proton.sh with PROTON_DIR=/proton, host nvidia_icd.json bound, ~/runngx43.sh as example.
 
 Verification history: verify1 (stage c4cd943b) and verify2 (stage 13ddc23b, 16:03 UTC) both: every required line PASS, FG and NRC n/a with the reasons above.
+
+Deployment state 11 Nov 18:40 UTC: build 13ddc23b on Tokyo's stage, on the RTX 6000 (verify2 PASS) and on the RTX 5090 (hash ba0e8c1c…, play-look rtx.conf, merged ini with the hold at the night cap).
