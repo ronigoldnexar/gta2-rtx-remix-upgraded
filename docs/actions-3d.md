@@ -2304,3 +2304,18 @@ each logged pair. It takes P_GAME_MAX, P_CAMPOS, P_FOV, P_FLIP, P_SECS and P_N.
 Runs fig19_pair1-3 at the wil loony spots found no standing knot. Walking pairs part within 0.2-0.5 s, so no readable
 crop came out of them. They did show two identical avatars walking in file, kept 0.11 apart, drawn as one body with two
 heads: the open head-variety half of pm24.
+
+### FIX-FIGURE-19: pm22, the burn clip beside a burning car (probe only)
+
+With `GTA2DX9_LOG_PED_FRAMES=1` the log now has `burn spots: player nearest flame dx dz flat dy car N, K spots,
+flat<0.18 M` twice a second while a flame is within 1.5 block. The probe `gamerun/fig19_burn.py` (keys
+`keys_fig19_burn.sh`) does the following:
+- seats him in the F10 car and sets it alight;
+- steps him out and walks him round to the car's nose or tail;
+- creeps toward the nearest logged flame and holds there.
+
+At wil the F10 car is a truck cab. Pressed against its flank, the nearest flame stays 0.28-0.34 block away (flat); at
+the grille it stays 0.60-0.70. The flames ride the body's centre line and the cab roof, and the game's collision keeps
+a standing ped off the body. Both distances are outside the burn test's 0.18, so the old flat test (fig19_burn2/3) never
+fired either, and he stands idle beside the fire in every frame. Standing next to a burning car is not a pose where the
+two tests can differ.

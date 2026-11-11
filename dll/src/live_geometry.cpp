@@ -11220,6 +11220,17 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                                g_carFrame - track.muzzleFrame < 15 && !g_burnTestOld;
         float burnDy = 0.0f;
         const int flatSpots = FireSpotsNear(cx, cz, 0.18f, nullptr);
+        // FIX-FIGURE-19 (pm22): where the nearest flame is from the player (flat, renderer x/z; game dy = -dz), twice a
+        // second while one is within 1.5 block, so a probe can walk him to a burning car's flame (GTA2DX9_LOG_PED_FRAMES=1).
+        if (g_logPedFrames && ownPed && (g_carFrame % 15u) == 0 && !g_fireSpotsLast.empty()) {
+            const FireSpotPublic* best = nullptr; float bd = 2.25f;
+            for (const FireSpotPublic& f : g_fireSpotsLast) {
+                const float dx = f.x - cx, dz = f.z - cz, d2 = dx * dx + dz * dz;
+                if (d2 < bd) { bd = d2; best = &f; }
+            }
+            if (best) Log("burn spots: player nearest flame dx %.3f dz %.3f flat %.3f dy %.2f car %d, %zu spots, flat<0.18 %d",
+                          best->x - cx, best->z - cz, std::sqrt(bd), best->y - cy, best->onCar ? 1 : 0, g_fireSpotsLast.size(), flatSpots);
+        }
         const int burnSpots = g_burnTestOld ? flatSpots : (flatSpots ? FireSpotsOnFigure(cx, cy, cz, 0.18f, &burnDy, burnCars, burnCarCount) : 0);
         if (g_logPedFrames && flatSpots && ownPed && (burnSpots == 0 || ownBottle || ownFlames)) {
             static int logged = 0;
