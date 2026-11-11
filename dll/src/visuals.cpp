@@ -204,7 +204,7 @@ void ProvideLights(std::vector<gta2::VisualLight>* out) {
         // street views its hue is pulled 90 % of the way to sodium (255,190,110) at its own luminance. The yellow
         // #E3E354 of the wil lamps times a pale grey facade read lime (blue 40 % of green).
         // [devtools] lamp_plain=0: both as before (live A/B); bit 2 (=2): only (1); bit 4 (=4): only (2).
-        bool fittedLamp = false;
+        bool fittedLamp = false, deepSodium = false;
         float di = d.intensity;
         if (g_lampPlain != 0 && d.source == kLightSourceGame && !t.moving && StreetPresentation()) {
             const bool fit = g_lampPlain == 1 || (g_lampPlain & 2);
@@ -219,7 +219,16 @@ void ProvideLights(std::vector<gta2::VisualLight>* out) {
                 if (d.spot) continue;
             }
             if (hue && ClassifyGameLight(d, false) == kGameLightStreet) {
-                static const float kSodium[3] = {1.0f, 0.745f, 0.431f};
+                // FIX-WORLD-21 (FIX-WORLD-20 residual): the frame adds albedo x light over the night's cool ambient and
+                // ps_light_apply pales a strong light toward its grey (cApply.y), so a (255,190,110) light read 97,79,60
+                // at the wil pool (G/R 0.81, B/R 0.62: paler than sodium). The light itself is a deeper high-pressure
+                // sodium so the lit pavement and wall read 0.70 / 0.45; its pool a fifth stronger (below).
+                // lamp_plain=6: FIX-WORLD-20's tint and pool (A/B); 14 = 1.
+                const bool deep = g_lampPlain == 1 || (g_lampPlain & 8);
+                static const float kSodiumFw20[3] = {1.0f, 0.745f, 0.431f};
+                static const float kSodiumDeep[3] = {1.0f, 0.64f, 0.28f};
+                const float* kSodium = deep ? kSodiumDeep : kSodiumFw20;
+                deepSodium = deep;
                 const float lum = 0.2126f * d.rgb[0] + 0.7152f * d.rgb[1] + 0.0722f * d.rgb[2];
                 const float sl = 0.2126f * kSodium[0] + 0.7152f * kSodium[1] + 0.0722f * kSodium[2];
                 for (int i = 0; i < 3; ++i) l.rgb[i] = 0.1f * d.rgb[i] + 0.9f * kSodium[i] * lum / sl;
@@ -278,7 +287,7 @@ void ProvideLights(std::vector<gta2::VisualLight>* out) {
             gta2::VisualLight pool = l;
             pool.pos[1] -= 1.0f;
             pool.radius = 3.6f;
-            pool.intensity = (fittedLamp ? 0.50f : 0.30f) * (di < 1.5f ? di : 1.5f);
+            pool.intensity = (fittedLamp ? (deepSodium ? 0.60f : 0.50f) : 0.30f) * (di < 1.5f ? di : 1.5f);
             out->push_back(pool);
         }
     }

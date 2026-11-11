@@ -170,6 +170,27 @@ that is dark 100 px up the wall (20,21,26), where lamp_plain=0 washes it (130,12
 are identical with 0 and 1 (mean of the filer's patch equal in both views). Not verified: dusk, clear-night
 frames other than wil, Remix (not touched by this code).
 
+## Sodium street lamps, the frame's light cap (FIX-WORLD-21, 11 Nov 2026)
+
+FIX-WORLD-20's residual: its lamp pools read warm but paler than sodium (97,79,60 at the wil pool, G/R 0.81).
+The frame is the scene (night ambient, blue-grey) plus albedo x the summed lights (ps_light_apply, which also
+pales a strong light toward grey). A (255,190,110) light therefore landed paler still.
+- `[devtools] lamp_plain=1` now gives a street-class map light a deeper high-pressure sodium (255,163,71) and
+  the fitted lamp's pool a fifth more strength (0.60 vs 0.50 of the lamp). `lamp_plain=6` is FIX-WORLD-20's
+  hue and pool, for a live A/B.
+- Measured (out/qa_fw21l1, wil 60.5,60.5 walk, third person, the lit facade patch round the wall lantern,
+  130x75 px mean): 23:00 rain 100,87,71 (G/R 0.88, B/R 0.71) -> 111,88,63 (0.79, 0.57); 19:30 (night
+  on the game's clock) 106,96,78 -> 117,97,71 (0.83, 0.60). What the lamp adds over the unlit wall
+  (32,36,44) is now +79,+52,+19 (G/R 0.66): deep sodium. What stays paler than a sodium photograph is the
+  moonlit ambient under it, which this change leaves alone (a brighter lantern brings back qav101's wash).
+  First person agrees; noon is unchanged (night-only lights; vreg noon shots as before).
+- **Found, not fixed: the 32-light cap (`[visuals] quality=medium`).** The frame keeps the 32 nearest lights in
+  view. In clear 23:00 traffic at that spot, 85 lights are in view (62 in the rain take), the 32 nearest all lie
+  within ~5 blocks (car beams and brake lights among them), and the facade lantern ~10 blocks out is dropped
+  in both settings: no pool at all (GTA2DX9_LOG_LAMPS=1, out/qa_fw21l2). Ranking the cap by a light's reach
+  over its distance, or keeping map lamps ahead of car beams, is the next step; untried.
+- Remix: not taken (this pass is the plain renderer's; Remix lights the scene itself).
+
 ## Smooth car panels under the AO (coord82, FIX-CAR-SHADING-2, 11 Nov 2026)
 
 With the AO on, a pale car's flank, bonnet and boot carried grey clouds 10-30 cm across: a hammered-metal mottle
