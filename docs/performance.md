@@ -2093,3 +2093,43 @@ under `GTA2DX9_GRID_KINDS=1`) was 12.02 x 6.76 blocks in the classic view at the
 person at six stars (the guard holding the window at the game's own size and shape): the game's camera height in the
 street views is not what keeps more particles. The ~80 extra particle nodes of one run each at the fire spot are within
 what the army's fire varies by run; with the pool now able to grow, they no longer decide whether the game lives.
+
+## FIX-PERF-10 (11 Nov 2026): the two FIX-PERF-9 commits reviewed, rebased and re-verified
+
+FIX-PERF-9 died at the spend limit with both commits local. FIX-PERF-10 reviewed them, rebased them on 193732f3 and
+pushed them unchanged in code: the world view cull (**FIX-PERF-9 (14p3)**, section above) and the grid pool guard
+(**FIX-PERF-9/10 (00y5 qaf91)**, the section before this one; the `grid_pool_grow=0` early return was still
+uncommitted when FIX-PERF-9 died and is part of the commit now).
+
+**Guard review.** `LoadConfig` runs before `ExeGuardsInstall`, so `[density] grid_pool_grow=0` installs no detour. When the list
+is not empty the thunk runs the game's own three instructions. `test` changes only the flags, which the game's code does not
+read across a call. The grow path saves `ecx` and clobbers only `eax`, `ecx` and `edx`, as the pop already does. The node layout
+matches the pops (next at +4 / +8). There are at most 16 blocks per pool, and no draw is touched.
+
+| run (bil, plain GL, GPU 5, host load 40-75 on 96 CPUs) | what happened |
+|---|---|
+| `perf10_g1`: drain to 30, `grid_pool_grow=1`, first person, six stars | 728 of 758 drained, the list ran empty 6.4 s later, one block added (`grid_grown=1/0`), ~95 s at six stars, grid_free 768-956, **0 FAULT**, frame opened: alive in first person with six stars |
+| `perf10_g0`: same, `GTA2DX9_GRID_POOL_GROW=0` | "pops left as shipped" logged; **`C0000005 at 00447352 (gta2.exe+0x47352), reading 00000004`**, eax 0, 4.4 s after the drain; frame opened: Wine's crash dialog over the classic view |
+| `qa_perf10_f6`: the filer's `qaf91first6` line, 200 s | 0 FAULT, but the hero was WASTED 10 s after six stars and went on on foot; the pool's lowest was 407, so the guard was **not reached** on this line (the drain probe is the test) |
+| `vreg_perf10_on`: vreg on the stage | `spawn_classic` PASS, **0 tiles**, frame opened. The 3D shots fail against the b89b95a goldens by ~20 tiles each (the goldens are older than other seats' 3D changes), so the cull was checked by a direct A/B below |
+
+**World view cull: pixels.** Three vreg captures of the same stage (wil, 31 paused fixed poses): `vreg_perf10_on`
+and `vreg_perf10_on2` with the cull on, `vreg_perf10_off` with `GTA2DX9_WORLD_VIEW_CULL=0` (the log says `world view cull:
+on` / `off`). 8 shots are identical in all three. Every on/off difference is in the water (animated by the clock, at most
+6 levels), in people or in traffic, and the two cull-on captures differ in the same places. No pose shows world geometry
+missing (crop sheets opened for bank_high, raised_w03_high and lights23_high). bil, third person: a frame in a cull-on window of the drive below
+(shot_095) was opened: whole buildings, roofs, the trailer and the far skyline.
+
+**World view cull: draws.** The filer's Industrial drive (`keys_perf9_soak.sh`, `SOAK_SECONDS=120`, the live key flipped
+every 20 s, `perf10_soak`, host load 32-73). Third-person frames split by state:
+
+| cull | frames | avg ms | p99 | over 50 ms | draws a frame | world draws / triangles | all triangles |
+|---|---|---|---|---|---|---|---|
+| off | 1 854 | 40.4 | 161 | 9.4 % | 2 680 | 1 376 / 628 k | 1 639 k |
+| on | 2 060 | 37.0 | 160 | 5.3 % | 1 878 | 719 / 286 k | 1 117 k |
+
+The census lines say 558-831 of 1 381 batches are drawn. The cut is real: 30 % of the frame's calls and a third of its triangles.
+The SHOULD of 14p3 (p99 under ~45 ms) is **not met on this host**: p99 is ~160 ms both ways at load ~70, set by first-use hitches
+(85 hitch lines) and the load, not by submission. After the first 90 s of third person, p99 is 86 (off) vs 128 ms (on) and over 50 ms is 11.6 % vs
+5.7 %. Each half has under 900 frames, so p99 rests on fewer than ten frames. Untested: Remix (the cull is off there by code,
+`!remixDevice_`; no Remix run made), night, rain.
