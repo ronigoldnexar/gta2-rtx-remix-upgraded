@@ -656,3 +656,29 @@ again; the window stays a dark pane with the driver (red shirt) behind it; no no
 regression at these poses (no notch, no new hole). Classic: `tools/vreg/vreg.sh stage` run vg7_a, spawn_classic PASS 0 tiles;
 its other 29 shots FAIL on 17-43 tiles each, all on the HUD (the game-font HUD of FIX-HUD-5 against the b89b95a goldens),
 no car in the changed tiles.
+
+### 12.5 Remix (Ultra rig, wil 164.5,147.6, 13:00 and 22:30, own car forced, `[devtools] car_glass` 1 then 0 per model)
+
+Run vg7_rx2 (`/tmp`-side launcher = `gamerun/rglass_run.sh` + `AB_SETS=g1:car_glass=1|g0:car_glass=0`, AB_WAIT 10 s, GPU 6,
+stage = the rebased 0c6244ec build). Under Remix the devtools key lags: at 13:00 the first two poses after the switch to 0 were
+still drawn with glass (the rear pose already without); at 22:30 every pose took it. Run vg7_rx1 is void (the hero stood
+beside the forced car in every pose: the boarding was logged but did not hold; not reproduced in rx2).
+- **005's black rectangles on the lower door (11.5) are NOT the glass path.** At 22:30 with `car_glass=0` (the side windows
+  back to the bake, so the switch had reached Remix) the same black rectangles stand on the door; one stands on the bonnet top,
+  a surface no glass rule can take (normal y > 0.80); the DLL's own mask dump (`GTA2DX9_GLASS_DUMP`) has no glass texel under
+  0.66 of the roof (the rectangles are at 0.35-0.55); the same rectangles are in GLASS-6's vg6_rx1, before these rules. They
+  are the body's own texture/material under Remix (the hull's bake and its Remix car prim): VEHICLE-ART-23's body or the car
+  prims' business, not this module's. Not fixed here.
+- 071 left window at 13:00 against vg6_rx1 (same pose): the pane now reaches higher in the middle (the completion to 0.90);
+  part of the pale band under the roof stays at the window's ends, and the outline is still the mask's smoothed blob, not a
+  straight line: (c) is improved, not closed. At 22:30 with glass: dark panes with the cabin behind; without: the pale bake.
+- Still not done: a straight Remix pane outline (the split follows the 256-texel mask's 0.5 contour); (d) the cabin is still
+  boxes (seat backs, headrests, a dash; no interior geometry was added, so no frame-time change); prp1 not looked at.
+
+### 12.6 prx6 at the filer's exact pose
+
+Run vg7_prx6 (`playtest_remix.sh ... bil "21,5.5" "150.5,130.5,2"` plus `-e GTA2DX9_SCENE_NO_CAR=1`, the play rig, stage =
+0c6244ec). The warp lands exactly at 150.5,130.5 now (the scene-car warp parks at a car door: that is why GLASS-6's and
+triage 225's takes landed at 155.1,141.9). At that pose in this session no black muscle car is parked in view, at 21:00 or 5:30
+(a road with traffic, a police car, trucks): the parked cars are the game's per session, so the filer's car is not at the
+filer's pose. The car itself was judged at 155.1,141.9 by triage pass 225 (blobs gone) and here as the forced 071 (12.5).
