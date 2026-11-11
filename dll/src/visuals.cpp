@@ -56,6 +56,9 @@ void ReadSettings(bool first) {
     v.quality = (!strncmp(q, "low", 3) || !strcmp(q, "0")) ? 0 : ((!strncmp(q, "high", 4) || !strcmp(q, "2")) ? 2 : 1);
     v.shadowStrength = ReadInt("shadow_strength_percent", 135) / 100.0f;
     v.aoStrength = ReadInt("ao_strength_percent", 75) / 100.0f;
+    // FIX-CAR-SHADING-2 (coord82): the AO's noise integrated (4x4 stratified rotations, 4x4 blur); 0 = the old
+    // pass (per-pixel hash, 3x3 blur: grey clouds over pale car panels). A/B key, so it lives in devtools.
+    v.aoDenoise = GetPrivateProfileIntA("devtools", "ao_denoise", 1, g_ini) != 0;
     v.bloomStrength = ReadInt("bloom_strength_percent", 55) / 100.0f;
     v.bloomThreshold = ReadInt("bloom_threshold_percent", 80) / 100.0f;
     v.exposure = ReadInt("exposure_percent", 100) / 100.0f;
@@ -79,6 +82,7 @@ void ReadSettings(bool first) {
             Log("visuals: %s, quality %s, shadows %d ssao %d bloom %d tonemap %d lights %d hemisphere %d%s",
                 v.enabled ? "on" : "off", v.quality == 0 ? "low" : (v.quality == 1 ? "medium" : "high"), v.shadows, v.ssao,
                 v.bloom, v.tonemap, v.lights, v.hemisphere, el != -9999 ? " (sun override)" : "");
+            if (first || before.aoDenoise != v.aoDenoise) Log("visuals: ao denoise %d", v.aoDenoise ? 1 : 0);
             if (el != -9999) Log("visuals: sun at %.1f deg elevation, %.1f azimuth", sky.sunElevationDeg, sky.sunAzimuthDeg);
         }
         lastEl = el;

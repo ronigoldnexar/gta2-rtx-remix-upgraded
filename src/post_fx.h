@@ -40,6 +40,7 @@ struct VisualsSettings {
     int quality = 1;          // 0 low, 1 medium, 2 high
     float shadowStrength = 1.35f;   // 1 = the sun's share of the fixed-function light
     float aoStrength = 0.75f;
+    bool aoDenoise = true;    // FIX-CAR-SHADING-2: [devtools] ao_denoise (4x4 stratified rotations + 4x4 blur; 0 = the old hash + 3x3 pass)
     float bloomStrength = 0.55f;
     float bloomThreshold = 0.80f;
     float exposure = 1.0f;
@@ -234,6 +235,7 @@ private:
     IDirect3DPixelShader9* psSsao8_ = nullptr;
     IDirect3DPixelShader9* psSsao12_ = nullptr;
     IDirect3DPixelShader9* psAoBlur_ = nullptr;
+    IDirect3DPixelShader9* psAoBlur4_ = nullptr;   // FIX-CAR-SHADING-2
     IDirect3DPixelShader9* psLight_ = nullptr;
     IDirect3DPixelShader9* psBright_ = nullptr;
     IDirect3DPixelShader9* psBlur_ = nullptr;

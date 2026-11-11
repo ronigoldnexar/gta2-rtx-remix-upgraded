@@ -180,6 +180,7 @@ float4 ps_composite(QuadOut i) : COLOR0 {
 // --- Ambient occlusion at half resolution: a normal-oriented hemisphere of samples
 // in view space, compared against the depth buffer, with a range check.
 float4 cAo : register(c2);   // radius (view units), bias, intensity, max distance
+float4 cAoNoise : register(c3);   // x: 1 = the 4x4 stratified rotations (FIX-CAR-SHADING-2), 0 = per-pixel hash (the old pass)
 
 float AoSample(float3 p, float3 sampleDir, float radius, float bias) {
     float3 s = p + sampleDir * radius;
@@ -210,7 +211,14 @@ float SsaoAt(float2 uv, float2 vpos, int count) {
     float zu = LinearZ(DepthAt(uv - float2(0, cScreen.y))), zd = LinearZ(DepthAt(uv + float2(0, cScreen.y)));
     float slope = min(abs(zr - p.z), abs(p.z - zl)) + min(abs(zd - p.z), abs(p.z - zu));
     float bias = cAo.y + min(slope, 0.25);
-    float a = Hash(floor(vpos)) * 6.2831853;
+    // FIX-CAR-SHADING-2 (coord82): the kernel's rotation. The per-pixel hash (white noise) left each
+    // pixel's 8-12 samples a random subset; where a surface is partly occluded (a car's flank over the
+    // road, its bonnet under the screen) the 3x3 blur could not average that out and pale paint showed
+    // it as grey clouds. A 4x4 Bayer order of 16 evenly spaced rotations instead, which ps_ao_blur4's
+    // 4x4 footprint integrates exactly: every output pixel sees all 16, the noise cancels.
+    float2 c4 = fmod(floor(vpos), 4.0), c2 = fmod(c4, 2.0), h2 = floor(c4 * 0.5);
+    float bayer = 4.0 * fmod(2.0 * c2.x + 3.0 * c2.y, 4.0) + fmod(2.0 * h2.x + 3.0 * h2.y, 4.0);
+    float a = lerp(Hash(floor(vpos)), (bayer + 0.5) / 16.0, cAoNoise.x) * 6.2831853;
     float3 rnd = float3(cos(a), sin(a), 0);
     float3 t = normalize(rnd - n * dot(rnd, n));
     float3 b = cross(n, t);
@@ -247,6 +255,19 @@ float4 ps_ao_blur(QuadOut i) : COLOR0 {
     BlurTap(i.uv + float2(-t.x, -t.y), zc, sum, wsum); BlurTap(i.uv + float2(0, -t.y), zc, sum, wsum); BlurTap(i.uv + float2(t.x, -t.y), zc, sum, wsum);
     BlurTap(i.uv + float2(-t.x, 0), zc, sum, wsum);    BlurTap(i.uv, zc, sum, wsum);                   BlurTap(i.uv + float2(t.x, 0), zc, sum, wsum);
     BlurTap(i.uv + float2(-t.x, t.y), zc, sum, wsum);  BlurTap(i.uv + float2(0, t.y), zc, sum, wsum);  BlurTap(i.uv + float2(t.x, t.y), zc, sum, wsum);
+    float a = sum / max(wsum, 1e-4);
+    return float4(a, a, a, 1);
+}
+// FIX-CAR-SHADING-2: the same depth-aware weights over a 4x4 footprint (texels -2..+1), the period
+// of the SSAO's rotation pattern, so a flat or gently curved surface takes the mean of all 16.
+float4 ps_ao_blur4(QuadOut i) : COLOR0 {
+    float zc = LinearZ(DepthAt(i.uv));
+    float sum = 0, wsum = 0;
+    float2 t = cBlur.xy;
+    BlurTap(i.uv + float2(-2, -2) * t, zc, sum, wsum); BlurTap(i.uv + float2(-1, -2) * t, zc, sum, wsum); BlurTap(i.uv + float2(0, -2) * t, zc, sum, wsum); BlurTap(i.uv + float2(1, -2) * t, zc, sum, wsum);
+    BlurTap(i.uv + float2(-2, -1) * t, zc, sum, wsum); BlurTap(i.uv + float2(-1, -1) * t, zc, sum, wsum); BlurTap(i.uv + float2(0, -1) * t, zc, sum, wsum); BlurTap(i.uv + float2(1, -1) * t, zc, sum, wsum);
+    BlurTap(i.uv + float2(-2, 0) * t, zc, sum, wsum); BlurTap(i.uv + float2(-1, 0) * t, zc, sum, wsum); BlurTap(i.uv + float2(0, 0) * t, zc, sum, wsum); BlurTap(i.uv + float2(1, 0) * t, zc, sum, wsum);
+    BlurTap(i.uv + float2(-2, 1) * t, zc, sum, wsum); BlurTap(i.uv + float2(-1, 1) * t, zc, sum, wsum); BlurTap(i.uv + float2(0, 1) * t, zc, sum, wsum); BlurTap(i.uv + float2(1, 1) * t, zc, sum, wsum);
     float a = sum / max(wsum, 1e-4);
     return float4(a, a, a, 1);
 }

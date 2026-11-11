@@ -158,7 +158,7 @@ void PostFx::ReleaseTargets() {
     SafeRelease(stateBlock_);
     SafeRelease(vsShadowWorld_); SafeRelease(vsShadowModel_); SafeRelease(vsQuad_); SafeRelease(vsLight_);
     SafeRelease(psShadowWorld_); SafeRelease(psShadowSolid_); SafeRelease(psShadowCutout_);
-    SafeRelease(psComposite_); SafeRelease(psSsao8_); SafeRelease(psSsao12_); SafeRelease(psAoBlur_);
+    SafeRelease(psComposite_); SafeRelease(psSsao8_); SafeRelease(psSsao12_); SafeRelease(psAoBlur_); SafeRelease(psAoBlur4_);
     SafeRelease(psLight_); SafeRelease(psBright_); SafeRelease(psBlur_); SafeRelease(psFinal_);
     SafeRelease(quadDecl_); SafeRelease(lightDecl_); SafeRelease(shadowWorldDecl_);
     for (int f = 0; f < 4; ++f) {
@@ -271,6 +271,7 @@ bool PostFx::EnsureTargets() {
     ps(k_ps_ssao8, &psSsao8_);
     ps(k_ps_ssao12, &psSsao12_);
     ps(k_ps_ao_blur, &psAoBlur_);
+    ps(k_ps_ao_blur4, &psAoBlur4_);
     ps(k_ps_light, &psLight_);
     ps(k_ps_bright, &psBright_);
     ps(k_ps_blur, &psBlur_);
@@ -931,10 +932,13 @@ void PostFx::Resolve() {
         device_->SetPixelShader(q >= 2 ? psSsao12_ : psSsao8_);
         const float ao[4] = {0.38f, 0.03f, 1.25f, 45.0f};
         device_->SetPixelShaderConstantF(2, ao, 1);
+        // FIX-CAR-SHADING-2 (coord82): 4x4 stratified kernel rotations, integrated by the 4x4 blur below.
+        const float noise[4] = {cfg.aoDenoise ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f};
+        device_->SetPixelShaderConstantF(3, noise, 1);
         sampler(1, depthTex_, false);
         DrawQuad(hw, hh);
         SetTarget(aoBlurSurf_, hw, hh);
-        device_->SetPixelShader(psAoBlur_);
+        device_->SetPixelShader(cfg.aoDenoise ? psAoBlur4_ : psAoBlur_);
         const float blur[4] = {1.0f / hw, 1.0f / hh, 0.0f, 0.0f};
         device_->SetPixelShaderConstantF(2, blur, 1);
         sampler(4, aoTex_, false);

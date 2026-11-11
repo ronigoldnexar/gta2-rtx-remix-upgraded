@@ -54,7 +54,7 @@ below, and the frame-time table at the end.
 | Deferred shadowing | The frame is drawn as before, into an FP16 target with an INTZ depth texture; a full-screen pass reconstructs each pixel's view position and face normal from depth and takes away the sun's share of the fixed-function light where the shadow map says the sun is hidden: `dark = strength * S*ndl / (A + S*ndl)`. Faces turned away from the sun are already at ambient and are not darkened twice | `ps_composite` |
 | Directional sun + hemisphere sky | While the post is on, the world's fixed-function sun is 1.5x and its ambient 0.84x (`sun_boost_percent`, `ambient_scale_percent`): sunlit faces stay as bright, faces in shade and in shadow get darker, which is what gives the shadows their contrast. A hemisphere term tints faces looking up toward the sky's hue and faces looking down toward a warm street bounce (30 %) | `Renderer::SetWorldShading`, `PostFx::SetSky` |
 | Night lights | The lights the Remix path already keeps (`LightsTracked()`: the game's lamps and neon, the far map lamps, the synthetic car head and tail lamps, fires, muzzle flashes; sparks and bullets left out) become screen-space point lights, and head lamps spot lights; the nearest 16/32/64 in view, one quad each in a single draw, soft falloff `(1-x^2)^2/(1+4x^2)`, summed into a light buffer of their own (FIX-FX, 9 Nov), then added once as albedo (the frame's colour over the ambient it was drawn with) times the sum, the sum's strongest channel kept as it is up to 0.5 and rolled off exponentially to a ceiling of 1.0 with its hue (a strong saturated light, a siren, pales by up to 35 % towards white): overlapping pools, sirens, head lamps and fires tint a wall instead of clipping it to flat white, red, blue or yellow. A point light is bounded per light too (Remix radiances of 10 had made 2.6). The game's fire lights (one per flame) are merged into one warm flickering point light per blaze (radius 3.4 blocks), which keeps 45 % of its strength by day; every other light fades in as the sun goes down | `dll/src/visuals.cpp`, `ps_light`, `ps_light_apply` |
-| SSAO | Half resolution, a normal-oriented hemisphere of 8 (medium) or 12 (high) samples within 0.38 blocks, range-checked, a per-pixel rotation; a depth-aware 3x3 blur; faded out beyond 45 blocks. The pixel's depth is read at one full-resolution texel's centre and the comparison bias grows with the surface's depth step per texel (pmy3, FIX-WORLD-10: a half-resolution pixel sat on the edge of two depth texels and rounding picked one or the other, drawing 10 px vertical stripes of false occlusion on every wall) | `ps_ssao8/12`, `ps_ao_blur` |
+| SSAO | Half resolution, a normal-oriented hemisphere of 8 (medium) or 12 (high) samples within 0.38 blocks, range-checked, rotated in a 4x4 pattern of 16 angles; a depth-aware 4x4 blur (FIX-CAR-SHADING-2; was a per-pixel random rotation and a 3x3 blur); faded out beyond 45 blocks. The pixel's depth is read at one full-resolution texel's centre and the comparison bias grows with the surface's depth step per texel (pmy3, FIX-WORLD-10: a half-resolution pixel sat on the edge of two depth texels and rounding picked one or the other, drawing 10 px vertical stripes of false occlusion on every wall) | `ps_ssao8/12`, `ps_ao_blur4` (`ps_ao_blur`: the old pass) |
 | Bloom | Soft-knee bright pass (threshold 0.80) to quarter resolution, a 9-tap separable Gaussian; the high tier adds an eighth-resolution level | `ps_bright`, `ps_blur` |
 | Tonemap | Fixed exposure (slightly up at night; no adaptation, so nothing pumps), a filmic shoulder from 0.78 that leaves the mid tones as the artwork has them, a gentle toe and 1.10 saturation so GTA2's colours stay loud | `ps_final` |
 | Sky | A richer palette when `[visuals]` is on: deeper day blue, a golden hour with an orange horizon, a violet dusk, a navy night; stars at night (a generated 512 px star field, faded toward the haze, under the clouds); an HDR sun disc that the bloom picks up. The fog keeps the horizon's colour, so streets fade into the sky at every hour. The clouds are unchanged (still built in the warm-up) | `src/sky.cpp` |
@@ -139,6 +139,43 @@ model keeps 25 % of that light's hue over a warm white of its luminance (the wid
 teal sign brightens skin without turning it green. Log: `view model: night light at the eye R,G,B -> hands R,G,B`.
 `GTA2DX9_VM_LIGHT_OLD=1`: the hands under the light pass as before. Verified out/qa_fig16h0 (HEAD, olive) vs
 out/qa_fig16h1 (skin) with `gamerun/keys_qa_fig16h.sh` (fig16_hands.py: FH_SPOTS, FH_TOG live ini A/B).
+
+## Smooth car panels under the AO (coord82, FIX-CAR-SHADING-2, 11 Nov 2026)
+
+With the AO on, a pale car's flank, bonnet and boot carried grey clouds 10-30 cm across: a hammered-metal mottle
+over a smooth panel (VEHICLE-ART-19's same-spot A/B: car sun, shadow mask and paint texture ruled out, `ssao=0`
+clean). Measured on the white 044 parked at wil 206,199.7 (`keys_va11_own.sh`, `EXIT=1`, poses side/front34/eye,
+12:00 clear), the frame divided by its `ssao=0` twin: the flank sits at 0.73-0.75 of its AO-free brightness, a
+smooth fall toward the sill (the road and the wheels occlude the lower half of a vertical panel: that part is
+real), plus pixel-to-pixel noise in the ratio (high-pass std 0.0136). The noise is the cause: each half-resolution
+pixel turned the 8-sample kernel by its own random angle (a sine hash of the pixel), so where a surface is partly
+occluded each pixel counted a different random subset of hits, and the 3x3 blur averaged only 9 of them. Pale paint
+shows what textured ground and walls hide.
+
+Tried first and dropped: a horizon-angle test (an occluder counts only above N degrees over the tangent plane,
+against the mesh's own small dents). On the 044's flank it changed the ratio by 0.001: the occluders there are
+steep (road, wheels), not dents.
+
+Shipped: the kernel's rotation now follows a 4x4 Bayer order of 16 evenly spaced angles, and the blur
+(`ps_ao_blur4`) averages a 4x4 footprint with the same depth weights, so every output pixel on a smooth surface
+holds the mean of all 16 rotations (128 samples at medium quality) and the noise cancels. The weights still stop at
+depth edges, so a crease, a wheel arch, the shade under the sills and a wall's foot keep their AO. Same sample
+count, 16 blur taps instead of 9 at half resolution. 044 flank: high-pass std of the AO ratio 0.0136 -> 0.0054,
+mean unchanged (0.745 -> 0.744).
+034 flank 0.0167 -> 0.0107. Crease and contact AO unchanged: the 044's arch and underbody at the eye pose 0.723 ->
+0.722 of the AO-free frame (white) and 0.722 -> 0.721 (forced dark paint 18,18,22), the ground beside the car 0.933 ->
+0.932; a standing figure at the spawn wall and the wall's foot look the same old and new (frames opened at full size
+and 3x crops).
+
+Cost, interleaved in one session (the key flipped live every 26 s through a 300 s third-person walk/drive soak,
+`qa_stress3_third.py`, frames binned by the log's `ao denoise` lines): post-chain GPU time median 0.206 -> 0.212 ms
+(`GTA2DX9_VISUALS_LOG`); median frame 33.26 ms in both at the 30 fps cap; frames over 50 ms 2.2 % (old) vs 1.0 %
+(new), within the run-to-run spread of the streaming hitches (an earlier soak leaned the other way); the `frame
+times` lines' sprite stage (where the post resolves) 17.8 vs 17.3 ms avg. The change adds no draw call and no CPU work.
+
+`[devtools] ao_denoise=0`: the old pass (re-read live, for A/B). The classic view never runs the post chain:
+`tools/vreg/vreg.sh stage` gives `spawn_classic` PASS, 0 tiles changed. The Remix path draws no AO of ours (the post
+chain does not start on a Remix device).
 
 ## Costs
 
