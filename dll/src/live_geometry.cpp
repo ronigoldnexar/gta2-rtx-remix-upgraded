@@ -1790,8 +1790,8 @@ IDirect3DTexture9* FlameTexture(IDirect3DDevice9* device) {
 }
 
 // Flame tongues and sparks off one burning spot. `size` is the spot's own size in tiles.
-void SpawnFlames(float x, float y, float z, float size, float share) {
-    const float scale = (std::max)(0.5f, size);
+void SpawnFlames(float x, float y, float z, float size, float share, float shrink = 1.0f) {
+    const float scale = (std::max)(0.5f, size) * shrink;
     auto count = [&](float perSecond) {
         const float expect = perSecond * share * g_puffDt;
         int n = static_cast<int>(expect);
@@ -8364,6 +8364,29 @@ float ShotRand() {
     st ^= st << 13; st ^= st >> 17; st ^= st << 5;
     return static_cast<float>(st & 0xFFFFFFu) / 16777216.0f;
 }
+bool g_backblastSpawn = false;   // FIX-FX-8: the rocket's backblast smoke is being spawned (ShotSpawn's Remix routing)
+bool BackblastToneOld() {
+    static const bool env = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_BACKBLAST_TONE_OLD", b, sizeof b) && b[0] == '1'; }();
+    static int dev = 0;
+    static uint32_t read = 0;
+    if (CarBodiesDevIni()[0] && (read == 0 || g_carFrame - read >= 30)) {
+        read = g_carFrame ? g_carFrame : 1;
+        const int v = GetPrivateProfileIntA("devtools", "backblast_tone_old", 0, CarBodiesDevIni());
+        if (v != dev) Log("devtools: backblast_tone_old %d", v);
+        dev = v;
+    }
+    return env || dev != 0;
+}
+int BackblastToneMode() {   // 0 dust (default), 1 the old light tone, 2 the mid tone
+    const bool old = BackblastToneOld();
+    static int dev = 0;
+    static uint32_t read = 0;
+    if (CarBodiesDevIni()[0] && (read == 0 || g_carFrame - read >= 30)) {
+        read = g_carFrame ? g_carFrame : 1;
+        dev = static_cast<int>(GetPrivateProfileIntA("devtools", "backblast_tone_old", 0, CarBodiesDevIni()));
+    }
+    return dev == 2 ? 2 : old ? 1 : 0;
+}
 void ShotSpawn(float x, float y, float z, float vx, float vy, float vz, float life, float s0, float s1,
                float r, float g, float b, float a, uint8_t kind) {
     if (!g_uprightPeds) return;   // the street-level views only: the top-down view keeps the game's own art
@@ -8375,7 +8398,17 @@ void ShotSpawn(float x, float y, float z, float vx, float vy, float vz, float li
         static int old = -1;
         if (old < 0) { char v[8] = {}; old = (GetEnvironmentVariableA("GTA2DX9_SHOT_SMOKE_REMIX_OLD", v, sizeof v) && v[0] == '1') ? 1 : 0; }
         if (!old) {
-            VehicleFxEmitPuff(gta2::Vec3{x, y, z}, gta2::Vec3{vx, vy, vz}, life, (std::min)(s0, 0.6f), (std::min)(s1, 0.6f), (r + g + b) / 3.0f, a);
+            float grey = (r + g + b) / 3.0f;
+            // FIX-FX-8 (ffx5, triage pass 224: under mode 4 a launch showed no backblast at all): the backblast's light
+            // grey (0.77) took the soft puffs' light tone, whose opacity is x0.35 (at most 0.13), invisible against a
+            // sunlit wall. It takes the mid tone (grey 0.55 baked, opacity x0.8): grey dust. [devtools]
+            // backblast_tone_old=1 (live) or GTA2DX9_BACKBLAST_TONE_OLD=1: the light tone, for A/B.
+            // fx8_bb5: the mid tone read, but as dark soot on the shaded wall behind him; the dust tone (light albedo at
+            // the mid tone's opacity) is the default. backblast_tone_old=2: the mid tone.
+            const int mode = g_backblastSpawn ? BackblastToneMode() : 1;
+            if (mode == 2) grey = 0.50f;
+            VehicleFxEmitPuff(gta2::Vec3{x, y, z}, gta2::Vec3{vx, vy, vz}, life, (std::min)(s0, 0.6f), (std::min)(s1, 0.6f), grey, a,
+                              g_backblastSpawn && mode == 0 ? 3 : -1);
             return;
         }
     }
@@ -8639,6 +8672,7 @@ void ShotFxMuzzle(int weapon, const float* pos, const float* dir, const float* r
         const float bx = pos[0] - dir[0] * back, by = pos[1] - dir[1] * back, bz = pos[2] - dir[2] * back;
         ShotSpawn(bx - dir[0] * 0.03f, by - dir[1] * 0.03f, bz - dir[2] * 0.03f, -dir[0] * 0.4f, -dir[1] * 0.4f, -dir[2] * 0.4f,
                   0.09f, 0.08f, 0.20f, 1.0f, 0.80f, 0.50f, 0.9f, 4);
+        g_backblastSpawn = true;
         for (int i = 0; i < 14; ++i) {
             const float sp = 1.2f + 1.4f * ShotRand();
             const float sx = (ShotRand() - 0.5f) * 0.9f, sy = (ShotRand() - 0.5f) * 0.6f;
@@ -8646,6 +8680,7 @@ void ShotFxMuzzle(int weapon, const float* pos, const float* dir, const float* r
                       (-dir[2] + right[2] * sx + up[2] * sy) * sp, 0.9f + 0.6f * ShotRand(), 0.08f, 0.42f + 0.15f * ShotRand(),
                       0.78f, 0.77f, 0.75f, 0.85f, 3);
         }
+        g_backblastSpawn = false;
         for (int i = 0; i < 6; ++i) {
             const float sp = 2.0f + 2.0f * ShotRand();
             const float sx = (ShotRand() - 0.5f) * 0.8f, sy = (ShotRand() - 0.5f) * 0.8f;
@@ -16322,6 +16357,26 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
             for (const FireSpot& spot : fireSpots) {
                 if (spot.car != car) continue;
                 SpawnFlames(spot.x, spot.y, spot.z, spot.size, 1.0f / static_cast<float>(spots));
+            }
+            // FIX-FX-8 (FX-7's residual: the fire on a 3D body was one plume over the bonnet): smaller tongues lick out
+            // of the drawn body's seams too: both front wheel arches (just outside the body, at the arch's top) and the
+            // bonnet's rear seam under the windscreen, at a third of the plume's rate each, about half its size.
+            // GTA2DX9_FIRE_SEAMS=0 or fire_ab bit 256: the one plume (A/B).
+            static const bool seamsOff = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_FIRE_SEAMS", b, sizeof b) && b[0] == '0'; }();
+            if (seamsOff || (g_fireAb & 256) || FireAnchorOld() || fireFeetN <= 0) continue;
+            for (int k = 0; k < fireFeetN; ++k) {
+                const CarFootprint& f = fireFeet[k];
+                if (reinterpret_cast<const void*>(f.object) != car) continue;
+                float deck = 0.0f, roofY = 0.0f, screen = 0.0f, halfW = 0.0f;
+                const bool cabin = CarBodiesCabin(car, &deck, &roofY, &screen, &halfW);
+                const float arch = 0.62f * f.hz, archY = f.cy + (cabin ? (std::min)(0.14f, 0.55f * deck) : 0.12f);
+                for (int side = -1; side <= 1; side += 2) {
+                    const float across = side * (f.hx + 0.01f);
+                    SpawnFlames(f.cx + f.rx * across + f.fx * arch, archY, f.cz + f.rz * across + f.fz * arch, 0.5f, 0.33f, 0.5f);
+                }
+                if (cabin && f.hz - 0.08f - screen >= 0.10f)
+                    SpawnFlames(f.cx + f.fx * (screen + 0.03f), f.cy + deck - 0.02f, f.cz + f.fz * (screen + 0.03f), 0.5f, 0.33f, 0.55f);
+                break;
             }
         }
     }

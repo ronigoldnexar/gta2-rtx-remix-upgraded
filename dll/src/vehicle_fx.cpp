@@ -195,6 +195,7 @@ struct Particle {
     uint8_t kind;
     uint8_t cell = 0;   // debris: which shard of the atlas
     bool hot = false;   // debris: a burning bit, glowing for its first second
+    int8_t tone = -1;   // FIX-FX-8: a Remix soft-puff tone forced by the emitter (-1: by its grey)
 };
 std::vector<Particle> g_particles;
 
@@ -360,8 +361,11 @@ int g_remixPuffMode = 4;   // FIX-FX-6: 4 (soft blended puffs) by default; was 1
 // vertex colour, which Remix drops, so every wisp took the texture's light shade. The wisps now come in grey tones
 // baked into the texels: tone 0 the old light shade (tyre smoke, steam, exhaust unchanged), 1 mid grey, 2 dark smoke.
 // [devtools] remix_puff_tones=0: every puff light, as before.
-constexpr int kPuffTones = 3;
-constexpr float kPuffToneGrey[kPuffTones] = {1.0f, 0.55f, 0.26f};
+// FIX-FX-8 (ffx5): tone 3 is dust, light like tone 0 at tone 1's opacity: the rocket's backblast (the mid tone read as
+// dark soot on a shaded wall at noon, the light tone at x0.35 was not seen at all). Only an emitter that asks for it
+// gets it (Particle::tone); tones 0-2 keep their textures (and Remix hashes).
+constexpr int kPuffTones = 4;
+constexpr float kPuffToneGrey[kPuffTones] = {1.0f, 0.55f, 0.26f, 0.92f};
 int g_remixPuffTones = 1;
 IDirect3DTexture9* g_puffWispTex[kPuffLevels * kPuffSeeds * kPuffTones] = {};
 // FIX-FX-6 (owner10nov-1 "feathers / milk", pt-remix-noon-smoke-puff): every cut-out above has a binary edge, which is
@@ -376,7 +380,7 @@ IDirect3DTexture9* g_puffWispTex[kPuffLevels * kPuffSeeds * kPuffTones] = {};
 constexpr int kPuffSoftSize = 128;
 // Per tone (light, mid, dark): a light puff x0.35 (tyre smoke and steam stack into a white ball above that); a burning
 // engine's dark smoke x1.0 (the plain renderer's opacity: at x0.35 a burning van showed no plume at all, fx6_r5/r6).
-constexpr float kPuffSoftGain[kPuffTones] = {0.35f, 0.8f, 1.0f};
+constexpr float kPuffSoftGain[kPuffTones] = {0.35f, 0.8f, 1.0f, 0.8f};
 IDirect3DTexture9* g_puffSoftTex[kPuffLevels * kPuffTones] = {};
 float PuffTexel(float u, float v) {
     const float dx = u - 0.5f, dy = v - 0.5f;
@@ -1479,7 +1483,14 @@ void VehicleFxSetRemixPuffTones(int on) { g_remixPuffTones = on; }
 // FIX-FX-6 (ffx5 5w3, the rocket's backblast as chrome spheres under Remix): the soft puff modes take other effects'
 // smoke too. True when this frame's Remix puffs are the soft ones (remix_puff_mode 4-6).
 bool VehicleFxRemixSoftPuffs() { return g_remixPuffMode == 4; }
-void VehicleFxEmitPuff(const gta2::Vec3& at, const gta2::Vec3& v, float life, float size0, float size1, float grey, float alpha) {
+int g_emitLogFrames = 0;   // FIX-FX-8 (ffx5) probe: GTA2DX9_LOG_FIRE=1 logs the soft puffs for 40 frames after an emitted one
+void VehicleFxEmitPuff(const gta2::Vec3& at, const gta2::Vec3& v, float life, float size0, float size1, float grey, float alpha, int tone) {
+    static const bool logOn = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_LOG_FIRE", b, sizeof b) && b[0] == '1'; }();
+    if (logOn) {
+        if (g_emitLogFrames <= 0) Log("vehicle fx: emitted puff at %.2f,%.2f,%.2f v %.2f,%.2f,%.2f life %.2f size %.2f..%.2f grey %.2f alpha %.2f",
+                                      at.x, at.y, at.z, v.x, v.y, v.z, life, size0, size1, grey, alpha);
+        g_emitLogFrames = 40;
+    }
     Particle p{};
     p.kind = kSmoke;
     p.x = at.x; p.y = at.y; p.z = at.z;
@@ -1490,6 +1501,7 @@ void VehicleFxEmitPuff(const gta2::Vec3& at, const gta2::Vec3& v, float life, fl
     p.r = p.g = p.b = grey;
     p.a = (std::min)(alpha, 0.34f);
     p.groundY = at.y - 1.0f;
+    p.tone = static_cast<int8_t>(tone >= 0 && tone < kPuffTones ? tone : -1);
     Emit(p);
 }
 
@@ -1757,9 +1769,19 @@ void VehicleFxDraw(IDirect3DDevice9* device, const gta2::Vec3& eye, uint32_t fra
         std::memcpy(&own, &p.size1, sizeof own);
         const int seed = g_remixPuffMode == 0 ? static_cast<int>((frame + g_puffQuads.size()) % kPuffSeeds)
                                               : static_cast<int>((own ^ (own >> 7) ^ (own >> 15)) % kPuffSeeds);
-        const int tone = g_remixPuffTones ? (grey >= 0.62f ? 0 : grey >= 0.38f ? 1 : 2) : 0;
+        const int tone = p.tone >= 0 ? p.tone : g_remixPuffTones ? (grey >= 0.62f ? 0 : grey >= 0.38f ? 1 : 2) : 0;
         g_puffQuads.push_back({c, a, b, Colour(grey * shade[0], grey * shade[1], grey * 1.02f * shade[2], alpha),
                                Colour(grey * shade[0], grey * shade[1], grey * 1.02f * shade[2], 1.0f), level, seed, tone});
+    }
+    if (g_emitLogFrames > 0 && (g_emitLogFrames-- % 8) == 0) {
+        int n = 0; float amax = 0.0f, dmin = 1e9f; int tones[4] = {0, 0, 0, 0};
+        for (const PuffQuad& q : g_puffQuads) {
+            ++n; tones[q.tone < 4 ? q.tone : 0]++;
+            amax = (std::max)(amax, static_cast<float>((q.colour >> 24) & 255) / 255.0f);
+            dmin = (std::min)(dmin, std::sqrt(gta2::Dot(eye - q.c, eye - q.c)));
+        }
+        Log("vehicle fx: puff quads %d (tones %d/%d/%d/%d), max alpha %.3f, nearest %.2f, particles %zu, remix %d mode %d levels %d",
+            n, tones[0], tones[1], tones[2], tones[3], amax, dmin, g_particles.size(), remix ? 1 : 0, g_remixPuffMode, g_puffLevelsOn ? 1 : 0);
     }
     // Mode 4 (the default): the soft blended puffs (see g_puffSoftTex). GTA2DX9_REMIX_PUFF_SOFT=0 draws mode 4 as mode 1.
     static int softEnv = -1;

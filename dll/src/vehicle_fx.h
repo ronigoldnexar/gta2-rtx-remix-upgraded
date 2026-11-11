@@ -139,7 +139,7 @@ void VehicleFxSetRemixPuffTones(int on);   // [devtools] remix_puff_tones: 1 (de
 void VehicleFxProbeSmoke(const gta2::Vec3& at, float groundY);
 // FIX-FX-6: true while the Remix smoke puffs are the soft modes (remix_puff_mode 4); a smoke puff for that path.
 bool VehicleFxRemixSoftPuffs();
-void VehicleFxEmitPuff(const gta2::Vec3& at, const gta2::Vec3& v, float life, float size0, float size1, float grey, float alpha);
+void VehicleFxEmitPuff(const gta2::Vec3& at, const gta2::Vec3& v, float life, float size0, float size1, float grey, float alpha, int tone = -1);
 // For the log: particles alive, skid segments, ms of the last frame (update + draw).
 void VehicleFxStats(int* particles, int* skids, double* ms);
 

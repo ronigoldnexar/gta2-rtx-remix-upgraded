@@ -421,3 +421,64 @@ stretches back over about a second and is gone by frame 22, with no glass or chr
 (the shot smoke in the soft puffs' mid tone) was tried as a live A/B and looked the same, so it was not shipped. Still short:
 under Remix the cloud is near-black soot rather than grey-brown dust (at either tone), has path-tracer grain inside, and
 casts a dark shadow on the wall.
+
+## FIX-FX-8 (11 Nov): a burning car against a wall; the backblast under Remix; tongues from the seams
+
+**qav79: wedges in first person, a detached column in third (commit ba9d1992).** The filer's car caught fire nosed
+into the wil wall corner (111.6,109.4). Same-pose A/B with the live `[devtools] fire_ab` mask named both halves:
+
+| fire_ab | What is left out / changed | First person at the wall |
+|---|---|---|
+| 0 | nothing (the shipped picture) | soft flame blobs over the bonnet |
+| 1 | the game's flame sprites over cars | unchanged: they were not the wedges |
+| 4 | first person's own-car bonnet tongues (`g_ownFire`) | every flame gone: the wedges are these tongues |
+| 32 | the tongues' depth test | old spawn: the straight edges go (the wall's depth cut them) |
+| 128 | FIX-FX-8's depth pull only | new spawn: straight cuts again |
+| 16 | all of FIX-FX-8 (also `GTA2DX9_FIRE_ANCHOR_OLD=1`) | the filed V-wedges |
+
+- First person: the bonnet tongues spawned 0.52 block ahead of the car's middle, which is past the nose of a short
+  car, so with the car nosed into a wall they stood inside it. They now come off the drawn body (`CarBodiesFootprints`
+  + `CarBodiesCabin`): at the nose, 0.10 inside it, at least 0.30 ahead of the eye, 0.22 over the road. The cabin's
+  `deck` is the sill line at eye height, so tongues spawned there started at the horizon (run fx8w3). Every tongue is
+  drawn 0.15 block nearer the eye **in depth only**: `D3DRS_DEPTHBIAS = P43/(w-0.15) - P43/w` at the tongue's own view
+  depth `w` (the street views' projection has `_33 = 1`, `_43 = -0.05`, an infinite far plane). A wall just behind a
+  tongue no longer cuts it, while the cab, the wheel and anything 0.15 in front of it still hide it. Tongues fade out
+  over their last 0.3 block before the eye. The game's flame sprites over the car he sits in are left out in first
+  person.
+- Third person: the game lays its flame sprites off the car it knows, and the drawn body can sit apart from that (the
+  draw-only separation pushes it off a wall). In the filer's log the flame was at along -0.16 of 0.42 and across 0.25
+  of a 0.19 half width, i.e. past the roadster's side and behind its windscreen. The spot is now anchored on the drawn
+  body: spread over the bonnet (from the windscreen base + 0.04 to the nose - 0.08) where the body has one, inside the
+  body where it has none (a cab-over van burns on its roof, as FX-7 shipped), and never wider than 0.6 of it. The game
+  sprite and its layers move with the spot.
+- Probes: `gamerun/fx8_wall.py` (`qa_run.sh <name> 240 fx8wall`, `SEQ=first:0,16,...|third:...|classic:0`) steers
+  the scene car into the wall corner and sets it alight with `force_blast_car=driven` (new: `force_burn` on the car he
+  sits in). `GTA2DX9_LOG_FIRE=1` logs each car flame (centre, size, eye distance), the own bonnet spawn and the depth
+  pull.
+
+| Run | Frames (opened) |
+|---|---|
+| qa_fx8r1 (rebased ba9d1992, 23:00, model 0) | first: new soft, old (16) straight cuts; third: new on the bonnet, old a column up and left of the car; classic reference |
+| qa_fx8n2 (12:00, model 50) | first: old = the filed V-wedges, new soft; third on the bonnet |
+| qa_fx8w5 (23:00, model 50) | old / no depth pull (128) / new in one run: only the new one has no straight edge |
+| qa_fx8w2, w3, w4 | the 069 truck, 056, 000 at the same corner |
+
+Classic: vreg `spawn_classic` PASS, 0 of 144 tiles. Still open: the filer's open roadster 036 never came up as the
+scene car; at noon the additive first-person flames wash the windscreen near-white.
+
+**Seam tongues (FX-7's residual: one plume over the body).** A burning 3D body also sheds smaller tongues (half the
+size, a third of the plume's rate each) from both front wheel arches (just outside the body, at the arch's top) and
+the bonnet's rear seam under the windscreen where it has a bonnet. `GTA2DX9_FIRE_SEAMS=0` or `fire_ab` bit 256 = the
+one plume. Run fx8s1 (fx6_fire.py, the 068 van parked at wil, fixed side/front/third cameras, 13:00 and 22:00,
+`AB_SETS=seams:fire_ab=0|one:fire_ab=256`): with seams the near front arch burns under the cab beside the roof plume.
+Without them only the roof plume burns. The far arch is hidden by the body, as it should be.
+
+**ffx5: the rocket's backblast under Remix (not closed).** The backblast's 14 kind-3 puffs go to vehicle_fx's soft
+puffs (FX-6). `GTA2DX9_LOG_FIRE=1` shows they are drawn (28 quads with the rocket's trail, alpha up to 0.34). They were
+in the light tone, whose opacity is x0.35, and no backblast was visible at noon (out/fx8_bb5, out/fx8_bb6 "old"). They
+now take a new soft-puff tone 3, "dust" (texel grey 0.92, opacity x0.8; tones 0-2 keep their textures and hashes):
+a cloud now shows behind the tube on every launch. At the probe's spot (a building's shade), the dust and the mid
+tone (0.55) are equally dark, so the soot look comes from the path tracer's lighting of the puffs, not their albedo.
+`[devtools] backblast_tone_old` = 0 dust (default), 1 the old light tone, 2 the mid tone (`GTA2DX9_BACKBLAST_TONE_OLD=1`).
+Probe: `KEYS=keys_fx8_bb.sh gamerun/rn_remix.sh <name> 600 wil 12 "154.5,129.5,3" -e 'GTA2DX9_REGRESS_CAM=Z:\tmp\va2_cam.txt'
+-e CAMD=1.5 -e AB_SETS=...`. Without the regression camera every "fixed" pose is the chase view from behind him.
