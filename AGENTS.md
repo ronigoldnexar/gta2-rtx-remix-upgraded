@@ -47,6 +47,9 @@ Results of a run: `out/<run>/gta2dx9.log` (look for `FAULT`, `view:`,
   as a patch (`git diff > /tmp/x.patch; git checkout -- <files>`) or a WIP commit on your worktree branch.
 - Never put a shell variable in an `rm` command typed into the agent shell (`rm -rf "$X"`):
   the harness safety check hangs the call forever. Use literal absolute paths or Python.
+- Never run `rm` under `sudo`, and never remove anything under `/dev` (07:21 UTC 11 Nov: a `sudo rm -rf /dev/null`
+  from a QA seat's shell broke every `>/dev/null` redirect on the host for a minute, ended that pass and knocked
+  all restage chains out of their wait loops). The account's sudo covers everything; use it only for `docker`.
 - Restage the shared `stage/` only with `linux/docker/restage.sh` (waits for the build lock
   and all four game slots). Test from a private copy: `cp -al repo/stage ~/gta2-linux/stage_<you>`,
   then `STAGE=<dir>` on `grun.sh` / `qa_run.sh` / `sweep_run.sh`.
