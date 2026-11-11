@@ -2336,7 +2336,8 @@ void DrawRespect(ImDrawList* dl, const Values& v, float A) {
             const float side = right ? val : -val;          // respect toward this side
             if (side > 0.0f) cover = (std::max)(0.0f, (std::min)(1.0f, (side - k * 20.0f) / 20.0f));
             dl->AddRectFilled(ImVec2(cx0 + shadow, top + shadow), ImVec2(cx1 + shadow, bot + shadow), Fade(kShadow, A * 0.85f));
-            dl->AddRectFilled(ImVec2(cx0, top), ImVec2(cx1, bot), Fade(lost, A * 0.6f));
+            // Unearned: the gang's colour dimmed (as an empty heart reads against the street), so the meter shows at respect 0.
+            dl->AddRectFilled(ImVec2(cx0, top), ImVec2(cx1, bot), Fade(Mix(st.bar, IM_COL32(0, 0, 0, 255), 0.62f), A * 0.95f));
             if (cover > 0.0f) {
                 const ImU32 col = right ? st.bar : Mix(st.bar, IM_COL32(0, 0, 0, 255), 0.45f);
                 // Fill from the middle side of the block.
