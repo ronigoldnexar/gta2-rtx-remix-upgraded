@@ -1613,3 +1613,29 @@ vehicle passes by" (work order owner10nov-B10, plan section B10), and qav26 (sta
   exit can leave the carriage half off the frame for a moment (tr10 v1_ride3), the classic -> third move itself (1.4 s) is
   the standard V move from the game's high camera, not a train shot; first person aboard and the ride's end (getting off)
   untested with this build.
+
+### The pocket's boom cut and the first-person seat step dissolve (FIX-CAMERA-19)
+
+- **cam18-third-pocket residual** (the on-foot boom still cuts round him about twice a minute of walking loops in the wil
+  iron-stair booth and the 164.5,147.6 kerb, where the walls close every way: FIX-CAMERA-18's bounded cause). The cut stays
+  (no way round is open; a lift past 45 degrees on foot was ruled out by FIX-CAMERA's paving shots) but it no longer jumps:
+  **`[camera] cut_dissolve`** (hundredths of a second, default 30; `GTA2DX9_CAM_CUT_DISSOLVE=<n>`, 0 = the hard cut).
+  Every settled street-view frame is kept (Renderer::KeepFrame, the classic switch's copy: one StretchRect of the back
+  buffer); on the frame the swing cuts (`view_modes` counts each cut, `ChaseCutSerial`) world_view draws the kept frame over
+  the new one and fades it out over 0.3 s, smoothstep, on the clock with each frame's step capped at 1/30 s (a 130 ms hitch
+  at the cut spent a plainly clocked dissolve unseen, cam19_pk1; counted in frames it ran in 0.1 s at 90 fps, cam19_pk2).
+  Plain renderer only (Remix keeps no frame copy: the cut as before). Log `view: the boom's cut dissolves from the frame
+  before over 0.30 s`.
+- **fpe-residual** (first person getting in: the game seats him and on that frame the car's outside goes and the cab, the
+  hands and the dash come at once, the eye still at the door): the same dissolve from the frame before, started with the
+  seat glide-in (`view: the seat step dissolves ...`; `GTA2DX9_FP_ENTRY_DISSOLVE=0` off): the cockpit comes in over the
+  glide's first frames.
+- **Measured**: keys_cam17.sh CAM17_SEGS=booth,bus (filer's recipe), cam19_pk3: 6 cuts, 6 dissolves, `turn over budget` 0;
+  game.mp4 at the 54:51 cut, every frame opened: the old view, two frames blending both, the new view (before, cam19_pk1's
+  clocked dissolve: one hard frame). keys_fpe.sh FPE_SEGS=ee (cam19_fpe1, b_fpe_first_in.mp4 at 30 fps): per-frame
+  luminance difference over the threshold f64-f75 0.1-22.5 (file's bar 30; FIX-FP-ENTRY's tri6_fpe 42.7 at f59), the van's
+  side crossfading into the windscreen, wheel and gauges over ~6 frames.
+- Short of a shipping frame: the cuts themselves still happen (6 in the 2-minute loop in cam19_pk3, 1 in pk2, as
+  CAMERA-18's 4-7); a dissolve is a softened cut, not a lens that finds its way out. Getting in, the plan's door shuts in
+  front of the eye while it still waits outside (f52-f64), and the eye does not travel through the open door; getting out
+  (pfl79) has no boarding plan in first person at all (no door opens), see that order's note.

@@ -3989,6 +3989,37 @@ void WorldView::RenderFrame() {
                         renderer_.KeptFrameDifference(), alpha);
             }
         }
+        // FIX-CAMERA-19 (cam18-third-pocket residual: the boom's one-frame cut round him in the wil pockets): the last
+        // third-person frame (kept below) dissolves into the cut's first frame over [camera] cut_dissolve (0.3 s: 9 frames), so the
+        // cut reads as a camera blend, not a jump. Plain renderer only (Remix keeps no frame copy: the hard cut).
+        {
+            const uint32_t serial = ChaseCutSerial();
+            const float span = ChaseCutDissolveSeconds();
+            if (serial != cutSerialSeen_) {
+                cutSerialSeen_ = serial;
+                if (span > 0.0f && !dissolveActive_ && renderer_.HasKeptFrame() && keptThirdAt_ == frameCount_ - 1 &&
+                    (CurrentViewMode() == ViewMode::ThirdPerson || CurrentViewMode() == ViewMode::FirstPerson)) {
+                    cutDissolveAt_ = 0.0;   // progress, seconds
+                    cutDissolveLast_ = -1.0;
+                    Log("view: the %s dissolves from the frame before over %.2f s", CurrentViewMode() == ViewMode::FirstPerson ? "seat step" : "boom's cut", span);
+                }
+            }
+            if (cutDissolveAt_ >= 0.0) {
+                // the clock, each frame's step capped at 1/30 s: a hitch at the cut (cam19_pk1: 130 ms) spent most of a
+                // plainly clocked dissolve before its first frame was shown; counted in frames it ran in 0.1 s at 90 fps
+                LARGE_INTEGER c, f;
+                QueryPerformanceCounter(&c); QueryPerformanceFrequency(&f);
+                const double t = static_cast<double>(c.QuadPart) / static_cast<double>(f.QuadPart);
+                if (cutDissolveLast_ >= 0.0) cutDissolveAt_ += (std::min)(t - cutDissolveLast_, 1.0 / 30.0);
+                cutDissolveLast_ = t;
+                const float u = span > 0.0f ? static_cast<float>(cutDissolveAt_ / span) : 1.0f;
+                if (u >= 1.0f || CurrentViewMode() == ViewMode::Classic || dissolveActive_) cutDissolveAt_ = -1.0;
+                else {
+                    const float k = (std::max)(0.0f, u);
+                    renderer_.DrawKeptFrame(1.0f - k * k * (3.0f - 2.0f * k));
+                }
+            }
+        }
         // ImGui issues ordinary D3D9 draws, so it belongs inside the scene.
         DebugMenuRender();
         // Remix clears its per-frame light list every frame, so a light is in the
@@ -4005,7 +4036,12 @@ void WorldView::RenderFrame() {
             transitionT_ >= 1.0f && skyBlend_ <= 0.0f && !DebugMenuVisible()) {
             renderer_.KeepFrame();
             keptClassicAt_ = frameCount_;
-        } else if (renderer_.HasKeptFrame() && !dissolveActive_) {
+        } else if (worldUploaded_ && ChaseCutDissolveSeconds() > 0.0f && CurrentViewMode() != ViewMode::Classic && g_viewActive &&
+                   transitionT_ >= 1.0f && !dissolveActive_ && cutDissolveAt_ < 0.0 && !DebugMenuVisible()) {
+            // FIX-CAMERA-19: every settled street-view frame is kept (a copy) for the dissolve over a boom cut or the seat step
+            renderer_.KeepFrame();
+            keptThirdAt_ = frameCount_;
+        } else if (renderer_.HasKeptFrame() && !dissolveActive_ && cutDissolveAt_ < 0.0) {
             renderer_.DropKeptFrame();
         }
         // FIX-PERF-VSWITCH: the street views' GL programs, built while the classic view is up

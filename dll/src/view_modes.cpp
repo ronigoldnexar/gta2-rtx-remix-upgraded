@@ -75,6 +75,7 @@ bool CarFrameOf(const CameraCar& c, float* cx, float* cz, float* ex, float* ez, 
     return true;
 }
 float g_fpExitGlideLeft = 0.0f;   // FIX-COCKPIT-CAB-6: FpExitGlideLeft()
+uint32_t g_chaseCutSerial = 0;   // FIX-CAMERA-19: ChaseCutSerial()
 // GTA2DX9_FP_EXIT_CAR_FRAME=0: the exit glide's start fixed in the world, as before (A/B).
 bool FpExitCarFrameOn() {
     static const bool on = [] { char b[4] = {}; return !(GetEnvironmentVariableA("GTA2DX9_FP_EXIT_CAR_FRAME", b, sizeof b) && b[0] == '0'); }();
@@ -3894,6 +3895,11 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                     // out of it over 0.5 s, eased at both ends; the old 0.12 s decay read as a cut.
                     fpGlideX_ = shownX_ - eye.x; fpGlideY_ = shownY_ - eye.y; fpGlideZ_ = shownZ_ - eye.z;
                     fpGlideT_ = 0.0f; fpGlideDur_ = inVehicle ? 0.6f : 0.5f;
+                    // FIX-CAMERA-19 (fpe-residual: on the frame the game seats him the car's outside goes and the cab, the
+                    // hands and the dash come at once while the eye is still at the door): world_view dissolves from the
+                    // frame before, so the cockpit comes in over the glide's first 9 frames. GTA2DX9_FP_ENTRY_DISSOLVE=0: off.
+                    static const bool entryDissolve = [] { char b[4] = {}; return !(GetEnvironmentVariableA("GTA2DX9_FP_ENTRY_DISSOLVE", b, sizeof b) && b[0] == '0'); }();
+                    if (inVehicle && entryDissolve) ++g_chaseCutSerial;
                     // a long way (a hand-over far from where he was shown): no frame steps more than ~0.25 block
                     fpGlideDur_ = (std::max)(fpGlideDur_, off * 1.5f / (0.25f * 30.0f));
                     fpOffX_ = fpOffY_ = fpOffZ_ = 0.0f;
@@ -4831,6 +4837,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                 }
                 if (cut) {
                     swingCut = true;
+                    ++g_chaseCutSerial;   // FIX-CAMERA-19: world_view dissolves over it (ChaseCutSerial)
                     if (cameraLogOn()) Log("cam: swing first: neither way round is open, cut %.1f -> %.1f deg", before / kDegToRad,
                                            swingAngle_ / kDegToRad);
                 }
@@ -6519,6 +6526,15 @@ bool FirstPersonSeatEyeRaw(gta2::Vec3* eye) {
 void SetFirstPersonSeatCorrection(const gta2::Vec3& delta) { g_fpSeat.delta = delta; g_fpSeat.deltaAt = Now(); }
 bool FirstPersonBoardEyeOn() { return FpSeatGlideOn(); }
 float FpExitGlideLeft() { return g_fpExitGlideLeft; }
+uint32_t ChaseCutSerial() { return g_chaseCutSerial; }
+// FIX-CAMERA-19 (cam18-third-pocket residual): [camera] cut_dissolve (percent of a second, 0 = the hard cut), or
+// GTA2DX9_CAM_CUT_DISSOLVE=<hundredths of a second>.
+float ChaseCutDissolveSeconds() {
+    static int env = -2;
+    if (env < -1) { char b[8] = {}; env = GetEnvironmentVariableA("GTA2DX9_CAM_CUT_DISSOLVE", b, sizeof b) ? atoi(b) : -1; }
+    const int v = env >= 0 ? env : ViewModes().cutDissolve;
+    return (std::max)(0, (std::min)(100, v)) / 100.0f;
+}
 
 // FIX-CAMERA-16: see view_modes.h.
 void SetChaseTrees(std::vector<ChaseTree>&& trees) { g_chaseTrees = std::move(trees); }

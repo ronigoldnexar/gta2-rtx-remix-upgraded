@@ -96,6 +96,9 @@ struct ViewModeSettings {
     bool tunnelPivot = true;
     // FIX-CAMERA-19: on a train the chase lens rides the line behind the carriage. [camera] train_trail.
     bool trainTrail = true;
+    // FIX-CAMERA-19: the third person's one-frame boom cut dissolves from the frame before over this many hundredths of a
+    // second (0: the hard cut). [camera] cut_dissolve.
+    int cutDissolve = 30;
     float fpCarRate = 240.0f;       // first person at the wheel: fixed to the car, this is only a safety cap
     float fpFollowRate = 150.0f;    // first person on foot when the view follows the heading
     // First person: the view heading eases onto the game's over this long
@@ -591,6 +594,10 @@ void SetFirstPersonSeatCorrection(const gta2::Vec3& delta);
 bool FirstPersonBoardEyeOn();
 // FIX-COCKPIT-CAB-6 (pfl79): how much of the first-person exit glide (seat to door) is left, 1..0 (0: none running).
 float FpExitGlideLeft();
+// FIX-CAMERA-19: a count of the third person's one-frame boom cuts (the pocket's swing cut), and how long the dissolve
+// over one lasts (0: the hard cut).
+uint32_t ChaseCutSerial();
+float ChaseCutDissolveSeconds();
 
 // QB-6: aiming in the street views. Updated once a frame by the camera solver from the
 // player's ped: armed (on foot, a gun in his hands, standing), his shots (his weapon's

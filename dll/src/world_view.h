@@ -322,6 +322,12 @@ private:
     int keptClassicAt_ = -100;
     bool dissolveActive_ = false;
     float dissolveT0_ = -1.0f;
+    // FIX-CAMERA-19: the dissolve over a third-person boom cut: the frame a third-person frame was last kept on, the cut
+    // count seen, and the dissolve's start (seconds; < 0 none).
+    int keptThirdAt_ = -100;
+    uint32_t cutSerialSeen_ = 0;
+    double cutDissolveAt_ = -1.0;
+    double cutDissolveLast_ = -1.0;
     int viewLostFrames_ = 0;       // frames a ground view has gone without the player
     // FIX-SMOOTH-SWITCH: the presentation last applied (see StreetPresentation), so the
     // car body numbers swap once per change.

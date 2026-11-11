@@ -215,6 +215,7 @@ void LoadConfig() {
         vm.levelStartCut = GetPrivateProfileIntA("camera", "level_start_cut", 1, ini) != 0;   // FIX-CAMERA-18
         vm.tunnelPivot = GetPrivateProfileIntA("camera", "tunnel_pivot", 1, ini) != 0;   // FIX-CAMERA-18
         vm.trainTrail = GetPrivateProfileIntA("camera", "train_trail", 1, ini) != 0;   // FIX-CAMERA-19
+        vm.cutDissolve = GetPrivateProfileIntA("camera", "cut_dissolve", 30, ini);   // FIX-CAMERA-19
         vm.navMap = GetPrivateProfileIntA("camera", "nav_map", 1, ini) != 0;
         vm.aimAssist = GetPrivateProfileIntA("camera", "aim_assist", 1, ini) != 0;   // FIX-AIM-1
         vm.aimCoverWalls = GetPrivateProfileIntA("camera", "aim_cover_walls", 1, ini) != 0;   // FIX-AIM-2
