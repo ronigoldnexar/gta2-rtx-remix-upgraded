@@ -1166,7 +1166,66 @@ void UnlockTexels(IDirect3DTexture9* t) {
     if (t) t->UnlockRect(0);
 }
 
+// VEHICLE-ART-26: the door card of a swung door's inside (car_bodies.cpp DoorInside), one picture for every body: u
+// along the door from the hinge (0) to the latch (0.94), v from the belt (0) down to the sill (1); u past 0.96 is the
+// seal grey of the door's edges. A neutral warm-grey vinyl that sits with any paint: kick plate, a panel with an inset
+// border and two pleats, a window crank, an armrest with its lit top and shadow, a chrome pull at the latch end, a
+// capping under the belt. Opaque, 256 x 256.
+IDirect3DTexture9* DoorCardTexture(IDirect3DDevice9* device) {
+    constexpr int kS = 256;
+    IDirect3DTexture9* t = nullptr;
+    if (FAILED(device->CreateTexture(kS, kS, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &t, nullptr))) return nullptr;
+    D3DLOCKED_RECT lr;
+    if (FAILED(t->LockRect(0, &lr, nullptr, 0))) { t->Release(); return nullptr; }
+    for (int y = 0; y < kS; ++y) {
+        uint32_t* row = reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(lr.pBits) + y * lr.Pitch);
+        const float v = 1.0f - (y + 0.5f) / kS;   // 0 at the sill, 1 at the belt
+        for (int x = 0; x < kS; ++x) {
+            const float u = (x + 0.5f) / kS / 0.94f;   // 0 hinge .. 1 latch
+            const float grain = 0.035f * (CharNoise(x * 0.35f, y * 0.35f, 91) - 0.5f) + 0.02f * (CharNoise(x * 1.7f, y * 1.7f, 17) - 0.5f);
+            float r = 0.0f, g = 0.0f, b = 0.0f;
+            auto set = [&](float rr, float gg, float bb) { r = rr; g = gg; b = bb; };
+            if (u > 1.045f) set(0.47f, 0.44f, 0.40f);                                            // a shell's upper door, inside
+            else if (u > 1.02f) set(0.42f, 0.41f, 0.40f);                                              // the edges' seal
+            else if (v < 0.11f) set(0.27f, 0.26f, 0.25f);                                         // kick plate
+            else if (v < 0.125f) set(0.46f, 0.44f, 0.41f);                                         // its lit top edge
+            else if (v > 0.90f) set(v > 0.975f ? 0.16f : 0.36f, v > 0.975f ? 0.16f : 0.34f, v > 0.975f ? 0.165f : 0.31f);   // capping, belt seal
+            else if (v > 0.66f && v < 0.78f && u > 0.10f && u < 0.90f) {                           // armrest
+                const float k = (v - 0.66f) / 0.12f;
+                const float lit = k > 0.82f ? 0.62f : k < 0.18f ? 0.26f : 0.50f + 0.06f * k;
+                set(lit, lit * 0.93f, lit * 0.85f);
+            } else {                                                                               // vinyl panel
+                float base = 0.45f;
+                const float bu = (std::min)(u - 0.04f, 0.96f - u), bv = (std::min)(v - 0.16f, 0.62f - v);
+                if (v < 0.64f && std::fabs((std::min)(bu, bv)) < 0.010f) base = 0.33f;            // the inset border
+                if (v > 0.16f && v < 0.62f && (std::fabs(v - 0.31f) < 0.006f || std::fabs(v - 0.46f) < 0.006f)) base = 0.38f;   // pleats
+                set(base, base * 0.92f, base * 0.84f);
+            }
+            // the pull handle at the latch end, over the armrest; the window crank by the hinge
+            const float hu = (u - 0.83f) / 0.07f, hv = (v - 0.84f) / 0.025f;
+            if (hu * hu + hv * hv < 1.0f) { const float c = 0.55f + 0.20f * (1.0f - hv * hv); set(c, c, c * 1.02f); }
+            else if (hu * hu + hv * hv < 1.6f) set(0.10f, 0.10f, 0.10f);
+            const float cu = (u - 0.30f) / 0.035f, cv = (v - 0.55f) / 0.055f;
+            if (cu * cu + cv * cv < 1.0f) { const float c = 0.50f + 0.18f * cu; set(c, c, c); }
+            else if (v > 0.55f && v < 0.60f && std::fabs(u - 0.30f - (v - 0.55f) * 1.6f) < 0.008f) set(0.55f, 0.55f, 0.56f);
+            r += grain; g += grain; b += grain;
+            const uint32_t R = static_cast<uint32_t>((std::max)(0.0f, (std::min)(1.0f, r)) * 255.0f + 0.5f);
+            const uint32_t G = static_cast<uint32_t>((std::max)(0.0f, (std::min)(1.0f, g)) * 255.0f + 0.5f);
+            const uint32_t B = static_cast<uint32_t>((std::max)(0.0f, (std::min)(1.0f, b)) * 255.0f + 0.5f);
+            row[x] = 0xFF000000u | (R << 16) | (G << 8) | B;
+        }
+    }
+    t->UnlockRect(0);
+    g_textureBytes += static_cast<size_t>(kS) * kS * 4;
+    Log("models: door card texture made (VEHICLE-ART-26)");
+    return t;
+}
 IDirect3DTexture9* BaseTextureForImpl(IDirect3DDevice9* device, const std::string& file) {
+    if (file == "doortrim|card") {
+        IDirect3DTexture9* card = DoorCardTexture(device);
+        g_textures[file] = card;
+        return card;
+    }
     if (file.compare(0, 6, "wreck|") == 0 || file.compare(0, 7, "wreckp|") == 0) {
         IDirect3DTexture9* charred = CharredTexture(device, file);
         if (!charred) Log("models: no charred copy of %s", file.c_str());

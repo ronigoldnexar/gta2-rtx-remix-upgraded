@@ -1371,3 +1371,41 @@ every painted panel (same probes as ART-24: `gamerun/va24_show.py`, `va24_tcam.p
 - Model files: `016_panto*`, `083_furore_gt*` in repo/assets/models since 02:30 (staged by the 02:41 restage,
   240e3d2b); `047_meteor*`, `048_meteor*` see the batch order's READY lines. Shells backed up in
   `/mnt/gta2/gta2-linux/backup_va25/repo_models_0NN`.
+
+## VEHICLE-ART-26 (11 Nov 2026): a swung door's inside for every body; qav89 was the old 007 shell
+
+**qav89 (007 Box Truck rear "near-black with an oval hole").** No change: the filed stage carried the old image-to-3D
+007 shell (its model file from 10 Nov, 3 meshes; the log said "3 nodes, 3 meshes"), not VEHICLE-ART-24's kit body
+(19 meshes, staged since the 02:41 restage). The same repro on a HEAD stage shows two closed white rear doors with the
+centre seam, hinges and lock bars, no dark face, nothing see-through (frames in the defect's READY line).
+
+**The door's inside (qaf86, qaexp59, tri60's door item).** Since FIX-FP-EXIT-1 the first-person eye stands behind the
+open driver's door for half a second. The door split (`dll/src/car_bodies.cpp` `BuildDoorSplit`) drew the door's inside
+as its outer skin again, wound the other way with the skin's normals: a paper-thin slab in the shell's stretched paint
+(023's brown sawtooth, 068's flat white board), dark whenever the outside was in shade (063's near-black: the inside
+took the outside's light), its window part cut away by the glass path so the slab ended in a bare straight edge.
+
+Now, in the split itself and so for every body (`DoorInside`, [devtools] `door_trim`, default 1):
+- the inside sits a door's thickness (0.03 of the roof, ~7 cm) in from the skin, lit mostly from above (normals
+  tilted inward and up: with the skin's normals or straight inward it went near-black whenever that side was in shade);
+- under the belt (the foot of the door's own glass, else 0.60 of the roof) it is a door card: one generated texture
+  (`doortrim|card`, `dll/src/model_store.cpp` `DoorCardTexture`: kick plate, warm-grey vinyl panel with an inset
+  border and two pleats, a window crank, an armrest with a lit top and its shadow, a chrome pull at the latch end, a
+  capping under the belt) mapped flat along the door from the hinge to the latch, so it reads the same on a shell
+  and a kit body whatever their UV atlas;
+- over the belt, on a body with its own door glass (kit bodies), the skin's own frame mirrored and set in by the
+  thickness (the body paint round the window); on a shell (windows painted in its atlas, 023's awning stripes
+  stretched over the door) the card's upper trim panel instead (a dark window tone read as a black slab on 068);
+- the glass stays a thin pane (as before);
+- every open edge of the door's outline (the cut edges, the window reveal) is closed by a strip from the skin to the
+  inside in the card's seal grey, lit as if facing up (lit with the inside's normal they read as black bands from
+  the first-person eye above the door's top): the door has an edge, not a torn sheet;
+- glass and seal faces that face more forward than sideways stay on the body: 036 Schmidt's windscreen and its
+  seal wrapped into the door's box and swung out as the warped crescent and shards qaf86 filed.
+The outer skin is not touched, so the third-person door from outside is as before. The door is also drawn mirrored
+on the far wall of the opening's cabin box (FIX-SEAT-ENTRY-3), which now shows the card too.
+
+- Probes: `gamerun/va26_fpx.py` (`keys_qa_va26fpx.sh`: per forced model, first-person exit bursts at 15 fps, `door_trim`
+  1 and 0 in one run), `gamerun/va26_door3.py` (`keys_qa_va26door3.sh`: the lens fixed beside the driver's door by
+  `GTA2DX9_REGRESS_CAM`, Return, a burst while the door swings toward it). `force_car_door` cannot open a seated
+  player's door (the boarding hold shuts it), and a scripted exit loses the scene car, so neither films a held door.

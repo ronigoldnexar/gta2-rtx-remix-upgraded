@@ -10,6 +10,7 @@
 #include <cstring>
 #include <deque>
 #include <initializer_list>
+#include <array>
 #include <map>
 #include <mutex>
 #include <set>
@@ -116,6 +117,7 @@ static int FpSeatLockDefault() {
 }
 int g_fpSeatFreeze = 1;   // [devtools] fp_seat_freeze=0: FIX-SEAT-ENTRY-4's once-learned seat point off (tri11 A/B)
 int g_doorTopCut = 1;      // [devtools] door_top_cut=0: FIX-SEAT-ENTRY-4's cut of the shoulder faces across the door's top off (A/B)
+int g_doorTrim = 1;        // [devtools] door_trim=0: VEHICLE-ART-26's door inside (trim card, thickness, edges) off: the mirrored skin (A/B)
 int g_forceDoor = 0;        // [devtools] force_car_door=1|-1: every car body drawn with its right|left door open (re-read once a second)
 char g_devIni[260] = {};
 }  // namespace
@@ -1985,14 +1987,217 @@ MeshWheelZ MeshWheelZFor(const Model& model, const gta2::Mat4& fit, float roof, 
 }
 
 DoorKey DoorKeyFor(const Model& model, int side, float zFront, float zRear) {
-    return DoorKey{&model, side, static_cast<int>(std::floor(zFront * 20.0f)), static_cast<int>(std::floor(zRear * 20.0f)), g_doorExactCut ? (g_doorTopCut ? 2 : 1) : 0};
+    return DoorKey{&model, side, static_cast<int>(std::floor(zFront * 20.0f)), static_cast<int>(std::floor(zRear * 20.0f)),
+                   (g_doorExactCut ? (g_doorTopCut ? 2 : 1) : 0) | (g_doorTrim ? 4 : 0)};
+}
+
+// VEHICLE-ART-26 (qaf86, qaexp59, tri60): the inside of a swung door, for every body. Since FIX-FP-EXIT-1 the first-person
+// eye stands behind the open door for half a second, and the door's inside was its outer skin again, mirrored: the shell's
+// stretched paint as a flat slab (023's brown sawtooth, 063's near-black, 068's white board, 069's brown), paper thin, its
+// window cut leaving a bare straight top. Now the inside sits a door's thickness in from the skin; under the belt (the
+// door glass's foot, else 0.60 of the roof) it is a door card - one generated texture ("doortrim|card", model_store.cpp:
+// kick plate, vinyl panel, armrest, pull handle, window crank) mapped flat along the door; above the belt the skin's own
+// frame mirrored; the glass a thin pane as before; and every open edge of the door's outline (its cut edges, the window
+// reveal) is closed by a strip in the card's seal grey. The outside face is not touched (third person shows it).
+void DoorInside(const Model& model, const std::vector<gta2::Mat4>& worlds, const gta2::Mat4& fit, int side, float roof,
+                float yLo, float yTop, float zFront, float zRear, Model* doorOut) {
+    Model& door = *doorOut;
+    const float sg = static_cast<float>(side);
+    struct NodeXf { gta2::Mat4 toCar; float inv[3][3] = {}; bool ok = false; };
+    std::vector<NodeXf> xf(model.nodes.size());
+    int n0 = -1;
+    for (size_t n = 0; n < model.nodes.size() && n < worlds.size(); ++n) {
+        const int mi = model.nodes[n].mesh;
+        if (mi < 0 || mi >= static_cast<int>(door.meshes.size()) || door.meshes[static_cast<size_t>(mi)].indices.empty()) continue;
+        NodeXf& x = xf[n];
+        x.toCar = Mul(worlds[n], fit);
+        const auto& m = x.toCar.m;
+        const float det = m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) +
+                          m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+        if (std::fabs(det) < 1e-12f) continue;
+        const float id = 1.0f / det;
+        x.inv[0][0] = (m[1][1] * m[2][2] - m[1][2] * m[2][1]) * id; x.inv[0][1] = (m[0][2] * m[2][1] - m[0][1] * m[2][2]) * id;
+        x.inv[0][2] = (m[0][1] * m[1][2] - m[0][2] * m[1][1]) * id; x.inv[1][0] = (m[1][2] * m[2][0] - m[1][0] * m[2][2]) * id;
+        x.inv[1][1] = (m[0][0] * m[2][2] - m[0][2] * m[2][0]) * id; x.inv[1][2] = (m[0][2] * m[1][0] - m[0][0] * m[1][2]) * id;
+        x.inv[2][0] = (m[1][0] * m[2][1] - m[1][1] * m[2][0]) * id; x.inv[2][1] = (m[0][1] * m[2][0] - m[0][0] * m[2][1]) * id;
+        x.inv[2][2] = (m[0][0] * m[1][1] - m[0][1] * m[1][0]) * id;
+        x.ok = true;
+        if (n0 < 0) n0 = static_cast<int>(n);
+    }
+    if (n0 < 0) return;
+    auto vecToModel = [](const NodeXf& x, const gta2::Vec3& d) {
+        return gta2::Vec3{d.x * x.inv[0][0] + d.y * x.inv[1][0] + d.z * x.inv[2][0], d.x * x.inv[0][1] + d.y * x.inv[1][1] + d.z * x.inv[2][1],
+                          d.x * x.inv[0][2] + d.y * x.inv[1][2] + d.z * x.inv[2][2]};
+    };
+    auto normalToModel = [](const NodeXf& x, const gta2::Vec3& nc) {   // n_model = n_car * M^T
+        const auto& m = x.toCar.m;
+        gta2::Vec3 r{nc.x * m[0][0] + nc.y * m[0][1] + nc.z * m[0][2], nc.x * m[1][0] + nc.y * m[1][1] + nc.z * m[1][2],
+                     nc.x * m[2][0] + nc.y * m[2][1] + nc.z * m[2][2]};
+        const float l = std::sqrt(gta2::Dot(r, r));
+        return l > 1e-9f ? r * (1.0f / l) : gta2::Vec3{0.0f, 1.0f, 0.0f};
+    };
+    // The belt: the lowest point of the door's own glass.
+    float belt = 1e9f;
+    for (size_t n = 0; n < xf.size(); ++n) {
+        if (!xf[n].ok) continue;
+        const ModelMesh& mesh = door.meshes[static_cast<size_t>(model.nodes[n].mesh)];
+        if (mesh.texture.find("_glass") == std::string::npos) continue;
+        for (uint32_t i : mesh.indices) {
+            const ModelVertex& v = mesh.vertices[i];
+            belt = (std::min)(belt, PointBy(xf[n].toCar, v.x, v.y, v.z).y);
+        }
+    }
+    const float span = (std::max)(1e-4f, yTop - yLo);
+    const bool ownGlass = belt <= yTop;   // a kit body's door glass; a shell's windows are painted in its atlas
+    if (belt > yTop) belt = 0.60f * roof;
+    belt = (std::max)(yLo + 0.30f * span, (std::min)(yTop, belt));
+    const float thick = 0.03f * roof;                                   // ~7 cm on a 0.55-block roof
+    const gta2::Vec3 inward{-sg * thick, 0.0f, 0.0f};                   // car frame
+    const gta2::Vec3 panelN{-sg * 0.45f, 0.89f, 0.0f};                  // the inside's own side, mostly sky-lit: with the skin's
+                                                                        // normals it went dark whenever the outside was in shade
+                                                                        // (063's near-black slab), facing in it went dark in shade
+    const NodeXf& X0 = xf[static_cast<size_t>(n0)];
+    ModelMesh card;
+    card.texture = "doortrim|card"; card.skin = -1;
+    const gta2::Vec3 edgeN{-sg * 0.30f, 0.95f, 0.0f};                   // the edges lit from above: in shade the seal read as black bands
+    auto cardVertex = [&](const gta2::Vec3& qc, float u, float v, const gta2::Vec3* nOver = nullptr) {
+        const gta2::Vec3 d{qc.x - X0.toCar.m[3][0], qc.y - X0.toCar.m[3][1], qc.z - X0.toCar.m[3][2]};
+        const gta2::Vec3 p = vecToModel(X0, d), nn = normalToModel(X0, nOver ? *nOver : panelN);
+        ModelVertex r;
+        r.x = p.x; r.y = p.y; r.z = p.z; r.nx = nn.x; r.ny = nn.y; r.nz = nn.z; r.u = u; r.v = v;
+        card.vertices.push_back(r);
+        return static_cast<uint32_t>(card.vertices.size() - 1);
+    };
+    auto cardUv = [&](const gta2::Vec3& q, float* u, float* v) {
+        *u = 0.94f * (std::max)(0.0f, (std::min)(1.0f, (zFront - q.z) / (std::max)(1e-4f, zFront - zRear)));
+        *v = 1.0f - (std::max)(0.0f, (std::min)(1.0f, (q.y - yLo) / (std::max)(1e-4f, belt - yLo)));
+    };
+    // The outline's open edges, by position (1/4000 block).
+    struct EdgeRec { gta2::Vec3 a, b; int count = 0; };
+    std::map<std::array<int, 6>, EdgeRec> edges;
+    auto quant = [](const gta2::Vec3& p) { return std::array<int, 3>{static_cast<int>(std::lround(p.x * 4000.0f)), static_cast<int>(std::lround(p.y * 4000.0f)),
+                                                                     static_cast<int>(std::lround(p.z * 4000.0f))}; };
+    auto addEdge = [&](const gta2::Vec3& a, const gta2::Vec3& b) {
+        std::array<int, 3> ka = quant(a), kb = quant(b);
+        if (ka == kb) return;
+        if (kb < ka) std::swap(ka, kb);
+        EdgeRec& e = edges[{ka[0], ka[1], ka[2], kb[0], kb[1], kb[2]}];
+        if (!e.count) { e.a = a; e.b = b; }
+        ++e.count;
+    };
+    struct CV { gta2::Vec3 q; ModelVertex v; };
+    auto lerpCV = [](const CV& A, const CV& B, float k) {
+        CV r;
+        r.q = A.q + (B.q - A.q) * k;
+        r.v.x = A.v.x + (B.v.x - A.v.x) * k; r.v.y = A.v.y + (B.v.y - A.v.y) * k; r.v.z = A.v.z + (B.v.z - A.v.z) * k;
+        r.v.nx = A.v.nx + (B.v.nx - A.v.nx) * k; r.v.ny = A.v.ny + (B.v.ny - A.v.ny) * k; r.v.nz = A.v.nz + (B.v.nz - A.v.nz) * k;
+        r.v.u = A.v.u + (B.v.u - A.v.u) * k; r.v.v = A.v.v + (B.v.v - A.v.v) * k;
+        return r;
+    };
+    size_t cardTris = 0, frameTris = 0, glassTris = 0;
+    for (size_t n = 0; n < xf.size(); ++n) {
+        if (!xf[n].ok) continue;
+        const NodeXf& X = xf[n];
+        ModelMesh& mesh = door.meshes[static_cast<size_t>(model.nodes[n].mesh)];
+        const bool glass = mesh.texture.find("_glass") != std::string::npos;
+        const gta2::Vec3 off = vecToModel(X, inward);
+        const size_t nOuter = mesh.indices.size();
+        const std::vector<ModelVertex> outerV = mesh.vertices;
+        for (size_t t = 0; t + 2 < nOuter; t += 3) {
+            CV c[3];
+            for (int k = 0; k < 3; ++k) {
+                c[k].v = outerV[mesh.indices[t + static_cast<size_t>(k)]];
+                c[k].q = PointBy(X.toCar, c[k].v.x, c[k].v.y, c[k].v.z);
+            }
+            if (glass) {   // a thin pane: the same triangle wound the other way, normals kept (as before)
+                const uint32_t base = static_cast<uint32_t>(mesh.vertices.size());
+                for (int k = 0; k < 3; ++k) mesh.vertices.push_back(c[k].v);
+                mesh.indices.push_back(base + 2); mesh.indices.push_back(base + 1); mesh.indices.push_back(base);
+                ++glassTris;
+                continue;
+            }
+            for (int k = 0; k < 3; ++k) addEdge(c[k].q, c[(k + 1) % 3].q);
+            // Split at the belt: under it the card, over it the skin's frame.
+            std::vector<CV> lo, hi;
+            for (int k = 0; k < 3; ++k) {
+                const CV& A = c[k];
+                const CV& B = c[(k + 1) % 3];
+                const float da = belt - A.q.y, db = belt - B.q.y;   // >= 0: under the belt
+                if (da >= 0.0f) lo.push_back(A);
+                if (da <= 0.0f) hi.push_back(A);
+                if ((da > 0.0f && db < 0.0f) || (da < 0.0f && db > 0.0f)) {
+                    const CV m = lerpCV(A, B, da / (da - db));
+                    lo.push_back(m); hi.push_back(m);
+                }
+            }
+            if (lo.size() >= 3) {
+                std::vector<uint32_t> ids;
+                for (const CV& p : lo) {
+                    float u = 0.0f, v = 0.0f;
+                    cardUv(p.q, &u, &v);
+                    ids.push_back(cardVertex(p.q + inward, u, v));
+                }
+                for (size_t i = 1; i + 1 < ids.size(); ++i) {
+                    card.indices.push_back(ids[0]); card.indices.push_back(ids[i + 1]); card.indices.push_back(ids[i]);
+                    ++cardTris;
+                }
+            }
+            if (hi.size() >= 3 && !ownGlass) {
+                // A shell's door over the belt is its painted window in a stretched atlas (023's awning stripes): from
+                // inside, the card's upper trim panel instead (a dark window tone read as a black slab on 068), a door's thickness in.
+                std::vector<uint32_t> ids;
+                for (const CV& p : hi) ids.push_back(cardVertex(p.q + inward, 0.992f, 0.5f));
+                for (size_t i = 1; i + 1 < ids.size(); ++i) {
+                    card.indices.push_back(ids[0]); card.indices.push_back(ids[i + 1]); card.indices.push_back(ids[i]);
+                    ++frameTris;
+                }
+            } else if (hi.size() >= 3) {
+                const uint32_t base = static_cast<uint32_t>(mesh.vertices.size());
+                for (const CV& p : hi) {
+                    ModelVertex v = p.v;
+                    v.x += off.x; v.y += off.y; v.z += off.z;
+                    v.nx = -v.nx; v.ny = -v.ny; v.nz = -v.nz;
+                    mesh.vertices.push_back(v);
+                }
+                for (size_t i = 1; i + 1 < hi.size(); ++i) {
+                    mesh.indices.push_back(base); mesh.indices.push_back(base + static_cast<uint32_t>(i + 1));
+                    mesh.indices.push_back(base + static_cast<uint32_t>(i));
+                    ++frameTris;
+                }
+            }
+        }
+    }
+    // The open edges closed: a strip from the skin to the inside, both ways round, in the card's seal grey.
+    size_t edgeQuads = 0;
+    for (const auto& kv : edges) {
+        if (kv.second.count != 1) continue;
+        const gta2::Vec3 a = kv.second.a, b = kv.second.b;
+        const uint32_t i0 = cardVertex(a, 0.968f, 0.5f, &edgeN), i1 = cardVertex(b, 0.968f, 0.5f, &edgeN);
+        const uint32_t i2 = cardVertex(b + inward, 0.968f, 0.5f, &edgeN), i3 = cardVertex(a + inward, 0.968f, 0.5f, &edgeN);
+        const uint32_t q[2][6] = {{i0, i1, i2, i0, i2, i3}, {i0, i2, i1, i0, i3, i2}};
+        for (const auto& tri : q) card.indices.insert(card.indices.end(), tri, tri + 6);
+        ++edgeQuads;
+    }
+    if (!card.indices.empty()) {
+        door.meshes.push_back(std::move(card));
+        ModelNode node = model.nodes[static_cast<size_t>(n0)];
+        std::snprintf(node.name, sizeof node.name, "doortrim");
+        node.mesh = static_cast<int>(door.meshes.size() - 1);
+        door.nodes.push_back(node);
+    }
+    static int logged = 0;
+    if (logged++ < 40)
+        Log("car bodies: door inside of %s, side %d: belt %.2f of the roof, %zu card + %zu frame + %zu glass triangles, %zu edge strips",
+            model.name.c_str(), side, belt / (std::max)(1e-4f, roof), cardTris, frameTris, glassTris, edgeQuads);
 }
 
 // The split of `model` into the body without the door panel and the panel (with
 // its inner face), built without touching anything shared (worker thread).
 void BuildDoorSplit(const Model& model, const gta2::Mat4& fit, int side, float zFront, float zRear, float roof, float halfW,
                     int exactMode, Model* bodyOut, Model* doorOut, size_t* doorTrisOut) {
-    const bool exactCut = exactMode != 0, topCut = exactMode == 2;   // DoorKey::exact: 0 old split, 1 exact, 2 exact + top
+    // DoorKey::exact: bits 0-1 the cut (0 old split, 1 exact, 2 exact + top), bit 2 VEHICLE-ART-26's door inside
+    const int cutMode = exactMode & 3;
+    const bool exactCut = cutMode != 0, topCut = cutMode == 2, trimOn = (exactMode & 4) != 0;
     std::vector<gta2::Mat4> worlds;
     ModelRestNodeWorlds(model, &worlds);
     Model& body = *bodyOut;
@@ -2066,6 +2271,10 @@ void BuildDoorSplit(const Model& model, const gta2::Mat4& fit, int side, float z
         const int mi = model.nodes[n].mesh;
         if (mi < 0 || mi >= static_cast<int>(model.meshes.size())) continue;
         const ModelMesh& src = model.meshes[static_cast<size_t>(mi)];
+        // VEHICLE-ART-26 (qaf86 m36): a windscreen's glass and its seal wrapping round into the door's box (036 Schmidt)
+        // faced forward but out by more than 0.05, so the exact cut swung them with the door: a warped glass crescent and
+        // shards across the first-person exit. Glass and seal faces turned more forward/back than sideways stay on the body.
+        const bool glassLike = trimOn && (src.texture.find("_glass") != std::string::npos || src.texture.find("_seal") != std::string::npos);
         ModelMesh& db = body.meshes[static_cast<size_t>(mi)];
         ModelMesh& dd = door.meshes[static_cast<size_t>(mi)];
         db.vertices = src.vertices; db.texture = src.texture; db.skin = -1;
@@ -2109,7 +2318,7 @@ void BuildDoorSplit(const Model& model, const gta2::Mat4& fit, int side, float z
             }
             // Exact cut: the panel is every outward-facing face in the box, not only the steep ones; the
             // roof shoulder's faces between steep and flat left a second row of teeth along the door's top.
-            const bool sideFace = lateral || (exactCut && outward > 0.05f);
+            const bool sideFace = (lateral || (exactCut && outward > 0.05f)) && !(glassLike && std::fabs(nrm.z) > std::fabs(nrm.x));
             const bool crosses = exactCut && sideFace && !(in0 && in1 && in2) && (in0 || in1 || in2 || centred);
             const bool isDoor = sideFace && (centred || crosses);
             // VEHICLE-ART-4 (feel19): an authored body's cabin liner (its normals into the cabin, a
@@ -2207,9 +2416,12 @@ void BuildDoorSplit(const Model& model, const gta2::Mat4& fit, int side, float z
         }
         mesh.vertices.swap(used);
     }
+    // VEHICLE-ART-26: the door's inside as a door (trim card, thickness, a closed edge); DoorInside below.
+    if (trimOn) DoorInside(model, worlds, fit, side, roof, 0.10f * roof, boxTop, zFront, zRear, &door);
     // The door's inner face is seen once it swings out: the same triangles again,
     // wound the other way with their normals flipped, so the inside is lit too.
     for (ModelMesh& mesh : door.meshes) {
+        if (trimOn) break;
         if (mesh.indices.empty()) continue;
         const uint32_t base = static_cast<uint32_t>(mesh.vertices.size());
         std::vector<ModelVertex> inner = mesh.vertices;
@@ -4447,6 +4659,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         g_beamProbe = GetPrivateProfileIntA("devtools", "beam_probe", 0, g_devIni);
         g_doorInterior = GetPrivateProfileIntA("devtools", "door_interior", 1, g_devIni);
         g_doorTopCut = GetPrivateProfileIntA("devtools", "door_top_cut", 1, g_devIni);
+        g_doorTrim = GetPrivateProfileIntA("devtools", "door_trim", 1, g_devIni);
         g_fpSeatFreeze = GetPrivateProfileIntA("devtools", "fp_seat_freeze", 1, g_devIni);
         g_fpSeatLock = GetPrivateProfileIntA("devtools", "fp_seat_lock", FpSeatLockDefault(), g_devIni);
         g_forceOwnLift = GetPrivateProfileIntA("devtools", "force_own_lift", 0, g_devIni);
@@ -5829,7 +6042,13 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                     gta2::Mat4 hinge;
                     hinge.m[0][0] = cs; hinge.m[0][2] = -sn; hinge.m[1][1] = 1.0f; hinge.m[2][0] = sn; hinge.m[2][2] = cs;
                     hinge.m[3][0] = hx - (hx * cs + hz * sn); hinge.m[3][2] = hz - (-hx * sn + hz * cs); hinge.m[3][3] = 1.0f;
+                    // VEHICLE-ART-26: in the car's own material, not the one the seat's bonnet left set (its door card
+                    // came out near-black in first person while the same door read right from outside)
+                    D3DMATERIAL9 keepDoorM;
+                    device->GetMaterial(&keepDoorM);
+                    if (g_doorTrim) device->SetMaterial(&carMaterial);
                     ModelDraw(device, *split.door, Mul(Mul(fit, hinge), posed), nullptr, 0.0f);
+                    device->SetMaterial(&keepDoorM);
                 }
                 if (hood && (hood->dash || (g_cabInterior && !WreckModelNumber(modelNumber)))) {
                     const float dull = (1.0f - 0.06f * static_cast<float>(dentStep)) * (fireStage >= 4 ? 0.45f : fireStage >= 3 ? 0.70f : 1.0f);
@@ -6159,6 +6378,7 @@ void CarBodiesSetDevIni(const char* ini) {
     g_lampPoolDrape = GetPrivateProfileIntA("devtools", "lamp_pool_drape", 1, g_devIni);
     g_doorInterior = GetPrivateProfileIntA("devtools", "door_interior", 1, g_devIni);
     g_doorTopCut = GetPrivateProfileIntA("devtools", "door_top_cut", 1, g_devIni);
+    g_doorTrim = GetPrivateProfileIntA("devtools", "door_trim", 1, g_devIni);
     g_fpSeatFreeze = GetPrivateProfileIntA("devtools", "fp_seat_freeze", 1, g_devIni);
     g_fpSeatLock = GetPrivateProfileIntA("devtools", "fp_seat_lock", FpSeatLockDefault(), g_devIni);
     g_forceOwnLift = GetPrivateProfileIntA("devtools", "force_own_lift", 0, g_devIni);
