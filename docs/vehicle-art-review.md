@@ -97,13 +97,13 @@ Rank = traffic frequency from the table above (D = Downtown samples).
 | Model | Rank | Score | Identity vs sprite | What is wrong (close) | Frames |
 |---|---|---|---|---|---|
 | 000 Romero | 8 | good | Giulia-style three-box sedan, chrome spine and V-grille as the sprite | side glass an opaque baked smear (global); no contact shadow (filed) | card_000, z_door_000 |
-| 001 Wellard | 18 | acceptable | T-bird style coupe | a dark lettering ghost on the door panel, grille soft | card_001 |
-| 005 Beamer | 18 | acceptable | 507-style coupe (sprite has four door slots) | dark lumpy roof; the runner missed the door frame (car moved) | card_005, T 005 |
+| 001 Wellard | 18 | good (VEHICLE-ART-24) | was a T-bird-style shell; now the sprite's late-1930s coupe, authored kit body | dark kit glass | out/va24_a2 |
+| 005 Beamer | 18 | good (VEHICLE-ART-24) | 1950s roadster with the sprite's dark hardtop, authored kit body (the shell drew black from the ground) | dark kit glass; plain hardtop | out/va24_a3 |
 | 008 Bug | 5 | acceptable | Beetle, right | bonnet is a crumpled sheet of hard facets with a baked white specular streak; from the seat the bonnet drops out of view | z_door_008, S 008 |
 | 010 Bulwark | parked | acceptable | 1950s Buick | flat planes across the bonnet, mustard blotches on cream paint | card_010 |
 | 013 Minx | 3 | acceptable | boxy 1960s saloon | mild facets on the bonnet; windows opaque; otherwise the cleanest common car | z_door_013, S 013 |
 | 014 Eddy | R/I | acceptable | 1957 Fairlane two-tone | the roof is the sprite's yellow on a red body (roof-colour defect) | card_014 |
-| 016 Panto | R/I | **bad** | 1980s Panda-style hatch, yellow roof | the pre-round-8 body: the round-8 Mini never shipped (defect filed) | card_016, T 016 |
+| 016 Panto | R/I | acceptable (VEHICLE-ART-24: the round-8 Mini ships) | round-8 Mini shell | forced untinted: near-black flanks under a pale roof (out/va24_r8) | out/va24_r8 |
 | 018 Shark | 11 | **bad** | 1930s pontoon-fender sedan; the sprite is a 1950s finned sedan | headlamps are grey melted blobs on the wings, grille a smudge; from the seat the blobs fill the view | card_018, S 018 |
 | 035 Benson | I | good | Mercedes Ponton, grey over black | - | card_035 |
 | 036 Schmidt | 4 | acceptable | bubble car | canopy carries the sprite's black strokes (reads cracked), lamps are blobs on stalks | z_door_036 |
@@ -114,7 +114,7 @@ Rank = traffic frequency from the table above (D = Downtown samples).
 | 057 T-Rex | I | acceptable | Hudson Hornet style, gold | facets, soft chrome | card_057 |
 | 070 Z-Type | mission | acceptable | 1930s streamliner, copper | very smooth, low detail, faired-in lamps; fine at distance | card_070 |
 | 029 Dementia | mission | good | tan Isetta (boxier than the sprite's egg, tracked in #2) | - | card_029 |
-| 028 Dementia Limousine | D | acceptable | long tan Hudson-like sedan; the sprite is a stretched bubble car | flat facets on the bonnet | card_028 |
+| 028 Dementia Limousine | D | good (VEHICLE-ART-24) | the sprite's stretched bubble car (029's section drawn out), authored kit body | AO streaks before the rear arch | out/va24_a6 |
 
 ### Sports and muscle
 
@@ -128,20 +128,20 @@ Rank = traffic frequency from the table above (D = Downtown samples).
 | 044 Arachnid | R/I | good | Giulietta Spider, red | - | card_044 |
 | 045 Spritzer | I | good | Austin-Healey, tan, interior visible | - | card_045 |
 | 046 Stinger | R | acceptable | Corvette Stingray, near-black | baked white highlight smear on the bonnet; tan sprite roof panel | card_046 |
-| 047 Meteor | parked | **bad** | 1970s wedge with fins | pre-round-8 body (defect filed) | card_047 |
-| 048 Meteor | parked | **bad** | 1980s hatchback | pre-round-8 body (defect filed) | card_048 |
+| 047 Meteor | parked | acceptable (VEHICLE-ART-24: the round-8 body ships) | late-1950s racer shell | forced untinted: dark flanks, pale top (out/va24_r8) | out/va24_r8 |
+| 048 Meteor | parked | acceptable (VEHICLE-ART-24: the round-8 body ships) | late-1950s racer shell (bonnet vents) | forced untinted: dark flanks, pale top (out/va24_r8) | out/va24_r8 |
 | 053 Michelli Roadster | 17 | good | 250 California style, cream, red interior | - | card_053 |
 | 062 Trance-Am | I | acceptable | gold Firebird | tan sprite roof on a gold body; windows baked dark | card_062 |
 | 071 Rumbler | R | good | red muscle car, twin stripes | - | card_071 |
 | 082 Jagular XK | R | good | dark green XK120 | - | card_082 |
-| 083 Furore GT | I | **bad** | modern white supercar | pre-round-8 body (defect filed) | card_083, T 083 |
+| 083 Furore GT | I | acceptable (VEHICLE-ART-24: the round-8 body ships) | 1950s GT shell | forced untinted: dark flanks, pale top (out/va24_r8) | out/va24_r8 |
 
 ### Vans, pickups and trucks
 
 | Model | Rank | Score | Identity vs sprite | What is wrong (close) | Frames |
 |---|---|---|---|---|---|
 | 004 G4 Bank Van | 12 | good | 1950s armoured van, white roof | - | card_004 |
-| 007 Box Truck | R | acceptable | brown box, navy cab | a cardboard box: faint grid, no panel detail, no rear door hardware | card_007 |
+| 007 Box Truck | R | good (VEHICLE-ART-24) | late-1930s box van, authored kit body: ribbed box, roof ridge and frames, rear doors | flat box panels, bulbous cab | out/va24_a7 |
 | 021 Garbage Truck | R | acceptable | brown 1940s truck | the hopper is a plain box (tracked in #2) | card_021 |
 | 023 Hot Dog Van | R/I | good | orange step van, hot dog, awning | - | card_023 |
 | 024/025/026/085 Hot Dog dummies | mission | **bad** | parametric boxes / a sedan with the sprite smeared over the top | placeholder bodies (defect filed) | card_024, card_025, card_026, card_085 |
@@ -1250,3 +1250,78 @@ authored in.
   nose is a 004-family snout, not a purpose-built armoured front.
 - Model files: `011_bus*`, `017_fire_truck*`, `052_swat_van*` (new sets replacing the shells) in repo/assets/models,
   the shells' 53 files backed up in `/mnt/gta2/gta2-linux/backup_va23/models`: NEEDS A RESTAGE.
+
+## VEHICLE-ART-24 (11 Nov 2026): 001 Wellard, 005 Beamer, 028 Dementia Limousine and 007 Box Truck authored
+
+Probe: `gamerun/va24_show.py` (a copy of qav51.py whose A/B key may be a `section.key`, here `visuals.ssao` 1/0, and
+which sets `force_car_paint` from `PAINT`): wil 164.5,147.6, the player's car parked and forced to the model, painted
+with the default remap's sprite paint (identity record colours), fixed regression-camera poses side / front34 / rear34
+/ eye / high, 13:00 clock paused, plain GL. Before: the 9744dfa1 stage (out/va24_b0, untinted). After: a private stage
+of 9744dfa1 with the new model files. Moving traffic: `gamerun/va24_tcam.py`, two fixed cameras on the wil junction at
+168.5,149.5 with every traffic car forced to the model and painted (out/va24_tc1; the old vr_traffic.py spot now lands
+on a fenced pavement, out/va24_tr1 shows only railings).
+
+- **001 Wellard (`tools/vehicle_art2/car_001.py`; audit "lettering ghost on the door, grille soft").** The shell was a
+  1955 Thunderbird-like coupe with black drip marks on the door, the wrong era for the sprite. The kit body is the
+  sprite's late-1930s coupe on 070's recipe: a long bonnet (the windscreen 38-40 px from the nose) with a chrome spine,
+  pontoon front wings standing below the bonnet with the sprite's dark valleys between (a quick roll-in of the upper
+  section over the wings, `leanq`), the waist sweeping up from the wing crowns into the door line, a raked chrome
+  waterfall grille on the prow with a mascot, faired headlamps in the wing noses, a short cabin, a sloping back
+  light, teardrop rear wings, chrome bumpers with over-riders, whitewalls.
+  First build bug: the arch was capped 8 cm under the waist (0.76 over the wings), so the arch top dipped into the
+  tyre; the renderer's wheel split (car_bodies.cpp BuildWheelSplit) took 90 wing triangles and steered them as a paint
+  shard under the front wheel (out/va24_a1 front34). The wing's waist now stays 0.08 above the arch top
+  (`wheel_split_check.py`-style scan: 0 paint triangles taken).
+- **005 Beamer (`car_005.py`; audit "dark lumpy roof, missed door frame").** The shell drew near-black from every
+  ground pose and white from above (out/va24_b0). The kit body is a mid-1950s roadster with its hardtop up: a full
+  envelope body, a domed bonnet with a spine, round lamps in the wing tops' front corners (the sprite's discs 7-11 px
+  from the nose), a wide low grille with a chrome centre bar, a raked screen and the sprite's dark grey-blue hardtop
+  dome (`rubber_top`, not paint: the sprite's dome is the same grey in every remap), a belt moulding, two buckets,
+  tunnel and parcel shelf.
+- **028 Dementia Limousine (`car_028.py`; audit "flat facets on the bonnet", the shell a Hudson-like sedan where the
+  sprite is a stretched bubble car).** ART-22's 029 section evaluated at a remapped station: the nose and the tail
+  zones move rigidly with the wheels, only the cabin between the wheels (x3.28) and the tail behind the rear arch (x1.9)
+  are drawn out, so the arches keep their shape. Front-opening door with the wraparound screen at the nose, the long
+  pale roof dome, four glazed bays a side with pillars between (the sprite's flank marks), a driver's bench behind the
+  door, a division, occasional seats and a rear bench, a full-width rear track. The kit's floor pan (a fixed 0.80 x
+  half width rectangle) stood 0.3 m past the egg tail as a hard-edged dark slab (out/va24_a4 rear34): `underpan.py`
+  gains `FOLLOW = {"028"}`, whose pan follows the body's floor outline and stops 15 cm short of the ends (out/va24_a6:
+  it reads as shadow under the tail). The shipped 029 has the same slab (not rebuilt here).
+- **007 Box Truck (`car_007.py`; audit "a cardboard box: faint grid, no panel detail, no rear door hardware").** A
+  late-1930s box van on 001's cab recipe: the V-nosed bonnet with the sprite's chrome strip, pontoon wings with faired
+  lamps, a rounded two-seat cab (screen at 23-25 px, cab back at 41 px), and a tall box with the sprite's raised roof
+  ridge and three cross frames, nine flank ribs a side, a rub rail, amber roof-edge markers, two rear doors with
+  hinges and lock bars, a step bumper and mudflaps, on a dark chassis with wide rear tyres. One paint all over (the
+  remaps recolour the box and the cab alike). The shared floor pan measured a 0.16 m floor under the high chassis and
+  hung as a slab between the axles: 007 joins `underpan.SKIP` with 063.
+- **002 Aniston BD4: kept.** The shell reads as a clean DB4-style coupe at all five poses (out/va24_b0), as ART-19
+  found when its kit body lost the A/B; no change.
+- Seats measured (`seat_anchor.py` entries) and written to the four manifest entries.
+- Offline: `hole_scan.py` max back-face share 001 7.8 %, 005 5.8 %, 028 6.0 % (11.6 % before the pan fix; the shipped
+  029 measures 15 %), 007 3.2 %: sill undersides, arch liners and the pan's edge, no panel or alpha holes.
+  Files: 17 / 18 / 15 / 19 textures, 3.3 / 3.4 / 3.6 / 3.1 MB (one 512 paint picture each), replacing shells of 6.1 MB
+  each (24.4 MB for the four).
+- Verified (frames opened): out/va24_a2 (001), out/va24_a3 (005), out/va24_a6 (028), out/va24_a7 (007; the car-scaled
+  poses crop the truck), each at all five poses with `ssao` 1 and 0 in the same session (the same body: no SSAO cloud
+  in the bakes), each sheet beside the x4 sprite; out/va24_tc1 (all four moving through the junction in traffic, one
+  body and one colour each).
+- Paint parity (`keys_paint_parity.sh`, POSES=top3, red / green / navy, the 050 control): out/va24_pp1 0 FAIL: 001 and
+  005 hue 1-5 degrees, lightness +17..+22 % (WARN), the control 050 +15..+18 %; navy reported. out/va24_pp2 0 FAIL: 028 hue 1-5, +16..+18 %; 007 hue 0-3, +21..+23 % (its high box roof
+  is the lit lid); 016 (round-8 shell) hue 1-3, +18..+21 %; control 050 +15..+18 %.
+- Classic view: vreg on the private stage (out/va24), `spawn_classic` PASS, 0 tiles changed. Its 3D shots (29 FAIL,
+  1 WARN, 18-43 tiles) differ from the goldens in the HUD tiles only (sheet_bank_street: the round minimap, the hearts
+  and the new gauges against the goldens' square map and bars): the goldens predate the HUD work, not a car change.
+- **Round-8 rows corrected.** 016 / 047 / 048 / 083 do ship their round-8 bodies: the manifest's
+  `cars/models3d/0NN_*.glb` are byte-identical to `models3d_r8/chosen/` (not `old_shipped/`), and the game draws them
+  (out/va24_r8: 016 a Mini, 047 and 048 late-1950s racers, 083 a 1950s GT). Their audit rows said "pre-round-8 body".
+  New finding on the same frames (forced, untinted): their flanks draw near-black under a pale roof, the failure the
+  005 shell had; whether the identity paint covers the flanks in traffic is untested (the gate's top3 pose sees roofs).
+- Not verified: Remix (no prims for the new textures: they draw from their base textures; no layer bundle); night;
+  first person (no FIX-COCKPIT-CAB entries for the new interiors); the door split on the new bodies; the other remap
+  colours of each model in natural traffic (the forced frames use the default remap's paint).
+- Still short of a shipping-AAA frame: the kit glass is dark, so the cabins hardly read by day (every kit body). The
+  box truck's box is flat panels with plain ribs (no rivets, no corner posts) and its cab is a little bulbous; 028's
+  stretched tail carries AO streaks before the rear arch; 005's hardtop is one smooth shell with no seams.
+- Model files: `001_wellard*`, `005_beamer*`, `028_dementia_limousine*`, `007_box_truck*` in repo/assets/models
+  (shells backed up in `/mnt/gta2/gta2-linux/backup_va24/repo_models_0NN`). 001 and 005 are in the 01:37 stage
+  (f649a0af); 028 and 007 NEED A RESTAGE.
