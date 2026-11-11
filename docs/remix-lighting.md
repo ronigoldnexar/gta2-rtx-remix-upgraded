@@ -526,3 +526,23 @@ corner, `gamerun/fx9_wall.py` = fx8_wall.py + a `MODELS` list (`MODEL_KEY=force_
 `force_car_model` for the third-person body), 12:00, `SEQ=first:0,512,0|third:0`, own car forced to 036, 031, 063):
 with 512 the filed white-yellow blobs over the wall; without it the same tongues orange, the brick and windows
 readable through them, on all three cabs.
+
+**ffx5, the rocket's backblast under Remix: measured, not fixed (released).** Remix play rig, 12:00, puff mode 4 in the
+log, FX-8's dust tone (240e3d2b), probe `gamerun/fx9_bb.py` (fx8_bb.py plus `SPOTS` warps with a game-camera settle;
+without the settle the hero is not drawn yet after a long warp). At FX-8's spot (wil 154.9,127.6, run fx9_bb1) the
+launch flash lights the wall, and the dust puff behind the tube shows as a pale grey-white soft disc for that one
+frame. Then the puff itself is not seen, and a dark smudge spreads on the wall behind him: the cloud's **shadow**, cast
+by the rocket's own light as it flies off. That is most of the "soot" FX-8 saw. At a sunlit open street with nothing
+taller than the ground within 3 blocks (wil 172.7,131.7, run fx9_bb2) the backblast is a faint grey haze on the road
+behind him for about 0.3 s: grey, not soot, but too thin to read as a cloud. Since the albedo makes no difference (FX-8:
+0.55 = 0.92), the untried next steps are a small emissive lift on the tone-3 puffs (a Remix mod material on the hashes
+`vehicle fx: soft puff texture step N tone 3` logs, or Remix-API meshes with their own non-shadow-casting material,
+as `LampMaterialFor` does for lamps), then a denser tone 3 judged at the sunlit spot.
+
+**Grainy Remix fire at a distance (FX-7/FX-8's open item): measured.** Remix play rig, 13:00, the 068 van burning at
+wil 198.5,188.5, fixed camera 8 blocks behind and 3 to the side (`fx6_fire.py`, `POSES=far:-8:3:1.6`), live
+`fire_ab` A/B in one session (run fx9_far2; fx9_far1 adds a 3-block pose). All on: a dark stippled cloud with an orange
+core over the van. Tongues off (`fire_ab=2`): the same stippled cloud. Smoke off (`fire_ab=8`): a soft orange-brown
+fireball with no grain. So the grain is the **smoke** (the mode-4 soft blended puffs, a regular stipple of their
+translucency on this Wine rig with no NGX denoiser), not the flame tongues. Whether DLSS-RR resolves it is the owner's
+5090 test (NEEDS OWNER 40); on our side, fewer, larger, more opaque far puffs would also reduce it (untried).
