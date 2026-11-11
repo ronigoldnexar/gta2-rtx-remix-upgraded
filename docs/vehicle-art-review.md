@@ -1315,7 +1315,10 @@ on a fenced pavement, out/va24_tr1 shows only railings).
   `cars/models3d/0NN_*.glb` are byte-identical to `models3d_r8/chosen/` (not `old_shipped/`), and the game draws them
   (out/va24_r8: 016 a Mini, 047 and 048 late-1950s racers, 083 a 1950s GT). Their audit rows said "pre-round-8 body".
   New finding on the same frames (forced, untinted): their flanks draw near-black under a pale roof, the failure the
-  005 shell had; whether the identity paint covers the flanks in traffic is untested (the gate's top3 pose sees roofs).
+  005 shell had. Painted (force_car_paint 133,65,65, out/va24_r8p side / front34 / high): the flanks take the paint
+  but 048's and 083's read near-black red under bright tops; 016's roof stays the sprite's tan (not the body paint);
+  083's roof carries a white decal patch. All three break the one-paint rule; the next seat should author 016 / 083
+  (and 047 / 048) as kit bodies rather than patch the masks.
 - Not verified: Remix (no prims for the new textures: they draw from their base textures; no layer bundle); night;
   first person (no FIX-COCKPIT-CAB entries for the new interiors); the door split on the new bodies; the other remap
   colours of each model in natural traffic (the forced frames use the default remap's paint).
