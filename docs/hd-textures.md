@@ -124,6 +124,10 @@ before the photo tile, never on a Remix device; the classic view keeps the plain
 (`[renderer] road_markings`, default 1). Sheets: `qb24/roads_sheets/re_<style>.png` in the
 working folder. Defect pm-road-lane-dashes-dark-gaps-and-garbled-road-text.
 
+Lids on blocks the map types as field or pavement are not road lids, so the run above skips them even when they
+carry road paint; the tool's `EXTRA` list adds those (wil 267/280, ste 811/827; FIX-WORLD-19, qav11, see
+docs/asset-audit.md section 18).
+
 ### bil 765: the flat olive lane (qav6, qav8; FIX-WORLD-13, 10 Nov 2026)
 
 qav6 (bil 180.5,60.5) and qav8 (bil 110.5,40.5) filed a smooth, crack-free olive trapezoid with hard

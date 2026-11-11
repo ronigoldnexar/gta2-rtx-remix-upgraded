@@ -625,3 +625,19 @@ N landing(s), N ladder(s)`; ste 347 / 444 / 82, wil 44 / 58 / 14, bil 2 / 3 / 1 
 partial block), and on wil 579, the striped awning art, the lid of a lone slope-42 block at 114,174 level 3. The map
 has no block above level 3 in x 112-117, y 174-175. The "wall above" is absent from the map data, not culled. A fix
 would be a street-only end plate for the girder and an awning solid for 579; both need frames at the filer's poses.
+
+## 18. Road paint on lids the map calls field, shaded ste walls (FIX-WORLD-19, 11 Nov 2026)
+
+**qav11, the scribbled bar at wil 50.5,180.5.** The long marking ahead of the hero is the paint of wil 267 and 280,
+the lids of the little parking stub at x 48-52, y 177-179 (bars along y 178). The map types those blocks as field
+(ground type 3), so `tools/reauthor_road_markings.py`, which only walks road lids (type 1), never redrew them, and the
+street views drew their photo copies, where the upscaler had turned the worn bar into dark zig-zag glyphs. The tool
+now has an `EXTRA` list of painted asphalt lids on non-road blocks: wil 267/280, ste 811 (kerb-lane bar) and 827 (the
+curved lane line beside the hatched island, its photo copy has a scribbled end). Found by running the tool over every
+street-level lid (level-1 lid, nothing built on it) that is not a road lid: 44 hits, of which these four are road
+paint; the rest are roofs, pipes, girders and hazard stripes the asphalt gate lets in (review sheets kept outside git).
+bil has none. The four regenerated tiles are `assets/textures_hd/roads/{wil,ste}/tile_{0267,0280,0811,0827}.dds`
+(outside git, game art); the next restage carries them. Classic is unchanged by construction: the `roads/` set binds
+in the street views only, and classic keeps the hash-locked HD tile (still the worm-noise bar under 0z, owner item).
+Same-build A/B, fixed regress camera at the stub, noon and 20:30, third and first person: before = the stage without
+the four files, after = with them: a ragged grey band with glyph noise becomes a solid worn white bar at both hours.

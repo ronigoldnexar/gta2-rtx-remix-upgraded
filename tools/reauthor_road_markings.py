@@ -54,6 +54,18 @@ SKIP = {
     'ste': {70, 80, 693},
 }
 
+# Painted asphalt lids on blocks the map types as field or pavement (ground type 3/2), so
+# road_lids() never lists them: wil 267/280 (the bars of the parking stub at 48-52,177-179,
+# qav11, FIX-WORLD-19), ste 811 (kerb-lane bar) and 827 (the curved lane line with the
+# hatched island). Found by running the tool over every street-level lid (level-1 lids
+# with nothing built on them) and keeping the road paint on the review sheet; the rest
+# of those hits were roofs, pipes, girders and hazard stripes the asphalt gate let in.
+EXTRA = {
+    'wil': {267, 280},
+    'bil': set(),
+    'ste': {811, 827},
+}
+
 WHITE_PAINT = np.array([206.0, 207.0, 199.0])
 YELLOW_PAINT = np.array([204.0, 160.0, 46.0])
 
@@ -372,7 +384,7 @@ def main():
     if a.tiles:
         ids = [int(x) for x in a.tiles.split(',')]
     else:
-        ids = sorted(road_lids(os.path.join(a.data, a.style + '.gmp')))
+        ids = sorted(set(road_lids(os.path.join(a.data, a.style + '.gmp'))) | EXTRA.get(a.style, set()))
     skip = {int(x) for x in a.skip.split(',') if x} | (set() if a.tiles else SKIP.get(a.style, set()))
     ids = [t for t in ids if t not in skip]
     with Pool(a.jobs) as p:
