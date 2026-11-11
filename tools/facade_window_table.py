@@ -26,6 +26,14 @@ NOT_GLASS |= {("wil", 428)}
 # glass; its one "window" box is the frieze, so at night the glow filled the frieze's dark texels: day-bright tan
 # caps with ragged 64 px-stepped edges over near-black walls.
 NOT_GLASS |= {("bil", 658)}
+# FIX-WORLD-17 (fw17-bil-107, the ste glow audit): wall tiles whose box sits on art that is not glass, each found by
+# simulating the glow rule on the 64 px tile and confirmed with a same-session [devtools] window_glow on/off pair at 23:00:
+# bil 107, an arched stone double doorway (the stone and door frames round its pale doors filled with a flat beige slab);
+# ste 56, a dark truss frieze over a shutter (a bright tan band the width of the wall); ste 727, a ribbed dark object in a
+# tower's recess (a tan figure-shaped blob); ste 480, a window whose panes are painted light (only the dark lintel bar over
+# them lit, a tan line); bil 622, a kiosk's panelled door with a plaque (the door lit as a tan slab). (bil 310, the
+# FIX-WORLD-16 suspect, never glows: it is also a lid, and lid tiles get no glow.)
+NOT_GLASS |= {("bil", 107), ("bil", 622), ("ste", 56), ("ste", 727), ("ste", 480)}
 
 src, out = sys.argv[1], sys.argv[2]
 boxes = json.load(open(src))

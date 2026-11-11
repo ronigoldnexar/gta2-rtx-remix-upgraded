@@ -531,3 +531,32 @@ FIX-WORLD-8). Not checked: Remix (the head is the same tile on smaller geometry;
 glow live (re-read once a second, dll/src/world_view.cpp), so a night frame with the glow and without it comes
 from one session at one camera: the discriminator FIX-WORLD-16 used for qav39 / qav60 (a facade box on art that
 is not glass) without a second run.
+
+**bil 310 (the FIX-WORLD-16 suspect): not a defect.** It is boxed whole as a window, but the renderer builds a glow
+only for tiles the map never uses as a lid (src/renderer.cpp, the `wallOnly`/`lidUse` pass), and bil uses 310 as a
+lid 68 times, so its box is inert. Framed: out/qa_fw17e camera c1 (bil 81,62, the riveted wall under the elevated
+line), 23:00 with `[devtools] window_glow` -1 then 0 in one session: 0 changed pixels on the wall.
+
+**The glow audit method (bil and ste).** `MakeWindowGlow` lights a texel only inside a box, in a dark (luma < 96),
+neutral-to-blue run at least 6 texels wide and 4 tall, and the tile needs 12 such texels. That rule run on the
+64 px art over every boxed tile that is never a lid (114 in bil, 122 in ste) gives the exact texels each tile
+lights; the tiles whose lit texels sit on art that is not glass were framed at night with the glow on and off in
+one session (the live key above, gamerun/fw16_ab.py with `FW15_EXTRA=devtools:window_glow=0/-1`).
+Confirmed and fixed (`NOT_GLASS` in tools/facade_window_table.py, table regenerated: 1011 boxes on 469 tiles):
+
+- bil 107, an arched stone double doorway: the stone and frames round its pale doors filled with a flat, ragged
+  beige slab (out/qa_fw17e c2, bil 12,90).
+- bil 622, a kiosk's panelled door with a plaque: the door lit as a tan slab (out/qa_fw17h c3, bil 58,90).
+- ste 56, a dark truss frieze over a grey shutter: a bright tan band with black notches the width of the wall
+  (out/qa_fw17f c0, ste 200,124).
+- ste 727, a ribbed dark object in a tower recess: a tan figure-shaped blob (out/qa_fw17f c2, ste 192,110).
+- ste 480, a window with light-painted panes: only its dark lintel lit, a tan line over the window
+  (out/qa_fw17f c5, ste 171,24).
+
+Framed and left as they are: ste 32 (dark ground-floor panels between timber posts; they read as lit shop windows),
+ste 384/385 (leaded arched windows: real glass, though the glow is a flat tan fill with notches where the tracery
+is), ste 744 (the small panes along a fire-station door's top), and ste 456, 622, 921, 389 (no change in the frame
+between glow on and off). After the fix (out/qa_fw17g, ste, the same cameras at 12:00, 17:30, 23:00): the band, the
+blob and the lintel line are gone, and ste 384's real windows still glow the same (the control).
+Not framed in-game: the other bil and ste tiles whose simulated lit texels are on real glass (the dark broken panes
+of the bil terraces, 32/33/327/484/491/495); wil (FIX-WORLD-16's district) was not re-audited this way.
