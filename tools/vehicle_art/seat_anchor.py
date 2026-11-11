@@ -84,6 +84,7 @@ SEATS = {
     "031_jefferson": ((0.32, 0.70, -0.98), 5.0),  # VEHICLE-ART-27: bench x +-0.62, top 0.70, back -1.24..-1.10
     "032_stretch_limousine": ((0.40, 0.70, 1.40), 5.0),   # VEHICLE-ART-27: 050's front bench through the stretch map (rigid there)
     "033_sports_limousine": ((0.40, 0.70, 0.41), 5.0),    # VEHICLE-ART-27: 070's front bench through the stretch map (rigid there)
+    "065_container": ((0.30, 1.95, 0.0), 5.0),           # VEHICLE-ART-27 qav57: no cab; a forced driver sits inside the box, above its floor (1.50)
 }
 
 

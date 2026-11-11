@@ -889,6 +889,12 @@ inline gta2::Vec3 PointBy(const gta2::Mat4& m, float x, float y, float z) {
 // agent car, ...) are whole cars. FIX-CAR-RENDER: "< 72" took those five for wrecks: no cab from
 // the seat, no dents, wheels or doors (pt-fp-cab-jagular-xk-torn-black-shards).
 inline bool WreckModelNumber(int m) { return m >= 72 && m <= 81; }
+// VEHICLE-ART-27 (qav57): the semi-trailers (055 tanker, 065 container, 066 transporter) have no cab: a figure
+// seated in one (devtools force_car_model) must not open FIX-SEATED's see-through band in a closed box (065's
+// corrugated wall drew four black glass panels with the driver showing through). [devtools] trailer_band=1: the
+// band as before (A/B).
+int g_trailerBand = 0;
+inline bool TrailerModelNumber(int m) { return m == 55 || m == 65 || m == 66; }
 bool g_hoodDropDark = true;   // [devtools] hood_drop_dark=0 keeps the seat copy's near-black faces (A/B checks)
 const HoodCopy& HoodModelFor(const Model& model, const gta2::Mat4& fit, float yCut, float zCut, float eyeX) {
     // 0.04-block steps: the eye bobs and leans a little, the cache stays small.
@@ -4660,6 +4666,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         g_doorInterior = GetPrivateProfileIntA("devtools", "door_interior", 1, g_devIni);
         g_doorTopCut = GetPrivateProfileIntA("devtools", "door_top_cut", 1, g_devIni);
         g_doorTrim = GetPrivateProfileIntA("devtools", "door_trim", 1, g_devIni);
+        g_trailerBand = GetPrivateProfileIntA("devtools", "trailer_band", 0, g_devIni);
         g_fpSeatFreeze = GetPrivateProfileIntA("devtools", "fp_seat_freeze", 1, g_devIni);
         g_fpSeatLock = GetPrivateProfileIntA("devtools", "fp_seat_lock", FpSeatLockDefault(), g_devIni);
         g_forceOwnLift = GetPrivateProfileIntA("devtools", "force_own_lift", 0, g_devIni);
@@ -5743,7 +5750,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             bool ownGlass = false;
             for (const ModelMesh& gm : model->meshes) ownGlass = ownGlass || gm.texture.find("_glass") != std::string::npos;
             const bool glassy = g_driverGlass && !glassCut && !ownGlass && !use.own && !cpuCut && !clipped && !WreckModelNumber(modelNumber) && !CabOpenTop(modelNumber) &&
-                                !RemixApiAvailable() && BoardingCarSeated(use.object);
+                                (g_trailerBand || !TrailerModelNumber(modelNumber)) && !RemixApiAvailable() && BoardingCarSeated(use.object);
             {   // VEHICLE-GLASS-6: a census of the glass path each body takes (once per model, seated or not, in range),
                 // so a traffic run says which bodies still draw painted windows or FIX-SEATED's band.
                 static std::set<int> said;
@@ -6379,6 +6386,7 @@ void CarBodiesSetDevIni(const char* ini) {
     g_doorInterior = GetPrivateProfileIntA("devtools", "door_interior", 1, g_devIni);
     g_doorTopCut = GetPrivateProfileIntA("devtools", "door_top_cut", 1, g_devIni);
     g_doorTrim = GetPrivateProfileIntA("devtools", "door_trim", 1, g_devIni);
+    g_trailerBand = GetPrivateProfileIntA("devtools", "trailer_band", 0, g_devIni);
     g_fpSeatFreeze = GetPrivateProfileIntA("devtools", "fp_seat_freeze", 1, g_devIni);
     g_fpSeatLock = GetPrivateProfileIntA("devtools", "fp_seat_lock", FpSeatLockDefault(), g_devIni);
     g_forceOwnLift = GetPrivateProfileIntA("devtools", "force_own_lift", 0, g_devIni);

@@ -2911,7 +2911,13 @@
     "wheel_steel": "cars/vehicle_art2/065_container/wheel_steel.png",
     "underbody": "cars/vehicle_art2/065_container/underbody.png"
    },
-   "generator": "tools/vehicle_art2/car_065.py"
+   "generator": "tools/vehicle_art2/car_065.py",
+   "driver_seat": [
+    0.06,
+    0.39,
+    0.0,
+    0.73
+   ]
   },
   {
    "name": "066_transporter",

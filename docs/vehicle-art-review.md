@@ -1422,3 +1422,70 @@ on the far wall of the opening's cabin box (FIX-SEAT-ENTRY-3), which now shows t
   through the shell's window region); 023 is an image-to-3D shell whose outer skin (stretched awning stripes) still
   crosses the view (needs its kit body); by noon sun the card is bright with faint detail; 069's door span sits
   behind its cab (VEHICLE-ART-20's arch clamp moves the front edge from 0.347 to 0.105): unchanged.
+
+## VEHICLE-ART-27 (11 Nov 2026): 031, 032, 033 and 023 authored; 065 closed when seated; 004/058 caps; qaexp11 open
+
+Probes: `gamerun/va27_show.py` (`keys_va27_show.sh`; va24_show.py with `POSE_SCALE` for long bodies: wil 164.5,147.6,
+the player's car parked and forced to the model, painted 170,120,80, regression-camera poses side / front34 / rear34 /
+eye / high, 13:00 paused, plain GL, `GTA2DX9_REGRESS_CAM=Z:\tmp\va2_cam.txt`), `va26_fpx.py` (first/third-person exit
+bursts), `keys_paint_parity.sh` (POSES=top3, red / green / navy, the 050 control), `keys_va6_own.sh` (plate A/B).
+Before: a private stage of the cdd395e5 shared stage with HEAD 063bdedf DLLs (out/va27_b1). After: the same plus the new
+model files (out/va27_a1). Frames opened, each sheet beside the x4 sprite (`/mnt/gta2/defects/evidence/va27/ab_0NN.png`).
+
+- **031 Jefferson (`tools/vehicle_art2/car_031.py`).** The shell was an open E-Type-like roadster; the sprite is a
+  late-1930s streamlined dome coupe. 001 Wellard's profiles (waist, roof line, plan width, tumble) are evaluated at a
+  remapped station (the roof drawn out x1.24, the bonnet shortened: the screen at 31 px, the dome to 53 px), the width
+  scaled to the 26 px sprite, while the wheel arches stay round in the 031 frame. A painted dome roof (every remap
+  recolours the sprite's oval), five louvres in each bonnet side (`paint_louvre`, a tinted slot texture through the
+  body's uvs), the centre spine, a small arched grille low in the prow, faired lamps, no whitewalls.
+- **032 Stretch Limousine (`car_032.py`) and 033 Sports Limousine (`car_033.py`).** New tool
+  `tools/vehicle_art2/stretch.py`: `warp(car, zsrc, zdst, sx)` draws a finished kit body out along its length through a
+  piecewise station map (slope 1 over the wheel zones, so tyres and arches stay round; normals by the inverse
+  transpose; markers follow), and `pillars(car, bands)` turns side glass inside z bands into body paint with seal strips
+  (the glass and paint were regions of one surface, so the uvs agree). The stretch is cut behind the front bench, as a
+  real stretch limousine is: the bench, wheel, windscreen and front door keep their size (a first take stretched the
+  front bench 1.7 m from the wheel). 032 = 050 B-Type (late-1940s four-door: arched chrome grille with its centre bar,
+  bonnet strip): rear door window x6 in three bays, boot +1.2 m, nose +0.4 m (axles +3.06 / -2.14 m, the catalog's
+  +3.05 / -2.11). The shell was a lumpy '55 Cadillac with faceted wheels. 033 = 070 Z-Type (late-1930s streamliner: V
+  prow with the chrome strip and arrow, faired lamps, fastback): the door glass behind the front bench in four bays, the
+  bonnet, the nose ahead of the front wheels and the tail drawn out (axles +2.70 / -2.73, the catalog's +-2.73). The
+  shell was a 1960s Continental-like sedan.
+- **023 Hot Dog Van (`car_023.py`; the dummies 24 / 25 / 26 / 85 draw it).** The sprite is 027's van (the same cab,
+  box, hatch columns and footprint) in one orange with a giant hot dog along the roof, so it is 027's kit van
+  re-coloured: an orange cab and box, a brown belt band, slatted awnings in the sprite's tan and red, HOT DOGS boards;
+  two golden bun halves (pressed flat against the sausage) either side of a brown sausage that runs from the box's tail
+  over the cab's roof, a mustard zigzag on top (high pose matches the sprite's top view). A livery (drawn untinted).
+- Seats measured (`seat_anchor.py` entries 031 / 032 / 033 / 065; 023 takes 027's) and written to the manifest.
+- Offline hole scan: 031 8.7 %, 032 7.2 %, 023 10.0 % (027's front bumper underside, 027 itself 6.5 %), 033 21.7 %
+  (the front wheel wells seen from straight ahead: the shipped 070 measures 20.2 % at the same pose). No panel holes.
+  Wheel-split hits 0 (build.py). 16 / 16 / 16 / 22 textures.
+- **Paint parity** (out/va27_pp1, report `out/va27_pp1_parity.md`): 0 FAIL: 031 / 032 / 033 hue 1-5 degrees, lightness
+  +13..+18 % (WARN, the kit band), the control 050 +14..+15 %; navy reported; lit lids 1.00 (open sun).
+- **First-person exits** (`va26_fpx.py`, out/qa_va27_fpxb before / out/qa_va27_fpxa after, 0 FAULT): 023's exit no
+  longer crosses the view with the shell's stretched awning stripes; the swung door reads as an orange door with ART-26's
+  tan card and edge (evidence/va27/qaexp59_fp023_ab.png). 031 / 032 third-person exits: the door split cuts the kit
+  bodies cleanly (no door-top sawtooth, no arch slab). 033's exit was not reached in the run's time.
+- **004 / 058 end caps (VEHICLE-ART-23's note): no change needed.** The generators do emit the 004 tail and the 058 cab
+  back facing +z (into the body), but `build.py`'s orientation pass (`car_mesh_orient.fix`) turns them out: in the
+  shipped meshes the tail faces -z (normal and winding) and the 058 cab back -z; a generator-side flip rebuilt
+  byte-identical files. In game (out/va27_cap1 rear34) both read in the body paint, not near-black.
+- **qav57 (065 container seated): fixed.** A seated car with no glass of its own takes FIX-SEATED's 40 % see-through
+  band: on the trailer that cut four black glass panels into the corrugated wall and showed the figure, seated at the
+  sprite's car-seat height below the box floor (his legs under the chassis). `car_bodies.cpp` `TrailerModelNumber`
+  (055 / 065 / 066): no band (`[devtools] trailer_band=1` = as before), and 065's manifest seat puts a forced driver
+  inside the box above its floor (hidden). out/va27_q57b vs out/va27_q57a (wil 11:00 rain 80 %, the filer's poses):
+  a closed corrugated wall, nothing under the floor.
+- **qaexp11 (burning cop car's plate mirrored): reproduced, not fixed** (out/va27_plt0 / plt1; the A/B and leads are on
+  the work order). The burning car draws the dent-4 copy, not the charred copy (only prepared while it burns); turning
+  the dents' push outward so the plate box's two faces move together did not change it (reverted).
+- Classic view: vreg on the private stage with the final DLL (out/VA27_f): `spawn_classic` PASS, 0 tiles changed (frame
+  opened); the 3D shots (29 FAIL / 1 WARN, 17-44 tiles) differ from the goldens in the HUD tiles, as every recent stage.
+- Not verified: Remix (no prims for the new textures, no layer bundle), night, moving traffic, other remaps in natural
+  traffic, 033's door split, the hot-dog dummies 24 / 25 / 26 / 85 in game (same mesh by the manifest).
+- Still short of a shipping-AAA frame: the kit glass is dark (the limousines' long glasshouses read as black bands by
+  day); 031's flank is plain and tall with small wheels; 033's drawn-out bonnet and wings are long flat surfaces; the
+  limousines' interiors are stretched benches behind the dark glass; 023's bun and sausage are smooth capsules with
+  flat textures; the 023 first-person exit still fills a third of the view with the door for a moment (camera path).
+- Model files: `031_jefferson*`, `032_stretch_limousine*`, `033_sports_limousine*`, `023_hot_dog_van*` in
+  repo/assets/models since 04:51 UTC 11 Nov (outside git; shells backed up in `/mnt/gta2/gta2-linux/backup_va27`): they
+  reach the page with the next restage from 84899c4d or later.
