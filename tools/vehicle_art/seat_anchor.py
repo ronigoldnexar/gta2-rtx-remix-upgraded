@@ -81,6 +81,9 @@ SEATS = {
     "083_furore_gt": ((0.42, 0.60, -0.50), 5.0),  # VEHICLE-ART-25: buckets x +-0.42, top 0.60, back -0.76..-0.62
     "047_meteor": ((0.40, 0.56, -0.24), 5.0),     # VEHICLE-ART-25: buckets x +-0.40, top 0.56, back -0.50..-0.36
     "048_meteor": ((0.40, 0.56, -0.24), 5.0),     # VEHICLE-ART-25: 047's cabin
+    "031_jefferson": ((0.32, 0.70, -0.98), 5.0),  # VEHICLE-ART-27: bench x +-0.62, top 0.70, back -1.24..-1.10
+    "032_stretch_limousine": ((0.40, 0.70, 1.40), 5.0),   # VEHICLE-ART-27: 050's front bench through the stretch map (rigid there)
+    "033_sports_limousine": ((0.40, 0.70, 0.41), 5.0),    # VEHICLE-ART-27: 070's front bench through the stretch map (rigid there)
 }
 
 

@@ -1516,15 +1516,45 @@
   },
   {
    "name": "023_hot_dog_van",
-   "glb": "cars/models3d/023_hot_dog_van.glb",
+   "glb": "cars/vehicle_art2/023_hot_dog_van.glb",
    "scale": 1.0,
    "paint_rgb": [
-    122.0,
-    78.6,
-    45.6
+    235.0,
+    235.0,
+    235.0
    ],
    "texture_max": 512,
-   "paint_split": true
+   "material_textures": {
+    "interior_dark": "cars/vehicle_art2/023_hot_dog_van/interior_dark.png",
+    "underbody": "cars/vehicle_art2/023_hot_dog_van/underbody.png",
+    "paint_cab": "cars/vehicle_art2/023_hot_dog_van/paint_cab.png",
+    "grille": "cars/vehicle_art2/023_hot_dog_van/grille.png",
+    "chrome": "cars/vehicle_art2/023_hot_dog_van/chrome.png",
+    "chrome_disc": "cars/vehicle_art2/023_hot_dog_van/chrome_disc.png",
+    "lamp_head": "cars/vehicle_art2/023_hot_dog_van/lamp_head.png",
+    "lamp_amber": "cars/vehicle_art2/023_hot_dog_van/lamp_amber.png",
+    "seat": "cars/vehicle_art2/023_hot_dog_van/seat.png",
+    "paint_box": "cars/vehicle_art2/023_hot_dog_van/paint_box.png",
+    "awning": "cars/vehicle_art2/023_hot_dog_van/awning.png",
+    "sign": "cars/vehicle_art2/023_hot_dog_van/sign.png",
+    "lamp_tail": "cars/vehicle_art2/023_hot_dog_van/lamp_tail.png",
+    "bun": "cars/vehicle_art2/023_hot_dog_van/bun.png",
+    "sausage": "cars/vehicle_art2/023_hot_dog_van/sausage.png",
+    "mustard": "cars/vehicle_art2/023_hot_dog_van/mustard.png",
+    "tyre_side": "cars/vehicle_art2/023_hot_dog_van/tyre_side.png",
+    "tyre_tread": "cars/vehicle_art2/023_hot_dog_van/tyre_tread.png",
+    "whitewall": "cars/vehicle_art2/023_hot_dog_van/whitewall.png",
+    "paint_wheel": "cars/vehicle_art2/023_hot_dog_van/paint_wheel.png",
+    "glass": "cars/vehicle_art2/023_hot_dog_van/glass.png",
+    "glass_hatch": "cars/vehicle_art2/023_hot_dog_van/glass_hatch.png"
+   },
+   "generator": "tools/vehicle_art2/car_023.py",
+   "driver_seat": [
+    0.1,
+    0.256,
+    0.043,
+    0.422
+   ]
   },
   {
    "name": "024_hot_dog_dummy_1",
@@ -1744,15 +1774,39 @@
   },
   {
    "name": "031_jefferson",
-   "glb": "cars/models3d/031_jefferson.glb",
+   "glb": "cars/vehicle_art2/031_jefferson.glb",
    "scale": 1.0,
    "paint_rgb": [
-    126.3,
-    94.2,
-    79.6
+    235.0,
+    235.0,
+    235.0
    ],
    "texture_max": 512,
-   "paint_split": true
+   "material_textures": {
+    "seal": "cars/vehicle_art2/031_jefferson/seal.png",
+    "chrome": "cars/vehicle_art2/031_jefferson/chrome.png",
+    "grille_back": "cars/vehicle_art2/031_jefferson/grille_back.png",
+    "paint_louvre": "cars/vehicle_art2/031_jefferson/paint_louvre.png",
+    "underbody": "cars/vehicle_art2/031_jefferson/underbody.png",
+    "paint_body": "cars/vehicle_art2/031_jefferson/paint_body.png",
+    "grille": "cars/vehicle_art2/031_jefferson/grille.png",
+    "interior_dark": "cars/vehicle_art2/031_jefferson/interior_dark.png",
+    "paint_wheel": "cars/vehicle_art2/031_jefferson/paint_wheel.png",
+    "chrome_disc": "cars/vehicle_art2/031_jefferson/chrome_disc.png",
+    "lamp_head": "cars/vehicle_art2/031_jefferson/lamp_head.png",
+    "lamp_tail": "cars/vehicle_art2/031_jefferson/lamp_tail.png",
+    "seat": "cars/vehicle_art2/031_jefferson/seat.png",
+    "tyre_side": "cars/vehicle_art2/031_jefferson/tyre_side.png",
+    "tyre_tread": "cars/vehicle_art2/031_jefferson/tyre_tread.png",
+    "glass": "cars/vehicle_art2/031_jefferson/glass.png"
+   },
+   "generator": "tools/vehicle_art2/car_031.py",
+   "driver_seat": [
+    0.064,
+    0.14,
+    -0.196,
+    0.276
+   ]
   },
   {
    "name": "086_karma_bus",
@@ -1795,27 +1849,75 @@
   },
   {
    "name": "032_stretch_limousine",
-   "glb": "cars/models3d/032_stretch_limousine.glb",
+   "glb": "cars/vehicle_art2/032_stretch_limousine.glb",
    "scale": 1.0,
    "paint_rgb": [
-    180.1,
-    142.9,
-    117.0
+    235.0,
+    235.0,
+    235.0
    ],
    "texture_max": 512,
-   "paint_split": true
+   "material_textures": {
+    "seal": "cars/vehicle_art2/032_stretch_limousine/seal.png",
+    "chrome": "cars/vehicle_art2/032_stretch_limousine/chrome.png",
+    "underbody": "cars/vehicle_art2/032_stretch_limousine/underbody.png",
+    "paint_body": "cars/vehicle_art2/032_stretch_limousine/paint_body.png",
+    "interior_dark": "cars/vehicle_art2/032_stretch_limousine/interior_dark.png",
+    "grille": "cars/vehicle_art2/032_stretch_limousine/grille.png",
+    "chrome_disc": "cars/vehicle_art2/032_stretch_limousine/chrome_disc.png",
+    "lamp_head": "cars/vehicle_art2/032_stretch_limousine/lamp_head.png",
+    "lamp_amber": "cars/vehicle_art2/032_stretch_limousine/lamp_amber.png",
+    "lamp_tail": "cars/vehicle_art2/032_stretch_limousine/lamp_tail.png",
+    "seat": "cars/vehicle_art2/032_stretch_limousine/seat.png",
+    "tyre_side": "cars/vehicle_art2/032_stretch_limousine/tyre_side.png",
+    "tyre_tread": "cars/vehicle_art2/032_stretch_limousine/tyre_tread.png",
+    "whitewall": "cars/vehicle_art2/032_stretch_limousine/whitewall.png",
+    "paint_wheel": "cars/vehicle_art2/032_stretch_limousine/paint_wheel.png",
+    "glass": "cars/vehicle_art2/032_stretch_limousine/glass.png"
+   },
+   "generator": "tools/vehicle_art2/car_032.py",
+   "driver_seat": [
+    0.08,
+    0.14,
+    0.28,
+    0.317
+   ]
   },
   {
    "name": "033_sports_limousine",
-   "glb": "cars/models3d/033_sports_limousine.glb",
+   "glb": "cars/vehicle_art2/033_sports_limousine.glb",
    "scale": 1.0,
    "paint_rgb": [
-    164.9,
-    124.5,
-    101.9
+    235.0,
+    235.0,
+    235.0
    ],
    "texture_max": 512,
-   "paint_split": true
+   "material_textures": {
+    "seal": "cars/vehicle_art2/033_sports_limousine/seal.png",
+    "chrome": "cars/vehicle_art2/033_sports_limousine/chrome.png",
+    "grille_back": "cars/vehicle_art2/033_sports_limousine/grille_back.png",
+    "underbody": "cars/vehicle_art2/033_sports_limousine/underbody.png",
+    "paint_body": "cars/vehicle_art2/033_sports_limousine/paint_body.png",
+    "grille": "cars/vehicle_art2/033_sports_limousine/grille.png",
+    "interior_dark": "cars/vehicle_art2/033_sports_limousine/interior_dark.png",
+    "paint_wheel": "cars/vehicle_art2/033_sports_limousine/paint_wheel.png",
+    "chrome_disc": "cars/vehicle_art2/033_sports_limousine/chrome_disc.png",
+    "lamp_head": "cars/vehicle_art2/033_sports_limousine/lamp_head.png",
+    "lamp_tail": "cars/vehicle_art2/033_sports_limousine/lamp_tail.png",
+    "seat": "cars/vehicle_art2/033_sports_limousine/seat.png",
+    "tyre_side": "cars/vehicle_art2/033_sports_limousine/tyre_side.png",
+    "tyre_tread": "cars/vehicle_art2/033_sports_limousine/tyre_tread.png",
+    "whitewall": "cars/vehicle_art2/033_sports_limousine/whitewall.png",
+    "glass": "cars/vehicle_art2/033_sports_limousine/glass.png"
+   },
+   "generator": "tools/vehicle_art2/car_033.py",
+   "driver_seat": [
+    0.08,
+    0.14,
+    0.082,
+    0.295
+   ]
   },
   {
    "name": "034_medicar",
@@ -8972,13 +9074,33 @@
   },
   {
    "name": "023_hot_dog_van",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 14022,
+   "nodes": 26,
+   "meshes": 22,
+   "vertices": 28167,
    "animations": [],
    "textures": [
-    "023_hot_dog_van_0.tga",
-    "023_hot_dog_van_0_paint.tga"
+    "023_hot_dog_van_awning.tga",
+    "023_hot_dog_van_bun.tga",
+    "023_hot_dog_van_chrome.tga",
+    "023_hot_dog_van_chrome_disc.tga",
+    "023_hot_dog_van_glass.tga",
+    "023_hot_dog_van_glass_hatch.tga",
+    "023_hot_dog_van_grille.tga",
+    "023_hot_dog_van_interior_dark.tga",
+    "023_hot_dog_van_lamp_amber.tga",
+    "023_hot_dog_van_lamp_head.tga",
+    "023_hot_dog_van_lamp_tail.tga",
+    "023_hot_dog_van_mustard.tga",
+    "023_hot_dog_van_paint_box_paint.tga",
+    "023_hot_dog_van_paint_cab_paint.tga",
+    "023_hot_dog_van_paint_wheel_paint.tga",
+    "023_hot_dog_van_sausage.tga",
+    "023_hot_dog_van_seat.tga",
+    "023_hot_dog_van_sign.tga",
+    "023_hot_dog_van_tyre_side.tga",
+    "023_hot_dog_van_tyre_tread.tga",
+    "023_hot_dog_van_underbody.tga",
+    "023_hot_dog_van_whitewall.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -9178,13 +9300,27 @@
   },
   {
    "name": "031_jefferson",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 14342,
+   "nodes": 20,
+   "meshes": 16,
+   "vertices": 20008,
    "animations": [],
    "textures": [
-    "031_jefferson_0.tga",
-    "031_jefferson_0_paint.tga"
+    "031_jefferson_chrome.tga",
+    "031_jefferson_chrome_disc.tga",
+    "031_jefferson_glass.tga",
+    "031_jefferson_grille.tga",
+    "031_jefferson_grille_back.tga",
+    "031_jefferson_interior_dark.tga",
+    "031_jefferson_lamp_head.tga",
+    "031_jefferson_lamp_tail.tga",
+    "031_jefferson_paint_body_paint.tga",
+    "031_jefferson_paint_louvre_paint.tga",
+    "031_jefferson_paint_wheel_paint.tga",
+    "031_jefferson_seal.tga",
+    "031_jefferson_seat.tga",
+    "031_jefferson_tyre_side.tga",
+    "031_jefferson_tyre_tread.tga",
+    "031_jefferson_underbody.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -9225,13 +9361,27 @@
   },
   {
    "name": "032_stretch_limousine",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 8044,
+   "nodes": 20,
+   "meshes": 16,
+   "vertices": 25048,
    "animations": [],
    "textures": [
-    "032_stretch_limousine_0.tga",
-    "032_stretch_limousine_0_paint.tga"
+    "032_stretch_limousine_chrome.tga",
+    "032_stretch_limousine_chrome_disc.tga",
+    "032_stretch_limousine_glass.tga",
+    "032_stretch_limousine_grille.tga",
+    "032_stretch_limousine_interior_dark.tga",
+    "032_stretch_limousine_lamp_amber.tga",
+    "032_stretch_limousine_lamp_head.tga",
+    "032_stretch_limousine_lamp_tail.tga",
+    "032_stretch_limousine_paint_body_paint.tga",
+    "032_stretch_limousine_paint_wheel_paint.tga",
+    "032_stretch_limousine_seal.tga",
+    "032_stretch_limousine_seat.tga",
+    "032_stretch_limousine_tyre_side.tga",
+    "032_stretch_limousine_tyre_tread.tga",
+    "032_stretch_limousine_underbody.tga",
+    "032_stretch_limousine_whitewall.tga"
    ],
    "skins": 0,
    "forward": "",
@@ -9240,13 +9390,27 @@
   },
   {
    "name": "033_sports_limousine",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 7866,
+   "nodes": 20,
+   "meshes": 16,
+   "vertices": 26992,
    "animations": [],
    "textures": [
-    "033_sports_limousine_0.tga",
-    "033_sports_limousine_0_paint.tga"
+    "033_sports_limousine_chrome.tga",
+    "033_sports_limousine_chrome_disc.tga",
+    "033_sports_limousine_glass.tga",
+    "033_sports_limousine_grille.tga",
+    "033_sports_limousine_grille_back.tga",
+    "033_sports_limousine_interior_dark.tga",
+    "033_sports_limousine_lamp_head.tga",
+    "033_sports_limousine_lamp_tail.tga",
+    "033_sports_limousine_paint_body_paint.tga",
+    "033_sports_limousine_paint_wheel_paint.tga",
+    "033_sports_limousine_seal.tga",
+    "033_sports_limousine_seat.tga",
+    "033_sports_limousine_tyre_side.tga",
+    "033_sports_limousine_tyre_tread.tga",
+    "033_sports_limousine_underbody.tga",
+    "033_sports_limousine_whitewall.tga"
    ],
    "skins": 0,
    "forward": "",
