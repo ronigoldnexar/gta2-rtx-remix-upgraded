@@ -12330,6 +12330,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 if (fadeTest < -1) { char b[8] = {}; fadeTest = GetEnvironmentVariableA("GTA2DX9_CAM_FADE_TEST", b, sizeof b) ? atoi(b) : -1; }
                 if (fadeTest > 0 && fadeTest < 100 && !heroFigure && !fpBody && CurrentViewMode() != ViewMode::Classic) pedLensAlpha = fadeTest / 100.0f;
             }
+            if (fpBody) pedLensAlpha = FpExitBodyAlpha();   // FIX-CAMERA-20: the first-person exit fades his hands off the rim
             // FIX-COCKPIT-CAB-5 (pfl54 fire truck 017: no hands at all for the whole first-person leg; the stand-in fists
             // before 2a23c9f8): his body at the wheel is placed under the eye, but its origin (the seat on the floor, in a
             // tall cab 0.68 under the eye and behind it) fell past the frustum's bottom plane by more than the 0.75 margin

@@ -75,6 +75,7 @@ bool CarFrameOf(const CameraCar& c, float* cx, float* cz, float* ex, float* ez, 
     return true;
 }
 float g_fpExitGlideLeft = 0.0f;   // FIX-COCKPIT-CAB-6: FpExitGlideLeft()
+float g_fpExitBodyAlpha = 1.0f;   // FIX-CAMERA-20: FpExitBodyAlpha()
 // FIX-FP-EXIT-1 (pfl79, qaf72): the first-person exit as a sequence in the held car's own frame: 1 the eye holds in the
 // seat while the driver's door opens, 2 out through the opening at seat height (standing up over its last part, back
 // behind the door's rear edge), 3 standing, turned along the car, the door shut behind him, 4 handed back to the game's
@@ -92,6 +93,7 @@ struct FpExitSeq {
     gta2::Vec3 shown{}, backFrom{};
     bool backFixed = false;
     float yawOff = 0.0f;                      // the look toward the door's side (radians)
+    bool released = false;                    // FIX-CAMERA-20: his body at the wheel let go (after its fade)
 };
 FpExitSeq g_fx;
 struct FpExitSeat { uintptr_t car = 0; float x = 0.0f, y = 0.0f, z = 0.0f; uint32_t serial = 0; };
@@ -1741,6 +1743,12 @@ float CameraTurnBudgetDeg() {
     if (env < -1.0f) { char b[16] = {}; env = GetEnvironmentVariableA("GTA2DX9_CAM_TURN_BUDGET", b, sizeof b) ? static_cast<float>(atof(b)) : -1.0f; }
     const float v = env >= 0.0f ? env : ViewModes().turnBudget;
     return v > 0.0f ? (std::max)(1.0f, v) : 0.0f;
+}
+
+bool CameraPocketGlideOn() {
+    static int env = -2;
+    if (env < -1) { char b[8] = {}; env = GetEnvironmentVariableA("GTA2DX9_CAM_POCKET_GLIDE", b, sizeof b) ? atoi(b) : -1; }
+    return env >= 0 ? env != 0 : ViewModes().pocketGlide;
 }
 
 bool CameraPocketLiftOn() {
@@ -3445,15 +3453,32 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                     Log("view: fp exit: %s at %.2f s (door open %.2f)", what, x.total, F.open);
                 };
                 if (x.missing > 6 && x.phase < 4) { x.backFixed = true; x.backFrom = x.shown; next(4, "the car is gone, back to his eye"); }
+                // FIX-CAMERA-20 (tri60: the hands left the rim in one frame, p79 f8 -> f9): his body at the wheel fades out over
+                // kBodyFade while the eye still sits in the seat (drawn see-through at FpExitBodyAlpha, live_geometry), then is let
+                // go and the eye leaves. GTA2DX9_FP_EXIT_BODY_FADE=0: let go at once as before (A/B).
+                static const bool bodyFadeOn = [] { char b[4] = {}; return !(GetEnvironmentVariableA("GTA2DX9_FP_EXIT_BODY_FADE", b, sizeof b) && b[0] == '0'); }();
+                const bool bodyFade = bodyFadeOn && !handFadeOn();
+                constexpr float kBodyFade = 0.2f;
+                g_fpExitBodyAlpha = 1.0f;
                 if (x.phase == 1 && ((F.open >= 0.5f && x.t >= 0.2f) || x.t >= 0.6f)) {
                     next(2, "out through the door");
                     // his body at the wheel is let go as the eye leaves the seat (GTA2DX9_FP_EXIT_HAND_FADE=1: the frame before
                     // dissolves over the new one, [camera] cut_dissolve)
                     if (handFadeOn()) ++g_chaseCutSerial;
-                    BoardingReleasePlayerSeat();
+                    if (!bodyFade) { BoardingReleasePlayerSeat(); x.released = true; }
+                }
+                if (x.phase == 2 && !x.released) {
+                    if (x.t < kBodyFade) {
+                        BoardingHoldPlayerSeat();
+                        g_fpExitBodyAlpha = 1.0f - Smooth01(x.t / kBodyFade);
+                    } else {
+                        BoardingReleasePlayerSeat();
+                        x.released = true;
+                        Log("view: fp exit: his hands faded off the rim, let go at %.2f s", x.total);
+                    }
                 }
                 // (the eye stays in the seat for the hands' fade, kFade: a moving eye under the dissolve doubled the view)
-                const float kFade = handFadeOn() ? 0.22f : 0.0f;
+                const float kFade = handFadeOn() ? 0.22f : bodyFade ? kBodyFade : 0.0f;
                 if (x.phase == 2 && x.t >= kOut + kFade) {
                     float a = 0.0f, yy = 0.0f, b = 0.0f;
                     FxLocal(F, gta2::Vec3{px, F.m.m[3][1], pz}, &a, &yy, &b);
@@ -3513,8 +3538,9 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                     if (FpExitLogOn()) {
                         float lx = 0.0f, ly = 0.0f, lz = 0.0f;
                         FxLocal(F, fxEye, &lx, &ly, &lz);
-                        Log("view: fp exit: phase %d t %.2f eye car-frame %.3f,%.3f,%.3f door %.2f look %.0f deg", x.phase, x.t, lx, ly, lz, F.open,
-                            lookA / kDegToRad);
+                        Log("view: fp exit: phase %d t %.2f eye car-frame %.3f,%.3f,%.3f door %.2f look %.0f deg (car age %u step %.3f, game %.3f,%.3f origin %.3f,%.3f)",
+                            x.phase, x.t, lx, ly, lz, F.open, lookA / kDegToRad, F.age, std::hypot(F.stepX, F.stepZ), px, pz,
+                            F.m.m[3][0] + F.stepX, F.m.m[3][2] + F.stepZ);
                     }
                 }
             }
@@ -4634,11 +4660,16 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     static int footCellMeshOn = -1;
     if (footCellMeshOn < 0) { char b[8] = {}; footCellMeshOn = GetEnvironmentVariableA("GTA2DX9_CAM_FOOT_CELL_MESH", b, sizeof b) ? (atoi(b) == 1 ? 1 : 0) : (CameraSwingFirstOn() ? 1 : 0); }
     const bool footCellMesh = !inVehicle && footCellMeshOn && mode == ViewMode::ThirdPerson && eyecol::Ready() && CameraMeshSolveOn();
+    // FIX-CAMERA-20: while the pocket glide runs (below) the boom answers to the walls only: a cell the map calls solid
+    // is solid only inside a closed block of the mesh, railings and sheets are see-through (reachTo, the near skip).
+    bool glideNow = false;
+    bool wallsOnly = false;   // FIX-CAMERA-20: glideNow, or the see-through pocket after a glide out of a collapse (below)
     auto solidAt = [&](float x, float y, float z) {
         if (!inVehicle && static_cast<int>(std::floor(x)) == ownX && static_cast<int>(std::floor(z)) == ownZ &&
             static_cast<int>(std::floor(y)) == ownY)
             return false;
         if (!q.blocked(q.context, x, y, z)) return false;
+        if (wallsOnly) return eyecol::InsideSolid(gta2::Vec3{x, y, z});
         if (carMesh || footCellMesh) {
             const gta2::Vec3 p{x, y, z};
             if (eyecol::Nearest(p, 0.2f) >= 0.2f && !eyecol::InsideSolid(p)) return false;
@@ -4792,7 +4823,21 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     static float pocketLeanT = 0.0f, pocketLeanX = 0.0f, pocketLeanZ = 0.0f;
     pocketLeanT = (std::max)(0.0f, pocketLeanT - dt);
     const bool pocketLean = pocketLeanT > 0.0f && !inVehicle && std::hypot(px - pocketLeanX, pz - pocketLeanZ) < 2.5f && CameraPocketLiftOn();
-    const LeanSkip leanSkip(meshSolve && (leanSheetOn || pocketLean) && mode == ViewMode::ThirdPerson, pocketLean ? 0.9f : leanSheetR);
+    const bool glideMay = !inVehicle && meshSolve && s.tpCollide && mode == ViewMode::ThirdPerson && CameraPocketGlideOn();
+    glideNow = glideT_ > 0.0f && glideMay;
+    if (!glideNow) glideT_ = 0.0f;
+    // FIX-CAMERA-20: the see-through pocket: after a glide out of a collapse (every heading closed by a railing's bars, the
+    // kerb's railing corner at 166.1,147.1: the boom fell into his head and he was gone for 2 s, cam20_pk5) the railings stay
+    // see-through to the boom while he stays within 1.5 blocks, for up to 8 s.
+    pocketSeeT_ = (std::max)(0.0f, pocketSeeT_ - dt);
+    if (pocketSeeT_ > 0.0f && (!glideMay || std::hypot(px - pocketSeeX_, pz - pocketSeeZ_) > 1.5f)) {
+        pocketSeeT_ = 0.0f;
+        if (cameraLogOn()) Log("cam: pocket see-through ends (he left the spot)");
+    }
+    wallsOnly = glideNow || (pocketSeeT_ > 0.0f && glideMay);
+    constexpr float kGlideSkip = 4.0f;   // FIX-CAMERA-20: every sheet and bar on the boom's line is see-through while it glides
+    LeanSkip leanSkip(meshSolve && (leanSheetOn || pocketLean || wallsOnly) && mode == ViewMode::ThirdPerson,
+                      wallsOnly ? kGlideSkip : pocketLean ? 0.9f : leanSheetR);
     auto reachTo = [&](const gta2::Vec3& from, const gta2::Vec3& to) {
         constexpr int kSteps = 32;
         float reach = 1.0f;
@@ -4813,7 +4858,8 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             const gta2::Vec3 span = to - from;
             const float len = std::sqrt(span.x * span.x + span.y * span.y + span.z * span.z);
             float t = 1.0f;
-            if (len > 1e-3f && eyecol::SegmentHit(from, to, &t)) reach = (std::min)(reach, (std::max)(0.0f, t - kMeshClear / len));
+            const bool hit = len > 1e-3f && (wallsOnly ? eyecol::SegmentHitSolid(from, to, &t) : eyecol::SegmentHit(from, to, &t));
+            if (hit) reach = (std::min)(reach, (std::max)(0.0f, t - kMeshClear / len));
         }
         return reach;
     };
@@ -4895,7 +4941,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         static int holdOn = -1;
         if (holdOn < 0) { char b[8] = {}; holdOn = GetEnvironmentVariableA("GTA2DX9_CAM_SWING_HOLD", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
         bool held = false, waiting = false;
-        if (holdOn && len0 > 0.8f && std::fabs(dRig) < 0.6f) {
+        if (holdOn && !glideNow && len0 > 0.8f && std::fabs(dRig) < 0.6f) {
             // turned(a) puts the boom at the rig's heading minus a: the camera's heading held in the
             // world is the swing plus the rig's turn this frame.
             // The swing kept within +-180 (the same heading), and the path checked below is the one
@@ -4927,7 +4973,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             }
         }
         const float swingAtStart = swingAngle_;
-        if (!held) swingAngle_ += (wantSwing - swingAngle_) * (1.0f - std::exp(-dt / tau));
+        if (!held && !glideNow) swingAngle_ += (wantSwing - swingAngle_) * (1.0f - std::exp(-dt / tau));
         // FIX-CAMERA-10 (pfl14-third-on-foot-plaza-camera-lunge-and-roll): beside the wil iron staircase the
         // stair's side (a two-sided railing face 0.2 from his centre) cuts the line behind him as he steps along it;
         // the swing to the open side eased over 0.25 s while the boom fell in at 9 blocks/s, so the camera lunged
@@ -4946,7 +4992,138 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         const float budgetDeg = CameraTurnBudgetDeg();
         swingDwell_ = (std::max)(0.0f, swingDwell_ - dt);
         sinceSwingCut_ = (std::min)(sinceSwingCut_ + dt, 60.0f);
-        if (!waiting && len0 > 0.8f && CameraSwingFirstOn()) {
+        // FIX-CAMERA-20 (cam18-third-pocket residual: the wil iron-stair booth and the 164.5,147.6 kerb still cut about twice
+        // a minute of walking loops, dissolved since FIX-CAMERA-19). The probe at each cut (cam19_pk3, 'cam: pocket probe')
+        // shows what closes the way round: on the kerb the railing's sheet and the cells round it (the walls-only reach is
+        // the full boom on every heading of the path), at the booth the stair's rail with the walls 0.63-0.85 out along the
+        // path. So where the cut was wanted the boom glides round instead: along the way (short or long) whose headings the
+        // WALLS leave open furthest, the boom shortened to that and if need be lifted (up to 45 more degrees, at most 50 in
+        // all), turning at nine tenths of the turn budget; while it glides, the railings, sheets and the cells' false walls
+        // are see-through to the boom (the bars pass the lens). Only when no such way keeps 0.6 of boom: the cut (dissolved).
+        // [camera] pocket_glide=0 or GTA2DX9_CAM_POCKET_GLIDE=0: the cut as before (A/B).
+        const float glideRate = (budgetDeg > 0.0f ? 0.55f * budgetDeg * 30.0f : 150.0f) * kDegToRad;   // the mean; the peak 1.5x
+        const float good0 = (std::max)(0.9f, 0.6f * len0);
+        auto liftedAt = [&](float a, float lift) {
+            const gta2::Vec3 e = turned(a), sp = e - pivot;
+            const float flat = std::hypot(sp.x, sp.z), L = std::sqrt(sp.x * sp.x + sp.y * sp.y + sp.z * sp.z);
+            if (flat < 1e-3f || lift <= 0.0f) return e;
+            const float a0 = std::atan2(sp.y, flat), al = (std::max)(a0, (std::min)(a0 + lift, 50.0f * kDegToRad));
+            return gta2::Vec3{pivot.x + sp.x / flat * std::cos(al) * L, pivot.y + std::sin(al) * L, pivot.z + sp.z / flat * std::cos(al) * L};
+        };
+        auto wallsReach = [&](const gta2::Vec3& e) {   // the boom's reach to e (blocks) against the walls only
+            const gta2::Vec3 sp = e - pivot;
+            const float L = std::sqrt(sp.x * sp.x + sp.y * sp.y + sp.z * sp.z);
+            if (L < 1e-3f) return 0.0f;
+            float t = 1.0f;
+            float r = eyecol::SegmentHitSolid(pivot, e, &t) ? (std::max)(0.0f, t * L - kMeshClear) : L;
+            for (int i = 1; i <= 16; ++i) {   // and never into a closed block
+                const float u = static_cast<float>(i) / 16.0f;
+                if (u * L > r) break;
+                const gta2::Vec3 p = pivot + sp * u;
+                if (q.blocked(q.context, p.x, p.y, p.z) && eyecol::InsideSolid(p)) { r = (std::max)(0.0f, u * L - L / 16.0f - kMeshClear); break; }
+            }
+            return r;
+        };
+        bool glideStarted = false;
+        auto tryGlide = [&](float wantSwingNow, bool relaxed) {
+            // Every heading round him at 7.5 degrees (from where the boom is) and four lifts: the walls' reach; the view
+            // from each heading at no lift with every sheet and bar counted (a glide that ends looking at him through a
+            // railing's bars has found no way out: cam20_pk1). The glide goes to the heading with the clearest view whose
+            // way round (either side) keeps 0.6 of boom against the walls at one lift, the nearer and lower preferred.
+            constexpr int kH = 48, kL = 4;
+            const float stepA = 2.0f * kPi / kH;
+            static float wr[kL][kH];
+            float endQ[kH];
+            const float skip0 = eyecol::NearSoftSkip();
+            eyecol::SetNearSoftSkip(0.0f);
+            for (int j = 0; j < kH; ++j) {
+                const float a = swingAtStart + stepA * static_cast<float>(j);
+                for (int li = 0; li < kL; ++li) wr[li][j] = wallsReach(liftedAt(a, static_cast<float>(li) * 15.0f * kDegToRad));
+                endQ[j] = j == 0 ? 0.0f : (std::min)(1.0f, reachTo(pivot, turned(a)) * len0 / good0);
+                // out of a collapse, a heading the walls leave open is taken too (him through a railing's bars), ranked below
+                if (relaxed && j > 0) endQ[j] = (std::max)(endQ[j], 0.6f * (std::min)(1.0f, wr[0][j] / good0));
+            }
+            eyecol::SetNearSoftSkip(skip0);
+            float bestScore = -1e9f, bestSpan = 0.0f, bestLift = 0.0f, bestMin = 0.0f, bestQ = 0.0f;
+            for (int j = 1; j < kH; ++j) {
+                if (endQ[j] < 0.5f) continue;
+                for (int w = 0; w < 2; ++w) {
+                    const int n = w == 0 ? j : kH - j;           // samples from the start to the end, that way round
+                    const float span = w == 0 ? stepA * static_cast<float>(j) : -stepA * static_cast<float>(kH - j);
+                    for (int li = 0; li < kL; ++li) {
+                        float m = 1e9f;
+                        // (from the first step on: the heading it leaves is walled, that is why it goes; cam20_pk7's last two cuts
+                        // had the long way round open from 0.65 on and failed only on the start's 0.21/0.42)
+                        for (int k = 1; k <= n && m >= 0.6f; ++k) m = (std::min)(m, wr[li][w == 0 ? k : (kH - k) % kH]);
+                        if (m < 0.6f) continue;
+                        const float score = 1.5f * endQ[j] + 0.5f * (std::min)(m, 1.3f) / 1.3f - 0.12f * static_cast<float>(li) -
+                                            0.25f * std::fabs(span) / kPi;
+                        if (score > bestScore) { bestScore = score; bestSpan = span; bestLift = static_cast<float>(li) * 15.0f * kDegToRad; bestMin = m; bestQ = endQ[j]; }
+                        break;   // the lowest lift that keeps the way open
+                    }
+                }
+            }
+            if (bestScore < -1e8f) {
+                if (cameraLogOn()) Log("cam: pocket glide: no %sheading with a way round that keeps 0.6 of boom against the walls (want %.1f)%s",
+                                       relaxed ? "walls-open " : "clear ", wantSwingNow / kDegToRad, relaxed ? "" : ", cut");
+                return false;
+            }
+            if (relaxed && bestQ < 0.99f) { pocketSeeT_ = 8.0f; pocketSeeX_ = px; pocketSeeZ_ = pz; wallsOnly = true; }
+            glideDir_ = bestSpan > 0.0f ? 1.0f : -1.0f;
+            glideTarget_ = WrapAngle(swingAtStart + bestSpan);
+            glideFrom_ = swingAtStart;
+            glideSpan_ = bestSpan;
+            glideDur_ = (std::max)(0.3f, std::fabs(bestSpan) / glideRate);
+            glideU_ = 0.0f;
+            glideBoom_ = (std::min)(len0, bestMin - 0.05f);
+            glideLift_ = bestLift;
+            glideT_ = glideDur_ + 0.5f;
+            glideNow = true;
+            if (!leanSkip.on) leanSkip.on = true;
+            eyecol::SetNearSoftSkip(kGlideSkip);
+            glideStarted = true;
+            if (cameraLogOn())
+                Log("cam: pocket glide starts%s: %.1f -> %.1f deg (%.0f deg; the solver wanted %.1f), boom %.2f of %.2f, lift %.0f deg, walls reach on the way %.2f, view there %.2f",
+                    relaxed ? " out of a collapse" : "", swingAtStart / kDegToRad, glideTarget_ / kDegToRad, bestSpan / kDegToRad, wantSwingNow / kDegToRad,
+                    glideBoom_, len0, bestLift / kDegToRad, bestMin, bestQ);
+            return true;
+        };
+        glideRetry_ = (std::max)(0.0f, glideRetry_ - dt);
+        if (!glideNow && budgetDeg > 0.0f && glideMay && len0 > 0.8f && glideRetry_ <= 0.0f &&
+            reachTo(pivot, turned(swingAtStart)) * len0 < 0.35f * good0 && reachTo(pivot, turned(wantSwing)) * len0 < good0) {
+            // the boom collapsing with no heading open to it (the pocket search above holds where it is): glide out along the walls
+            glideRetry_ = 0.5f;
+            if (!tryGlide(wantSwing, true) && cameraLogOn()) Log("cam: pocket collapse: no glide out");
+        }
+        if (glideNow) {
+            glideFrom_ += dRig;   // the glide's course held in the world while the rig turns with him (cam20_pk5: he turned, it arrived at a wall)
+            // eased in and out (smoothstep over glideDur_, the peak 1.5 times the mean): the shown yaw, capped at the turn
+            // budget and ramping up, trailed a constant-rate glide and left him at the frame's edge (cam20_pk2 booth)
+            glideU_ += (std::min)(dt, 1.0f / 20.0f);
+            const float u = (std::min)(1.0f, glideU_ / glideDur_);
+            const float rest = (1.0f - Smooth01(u)) * glideSpan_;
+            const float step = u >= 1.0f ? 0.0f : 1.0f;   // (arrival test below)
+            const float before = swingAngle_;
+            swingAngle_ = glideFrom_ + glideSpan_ * Smooth01(u);
+            {
+                const float a = swingAngle_ - before - dRig, c = std::cos(a), sn = std::sin(a);   // (the rig's own turn moves no eye)
+                const float ox = eyeX_ - pivot.x, oz = eyeZ_ - pivot.z;
+                eyeX_ = pivot.x + ox * c - oz * sn;
+                eyeZ_ = pivot.z + ox * sn + oz * c;
+            }
+            swingAngle_ = WrapAngle(swingAngle_);
+            swingClearing = true;
+            swingClearHold_ = 0.6f;
+            swingDwell_ = 1.0f;
+            swingDwellDir_ = rest > 0.0f ? 1.0f : -1.0f;
+            glideT_ -= (std::min)(dt, 1.0f / 20.0f);
+            if (step == 0.0f) glideT_ = 0.0f;
+            if (cameraLogOn()) {
+                static int every = 0;
+                if (glideT_ <= 0.0f) Log("cam: pocket glide %s at %.1f deg", step == 0.0f ? "arrives" : "times out", WrapAngle(swingAngle_) / kDegToRad);
+                else if ((++every % 3) == 1) Log("cam: pocket glide %.1f deg, %.1f to go, boom %.2f lift %.0f", swingAngle_ / kDegToRad, rest / kDegToRad, glideBoom_, glideLift_ / kDegToRad);
+            }
+        } else if (!waiting && len0 > 0.8f && CameraSwingFirstOn()) {
             const float kSwingFast = budgetDeg > 0.0f ? (std::min)(360.0f, 0.75f * budgetDeg * 30.0f) * kDegToRad : 360.0f * kDegToRad;
             const float good = (std::max)(0.9f, 0.6f * len0);
             const float rest = WrapAngle(wantSwing - swingAngle_);
@@ -4991,7 +5168,10 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                 // over the railing (the lift below does it, eased). The heading changes only once a way round opens.
                 // [camera] pocket_lift=0 or GTA2DX9_CAM_POCKET_LIFT=0: CAMERA-17's cut (A/B).
                 bool pocketHold = false;
-                if (budgetDeg > 0.0f && CameraPocketLiftOn() && !pocketLean && cutWantedEarly) {
+                // FIX-CAMERA-20: the glide first (it tries the lifts itself); the pocket memory, the lift and the cut after it
+                // (the lift before it rose into the stair and the boom snapped in 1.06 in a frame, cam20_pk8)
+                if (budgetDeg > 0.0f && CameraPocketGlideOn() && cutWantedEarly) tryGlide(wantSwing, false);
+                if (!glideStarted && budgetDeg > 0.0f && CameraPocketLiftOn() && !pocketLean && cutWantedEarly) {
                     // the pocket memory (above): from the next frame the sheet he leans on is see-through for the boom
                     pocketLeanT = 20.0f; pocketLeanX = px; pocketLeanZ = pz;
                     pocketHold = true;
@@ -4999,7 +5179,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                         Log("cam: pocket: a cut wanted at %.2f,%.2f; the railing he leans on stops counting for the boom for 20 s within 2.5 blocks (swing %.1f want %.1f)",
                             px, static_cast<float>(gta2::kMapHeight) - pz, swingAtStart / kDegToRad, wantSwing / kDegToRad);
                 }
-                if (!pocketHold && budgetDeg > 0.0f && CameraPocketLiftOn() && shortMin * len0 < 0.5f * good && longMin * len0 < 0.5f * good) {
+                if (!glideStarted && !pocketHold && budgetDeg > 0.0f && CameraPocketLiftOn() && shortMin * len0 < 0.5f * good && longMin * len0 < 0.5f * good) {
                     const gta2::Vec3 here = turned(swingAtStart);
                     const gta2::Vec3 sp = here - pivot;
                     const float flat = std::hypot(sp.x, sp.z), L = std::sqrt(sp.x * sp.x + sp.y * sp.y + sp.z * sp.z);
@@ -5020,7 +5200,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                         }
                     }
                 }
-                if (!pocketHold) {
+                if (!pocketHold && !glideStarted) {
                 constexpr float kCutGap = 2.0f;
                 const bool cutWanted = reachTo(pivot, turned(swingAtStart)) * len0 < 0.35f * good && shortMin * len0 < 0.5f * good &&
                                        longMin * len0 < 0.5f * good && std::fabs(rest) > 30.0f * kDegToRad;
@@ -5081,6 +5261,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         }
         if (std::fabs(swingAngle_) < 1e-3f) swingAngle_ = 0.0f;
         if (swingAngle_ != 0.0f) desired = turned(swingAngle_);
+        if (glideNow) desired = pivot + (liftedAt(swingAngle_, glideLift_) - pivot) * (std::min)(1.0f, glideBoom_ / (std::max)(len0, 1e-3f));   // FIX-CAMERA-20
         if (cameraLogVerbose())
             Log("cam: swingv %.1f want %.1f rig %.1f dRig %.1f len0 %.2f reach %.2f%s%s", swingAngle_ / kDegToRad, wantSwing / kDegToRad,
                 rigYaw / kDegToRad, dRig / kDegToRad, len0, reachTo(pivot, desired), held ? " held" : "", waiting ? " waiting" : "");
@@ -5971,6 +6152,11 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             // a dark band over a quarter of the frame at 0.12, run fc4_fence4): kRailClear off its
             // sheet sideways (0.3 still left the corner post over a quarter of the frame, fc4_fence5), never
             // through anything on the way.
+            // FIX-CAMERA-20: while the pocket glide makes the sheets see-through to the boom, these berths still may not push the
+            // lens across one (the panel berth flipped it from one side of the stair's rail to the other, 0.5 in a frame: cam20_pk4)
+            const float berthSkip = eyecol::NearSoftSkip();
+            if (wallsOnly) eyecol::SetNearSoftSkip(0.0f);
+            const gta2::Vec3 berth0{eyeX_, eyeY_, eyeZ_};   // FIX-CAMERA-20: the eye before the two berths (eased below)
             if (meshSolve && CameraSwingOn()) {
                 constexpr float kRailClear = 0.45f;
                 gta2::Vec3 e{eyeX_, eyeY_, eyeZ_};
@@ -5999,6 +6185,23 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                         static int every = 0;
                         if ((++every % 15) == 1) Log("cam: side berth moved %.2f", moved);
                     }
+                }
+            }
+            if (wallsOnly) eyecol::SetNearSoftSkip(berthSkip);
+            {
+                // FIX-CAMERA-20: while the railings are see-through to the boom (a glide, the see-through pocket) and for 1 s after,
+                // the berths' push is eased (2.4 blocks/s): the lens crossing a railing's plane went from 0.45 off it on one side
+                // to its own spot on the other in one frame (0.5-0.9 jumps, cam20_pk6).
+                berthEaseT_ = wallsOnly ? 1.0f : (std::max)(0.0f, berthEaseT_ - dt);
+                const gta2::Vec3 w{eyeX_ - berth0.x, eyeY_ - berth0.y, eyeZ_ - berth0.z};
+                if (berthEaseT_ > 0.0f && boomKnown_) {
+                    const gta2::Vec3 d{w.x - berthOffX_, w.y - berthOffY_, w.z - berthOffZ_};
+                    const float dl = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z), mx = 2.4f * (std::min)(dt, 1.0f / 20.0f);
+                    const float k = dl > mx ? mx / dl : 1.0f;
+                    berthOffX_ += d.x * k; berthOffY_ += d.y * k; berthOffZ_ += d.z * k;
+                    eyeX_ = berth0.x + berthOffX_; eyeY_ = berth0.y + berthOffY_; eyeZ_ = berth0.z + berthOffZ_;
+                } else {
+                    berthOffX_ = w.x; berthOffY_ = w.y; berthOffZ_ = w.z;
                 }
             }
             // FIX-CAMERA-11 (pfl28 angled tri18_rev, pm27 ste x=117): at the wheel the shown eye had no berth from
@@ -6744,6 +6947,7 @@ void SetFirstPersonSeatCorrection(const gta2::Vec3& delta) { g_fpSeat.delta = de
 bool FirstPersonBoardEyeOn() { return FpSeatGlideOn(); }
 float FpExitGlideLeft() { return g_fpExitGlideLeft; }
 bool FpExitHoldsCar() { return g_fx.on && g_fx.phase <= 2; }
+float FpExitBodyAlpha() { return g_fx.on && g_fx.phase == 2 && !g_fx.released ? g_fpExitBodyAlpha : 1.0f; }
 uint32_t ChaseCutSerial() { return g_chaseCutSerial; }
 // FIX-CAMERA-19 (cam18-third-pocket residual): [camera] cut_dissolve (percent of a second, 0 = the hard cut), or
 // GTA2DX9_CAM_CUT_DISSOLVE=<hundredths of a second>.

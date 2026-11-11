@@ -102,6 +102,10 @@ struct ViewModeSettings {
     // FIX-CAMERA-19: the third person's one-frame boom cut dissolves from the frame before over this many hundredths of a
     // second (0: the hard cut). [camera] cut_dissolve.
     int cutDissolve = 30;
+    // FIX-CAMERA-20 (cam18-third-pocket residual): where the on-foot boom would cut round him (no way round open to the
+    // mesh), it glides round instead along a path the walls leave open (railings see-through, shortened or lifted as
+    // the path needs). [camera] pocket_glide.
+    bool pocketGlide = true;
     float fpCarRate = 240.0f;       // first person at the wheel: fixed to the car, this is only a safety cap
     float fpFollowRate = 150.0f;    // first person on foot when the view follows the heading
     // First person: the view heading eases onto the game's over this long
@@ -283,6 +287,7 @@ ViewModeSettings& ViewModes();
 // GTA2DX9_CAM_TURN_BUDGET when set; 0 = off: the swing cut, the fast swing and the 300 deg/s cap as before).
 float CameraTurnBudgetDeg();
 bool CameraPocketLiftOn();
+bool CameraPocketGlideOn();   // FIX-CAMERA-20: [camera] pocket_glide, GTA2DX9_CAM_POCKET_GLIDE
 bool CameraPedFadeOn();
 bool CameraTunnelPivotOn();
 bool CameraTrainTrailOn();   // FIX-CAMERA-19: [camera] train_trail, GTA2DX9_CAM_TRAIN_TRAIL  // FIX-CAMERA-18/19: [camera] tunnel_pivot, GTA2DX9_CAM_TUNNEL_PIVOT
@@ -512,6 +517,13 @@ private:
     float swingDwell_ = 0.0f;      // FIX-CAMERA-17: seconds since a fast swing within which none starts the other way
     float swingDwellDir_ = 0.0f;   // FIX-CAMERA-17: that swing's direction (+1/-1)
     float sinceSwingCut_ = 60.0f;  // FIX-CAMERA-17: seconds since the swing last cut round (one cut in 2 s under the budget)
+    // FIX-CAMERA-20: the pocket glide in progress (instead of the cut): seconds left, its direction (+1/-1), the swing it
+    // goes to, the boom's length along it and the lift over the boom's own pitch (radians).
+    float glideT_ = 0.0f, glideDir_ = 0.0f, glideTarget_ = 0.0f, glideBoom_ = 0.0f, glideLift_ = 0.0f;
+    float glideFrom_ = 0.0f, glideSpan_ = 0.0f, glideDur_ = 1.0f, glideU_ = 0.0f;   // FIX-CAMERA-20: the eased glide's course
+    float berthEaseT_ = 0.0f, berthOffX_ = 0.0f, berthOffY_ = 0.0f, berthOffZ_ = 0.0f;   // FIX-CAMERA-20: the eased berth push
+    float glideRetry_ = 0.0f;   // FIX-CAMERA-20: seconds until a glide out of a collapse is looked for again
+    float pocketSeeT_ = 0.0f, pocketSeeX_ = 0.0f, pocketSeeZ_ = 0.0f;   // FIX-CAMERA-20: the see-through pocket (seconds left, where)
     float propBerthX_ = 0.0f, propBerthZ_ = 0.0f;   // FIX-CAMERA-17: the eased lens offset out of a street object's berth
     float swingClearHold_ = 0.0f;  // FIX-CAMERA-10: seconds the shown boom may still ease in at a sheet after a fast swing
     // FIX-CAMERA (chase-cam-foot-snap-cuts, pt-chase-camera-pumps-against-wall): the
@@ -599,6 +611,8 @@ bool FirstPersonBoardEyeOn();
 float FpExitGlideLeft();
 // FIX-FP-EXIT-1: whether the first-person exit still holds his car as seen from the seat (in the seat, in the door).
 bool FpExitHoldsCar();
+// FIX-CAMERA-20: the alpha his body at the wheel is drawn at while the first-person exit fades it off the rim (1 = whole)
+float FpExitBodyAlpha();
 // FIX-CAMERA-19: a count of the third person's one-frame boom cuts (the pocket's swing cut), and how long the dissolve
 // over one lasts (0: the hard cut).
 uint32_t ChaseCutSerial();

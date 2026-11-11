@@ -1683,3 +1683,60 @@ rest and at speed (gamerun/fx1_exit.py, FX_SEGS=first:rest,first:speed,third:res
 unchanged (the door swings at 60 degrees as before, fx1_p79e b_p79_third_crash). Classic: vreg 0 changed tiles.
 Not yet: the hand on the door frame and a hand pushing the door (the hands fade off the rim instead); the speed exit's
 first frame can show the cab a half-step off at 4+ b/s; open tops, the train and Remix untested.
+
+## The pocket glide instead of the boom's cut; the hands let go of the rim on a first-person exit (FIX-CAMERA-20, 11 Nov 2026)
+
+- **cam18-third-pocket residual** (the on-foot chase boom still cut round him about twice a minute of walking loops in the wil
+  iron-stair phone box, 159.1,140.6, and on the kerb strip at 164.5,147.6; FIX-CAMERA-19 dissolved the cut over 0.3 s but
+  kept it). The pocket probe at each cut (`cam: pocket probe at the cut`, run cam19_pk3) shows what closed the way round: on
+  the kerb only the railing's sheet and the map cells round it (the walls-only reach is the full boom on every heading of the
+  path), at the booth the stair's rail with the walls 0.63-0.85 out. So the cut is now a **glide** (`[camera] pocket_glide`,
+  default 1; `GTA2DX9_CAM_POCKET_GLIDE=0`: the cut as before, A/B):
+  - where a cut was wanted (the line where the boom is has collapsed, neither way round open to the mesh), every heading
+    round him (7.5 degrees apart) is scored by the view from it with every sheet and bar counted, and by the walls' reach on
+    the way there, either side, at four lifts (0/15/30/45 degrees over the boom's pitch, 50 at most). The glide goes to the
+    clearest heading whose way keeps at least 0.6 of boom against the walls at one lift (the start's own heading left out: it
+    is walled, that is why it goes), nearer and lower preferred; the boom shortened to that way's reach and lifted to that
+    lift;
+  - it is eased in and out (smoothstep; the mean 0.55 of the turn budget, so the peak stays under it) and its course is
+    held in the world while the rig turns with him (rig-relative, a glide that he turned against arrived at a wall and the cut
+    followed: cam20_pk5);
+  - while it glides, railings, sheets and the cells' false walls are see-through to the boom (the bars pass the lens), but
+    the lens berths still may not push it across a sheet, and their push is eased at 2.4 blocks/s for 1 s after (the lens
+    crossing the stair's rail flipped 0.5-0.9 from one side to the other in a frame: cam20_pk4/pk6);
+  - it is tried before FIX-CAMERA-18's pocket memory and lift (the lift rose into the stair and the boom snapped in 1.06,
+    cam20_pk8); those and FIX-CAMERA-19's dissolved cut stay as fallbacks where no way keeps 0.6 of boom.
+  - **out of a collapse**: in the kerb's railing corner (166.1,147.1) every heading is closed by bars; no cut was ever wanted
+    there and the boom fell into his head, him gone for 2 s (cam20_pk5, HEAD's behaviour too). A boom collapsing with no
+    heading open now glides to the best walls-open heading (looking at him through the bars, ranked below a clear view), and
+    the railings stay see-through to the boom while he stays within 1.5 blocks of that spot, up to 8 s (`cam: pocket glide
+    starts out of a collapse`, `cam: pocket see-through ends`).
+  Log (`GTA2DX9_LOG_CAMERA=1`): `cam: pocket glide starts: A -> B deg (span; the solver wanted W), boom L of R, lift N deg,
+  walls reach on the way M, view there Q`, `cam: pocket glide arrives at ...`.
+- **Measured** (gamerun/cam17_probe.py, CAM17_SEGS=booth,bus, 60 s of turns and walking loops per pocket, the filer's
+  recipe; gamerun/cam20_an.py counts per pocket from the `cam: pose` lines, the classic -> third move left out). Before
+  (FIX-CAMERA-19, f0d1e329, cam19_pk3): booth 2 cuts, kerb 4 cuts, largest yaw step 122.9 / 64.1 degrees, 15 one-frame lens
+  moves of 0.6 or more (`view: camera cut (not a turn)`). This build, final (cam20_pk9): **0 cuts at both pockets** (3 booth +
+  7 kerb glides), hero on the frame (pose box inside the frame) in every one of 3770 frames, largest yaw step 8.0, largest
+  eye step beyond his own walk 0.43, 0 `camera cut (not a turn)`, `turn over budget` 0. The intermediate builds' runs
+  (cam20_pk1..pk8: 0, 0, 0, 0, 2, 0, 2, 0 cuts) found the two fixes above. Frames opened: the kerb and booth glides in
+  b_bus.mp4/b_booth.mp4 of pk1-pk4, pk6 (strips every second frame): no frame jumps; the lens rises, swings and comes down
+  with him on the frame.
+- **The hands on a first-person exit** (tri60's camera half): the seated body (the hands on the rim) was let go in one frame
+  as the eye left the seat (p79 f8 -> f9). Now his body at the wheel fades out over 0.2 s while the eye still sits in the
+  seat (drawn see-through at `FpExitBodyAlpha`, live_geometry's figure fade), then is let go and the eye leaves through the
+  door (`view: fp exit: his hands faded off the rim, let go at T s`; `GTA2DX9_FP_EXIT_BODY_FADE=0`: as before). Bursts
+  opened: at speed (cam20_fx1 b_fx_first_speed 0.63-0.73 s) and at rest (cam20_fx2 b_fx_first_rest 0.2-0.3 s): the hands
+  fade over five frames.
+- **The cab a step off at speed** (tri60, not fixed): the order's cause (the eye and the drawn body sampling different
+  frames) is not it. With `GTA2DX9_LOG_SEAT=1` the eye in the drawn car's frame (`seat gate` lines) stays within 4 cm of the
+  learned seat across the Return (z 0.362 seated, 0.368-0.406 in the exit's first frames), the seat lock moves the body
+  under 6 mm, and the exit's prediction of the held car (its last pose plus its last step, `fp exit: phase` lines now log
+  `car age`, `step`, the game's and the predicted origin) is within 0.007 of the next drawn pose. At rest the picture does not
+  change at the Return (cam20_fx2), at ~5 b/s it does (cam20_fx1 0.47-0.6 s: the windscreen's pillars and roof bar move
+  inward and down while the dash, the wheel and the hands keep their place): what changes is the hull's own draw when the
+  car stops being `driven` (car_bodies' driven-gated paths), not the eye. Left for the cockpit/car-bodies seat.
+- Short of a shipping frame: a long glide (150-190 degrees, ~1-1.4 s) round the kerb crosses the railing's posts at the
+  lens (2-3 frames of bars) and can end on a far, small figure against the dark railing; the see-through pocket shows him
+  through bars; the boom filter's own one-frame pull-in at a wall (0.6-0.9) still happens outside glides (pk7: 2, pk9: 0);
+  Remix untested (the glide is camera-only, so it should not differ); night untested; districts other than wil untested.
