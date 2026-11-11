@@ -1959,17 +1959,38 @@ bool ModelNodeTextureMean(IDirect3DDevice9* device, const Model& model, const ch
 // ordinary textured draw whose albedo is the record's colours. Cached by texture and tint (1/64).
 bool g_bakeTints = false;
 void ModelSetBakeTints(bool on) { g_bakeTints = on; }
+// FIX-REMIX-BAKE-LRU (owner 11 Nov, RTX 5090: "people with no bodies", "distorted vehicles" a few minutes into a session):
+// the merged figure/car pairs and the tint bakes below were capped at 256 entries and never freed. Every pedestrian outfit
+// and every car paint is its own entry, so a long session filled the cache and every later person or car fell back to the
+// alpha-tested two-draw pair, whose second draw Remix drops as a duplicate: torsos (the clothing half) and car paint panels
+// vanished. The cap stays (each MANAGED copy also lives in the 32-bit game process: address space), but an entry not drawn
+// for kBakeIdleMs is released to make room; only when every entry is in use does a bake still fall back.
+constexpr ULONGLONG kBakeIdleMs = 3000;
+struct BakeEntry { IDirect3DTexture9* tex = nullptr; ULONGLONG used = 0; };
+template <class M> bool BakeMakeRoom(M& cache, size_t cap, const char* what) {
+    if (cache.size() < cap) return true;
+    const ULONGLONG now = GetTickCount64();
+    size_t freed = 0;
+    for (auto it = cache.begin(); it != cache.end();) {
+        if (now - it->second.used > kBakeIdleMs) { if (it->second.tex) it->second.tex->Release(); it = cache.erase(it); ++freed; }
+        else ++it;
+    }
+    static ULONGLONG lastLog = 0; static unsigned long total = 0; static unsigned long refused = 0;
+    total += freed; if (cache.size() >= cap) ++refused;
+    if (now - lastLog > 10000) { lastLog = now; Log("models: %s cache at cap %zu: %lu idle entries released so far, %lu bakes refused (all in use)", what, cap, total, refused); }
+    return cache.size() < cap;
+}
 IDirect3DTexture9* BakedTint(IDirect3DDevice9* device, const std::string& file, const float tint[3]) {
     struct Key { std::string file; int t[3]; bool operator<(const Key& o) const {
         return std::tie(file, t[0], t[1], t[2]) < std::tie(o.file, o.t[0], o.t[1], o.t[2]); } };
-    static std::map<Key, IDirect3DTexture9*> s_baked;
+    static std::map<Key, BakeEntry> s_baked;
     static IDirect3DDevice9* s_device = nullptr;
-    if (s_device != device) { for (auto& b : s_baked) if (b.second) b.second->Release(); s_baked.clear(); s_device = device; }
+    if (s_device != device) { for (auto& b : s_baked) if (b.second.tex) b.second.tex->Release(); s_baked.clear(); s_device = device; }
     Key key{file, {static_cast<int>(std::lround(tint[0] * 64.0f)), static_cast<int>(std::lround(tint[1] * 64.0f)),
                    static_cast<int>(std::lround(tint[2] * 64.0f))}};
     auto it = s_baked.find(key);
-    if (it != s_baked.end()) return it->second;
-    if (s_baked.size() >= 256) return nullptr;   // the stage-1 factor then, as before
+    if (it != s_baked.end()) { it->second.used = GetTickCount64(); return it->second.tex; }
+    if (!BakeMakeRoom(s_baked, 256, "tint bake")) return nullptr;   // every entry in use: the stage-1 factor then, as before
     IDirect3DTexture9* src = TextureFor(device, file);
     IDirect3DTexture9* out = nullptr;
     D3DSURFACE_DESC desc;
@@ -1995,7 +2016,7 @@ IDirect3DTexture9* BakedTint(IDirect3DDevice9* device, const std::string& file, 
             UnlockTexels(src);
         } else { out->Release(); out = nullptr; }
     }
-    s_baked[key] = out;
+    s_baked[key] = BakeEntry{out, GetTickCount64()};
     static int logged = 0;
     if (logged++ < 40) Log("models: identity tint baked: %s x %.2f,%.2f,%.2f -> %s (%zu baked)", file.c_str(), key.t[0] / 64.0f, key.t[1] / 64.0f,
                            key.t[2] / 64.0f, out ? "ok" : "failed", s_baked.size());
@@ -2114,14 +2135,14 @@ IDirect3DTexture9* FigurePairMergedBake(IDirect3DDevice9* device, const Model& m
     for (int z = 0; z < 2; ++z) for (int k = 0; k < 3; ++k) q[z * 3 + k] = static_cast<int>(std::lround(tint[z][k] * 64.0f));
     struct Key { const Model* m; std::string file; int q[6]; bool operator<(const Key& o) const {
         return std::tie(m, file, q[0], q[1], q[2], q[3], q[4], q[5]) < std::tie(o.m, o.file, o.q[0], o.q[1], o.q[2], o.q[3], o.q[4], o.q[5]); } };
-    static std::map<Key, IDirect3DTexture9*> s_merged;
+    static std::map<Key, BakeEntry> s_merged;
     static std::map<std::pair<const Model*, std::string>, std::vector<uint8_t>> s_zoneMaps;
     static IDirect3DDevice9* s_device = nullptr;
-    if (s_device != device) { for (auto& b : s_merged) if (b.second) b.second->Release(); s_merged.clear(); s_device = device; }
+    if (s_device != device) { for (auto& b : s_merged) if (b.second.tex) b.second.tex->Release(); s_merged.clear(); s_device = device; }
     Key key{&model, mesh.texture, {q[0], q[1], q[2], q[3], q[4], q[5]}};
     auto it = s_merged.find(key);
-    if (it != s_merged.end()) return it->second;
-    if (s_merged.size() >= 256) return nullptr;
+    if (it != s_merged.end()) { it->second.used = GetTickCount64(); return it->second.tex; }
+    if (!BakeMakeRoom(s_merged, 256, "figure/car pair merge")) return nullptr;
     IDirect3DTexture9* rest = TextureFor(device, mesh.texture);
     IDirect3DTexture9* paint = TextureFor(device, paintFile);
     IDirect3DTexture9* out = nullptr;
@@ -2167,7 +2188,7 @@ IDirect3DTexture9* FigurePairMergedBake(IDirect3DDevice9* device, const Model& m
         if (okR) UnlockTexels(rest);
         if (!(okR && okP && okO)) { out->Release(); out = nullptr; }
     }
-    s_merged[key] = out;
+    s_merged[key] = BakeEntry{out, GetTickCount64()};
     static int logged = 0;
     if (logged++ < 40) Log("models: identity figure pair merged for Remix: %s + %s, top x %.2f,%.2f,%.2f bottom x %.2f,%.2f,%.2f -> %s", mesh.texture.c_str(),
                            paintFile.c_str(), q[0] / 64.0f, q[1] / 64.0f, q[2] / 64.0f, q[3] / 64.0f, q[4] / 64.0f, q[5] / 64.0f, out ? "ok" : "failed");
