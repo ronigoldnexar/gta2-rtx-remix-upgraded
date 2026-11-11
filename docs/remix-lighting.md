@@ -516,3 +516,13 @@ Probe: `gamerun/fx9_hose.py` (`QA_DISTRICT=ste ... QA_ENV="-e GTA2DX9_STATE_EVER
 -e GTA2DX9_REGRESS_CAM=Z:\tmp\va2_cam.txt" gamerun/qa_run.sh <name> 220 fx9_hose`; `FX9_TRUCK=0|1` picks the ste truck,
 `FX9_SIDE=0` skips the fixed cameras). Untested: Remix (the blended game-puff pass is alpha-tested at 1, not the
 mode-4 soft puffs), the wil truck, night, 1440p, a burning car or ped being hosed.
+
+**First-person flames at noon (FX-8's qav79 residual).** At the wheel of a burning car at noon the additive bonnet
+tongues washed the windscreen near-white: a tongue near the eye covers much of the screen, and a few added over a
+bright day saturate. In first person a tongue within 1.4 block of the eye is now dimmed, down to 0.4 of its level at
+0.3 block (smoothstep over 0.3-1.4), and keeps its orange (its green falls to 0.7, its blue to 0.45 at the eye), so the
+street reads through the fire. `[devtools] fire_ab` bit 512 = the old brightness (live A/B). Run qa_fx9w1 (wil wall
+corner, `gamerun/fx9_wall.py` = fx8_wall.py + a `MODELS` list (`MODEL_KEY=force_own_car_model` default, or
+`force_car_model` for the third-person body), 12:00, `SEQ=first:0,512,0|third:0`, own car forced to 036, 031, 063):
+with 512 the filed white-yellow blobs over the wall; without it the same tongues orange, the brick and windows
+readable through them, on all three cabs.

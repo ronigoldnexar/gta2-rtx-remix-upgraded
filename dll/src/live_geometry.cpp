@@ -1922,10 +1922,22 @@ void DrawFlames(IDirect3DDevice9* device, bool blending, DWORD alphaRef) {
             }
             if (level < 0.01f) return;
         }
+        // FIX-FX-9 (FX-8's qav79 residual: at noon the first-person bonnet flames washed the windscreen near-white): a
+        // tongue near the eye covers much of the screen, and a few added over a bright day sky saturate to white. In
+        // first person a tongue within 1.4 block of the eye is dimmed (to 0.4 at 0.3 block) and keeps its orange (its
+        // green and blue fall faster), so the street reads through the fire. fire_ab bit 512: the old brightness.
+        float nearHot = 1.0f;
+        if (CurrentViewMode() == ViewMode::FirstPerson && !(g_fireAb & 512) && !FireAnchorOld()) {
+            const float ex = world._41 - g_puffEye.x, ey = world._42 - g_puffEye.y, ez = world._43 - g_puffEye.z;
+            const float k = (std::sqrt(ex * ex + ey * ey + ez * ez) - 0.3f) / 1.1f;
+            const float u = k < 0.0f ? 0.0f : (k > 1.0f ? 1.0f : k);
+            nearHot = u * u * (3.0f - 2.0f * u);
+            level *= 0.4f + 0.6f * nearHot;
+        }
         depthPull(world._41, world._42, world._43);
         device->SetTransform(D3DTS_WORLD, &world);
         // Cools towards red as it rises; a spark stays hot and just goes out.
-        const float g = ember ? 0.72f : 1.0f - 0.5f * t, b = ember ? 0.30f : 1.0f - 0.85f * t;
+        const float g = (ember ? 0.72f : 1.0f - 0.5f * t) * (0.7f + 0.3f * nearHot), b = (ember ? 0.30f : 1.0f - 0.85f * t) * (0.45f + 0.55f * nearHot);
         auto q = [](float v) { return static_cast<int>((std::max)(0.0f, (std::min)(1.0f, v)) * 255.0f + 0.5f); };
         device->SetRenderState(D3DRS_TEXTUREFACTOR, D3DCOLOR_ARGB(255, q(level), q(level * g), q(level * b)));
         device->DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, 0, 4, 2, indices, D3DFMT_INDEX16, quad, sizeof(FlameVertex));
