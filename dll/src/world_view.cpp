@@ -1595,6 +1595,9 @@ bool WorldView::EnsureWorldLoaded() {
         const gta2::OverheadDecalStats od = gta2::LastOverheadDecalStats();
         Log("overhead decals (left out of the street views): %d tile(s), %d lid(s); %d sloped sign lid(s) stood up as boards",
             od.tiles, od.lids, gta2::LastUprightBoards());
+        Log("fire escapes (street views, FIX-WORLD-18 qav5): %d flight(s), %d landing(s), %d ladder(s)%s",
+            gta2::LastFireEscapeFlights(), gta2::LastFireEscapeLandings(), gta2::LastFireEscapeLadders(),
+            getenv("GTA2DX9_FIRE_ESCAPES") && getenv("GTA2DX9_FIRE_ESCAPES")[0] == '0' ? " (off: GTA2DX9_FIRE_ESCAPES=0)" : "");
         Log("lamp poles (street views: round poles for the map's flat pole cards): %s, %d segment(s), %d arm/head solid(s)",
             gta2::LampPoles() ? "on" : "off (GTA2DX9_LAMP_POLES=0)", gta2::LastLampPoleSegments(), gta2::LastLampArms());
         const gta2::MapTreeStats mt = gta2::LastMapTreeStats();

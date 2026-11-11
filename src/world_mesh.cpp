@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <map>
 #include <set>
@@ -3039,9 +3040,256 @@ bool UprightBoard(const std::array<Vertex, 4>& q, std::array<Vec3, 4>* corners, 
     return false;
 }
 int g_boards = 0;
+
+// FIX-WORLD-18 (qav5): fire escapes. GTA2 draws one as a stack of 45-degree slope blocks (types 41-44) in one
+// cell, each a flight from one floor to the next, alternating direction (ste 97,103 levels 3-6: 43, 44, 43,
+// 44), whose see-through lid is a picture of the flight from above in a band along the wall (ste 888: steps
+// and stringers on the 37 % of the tile next to the wall; wil 758 the same in red), with the landings as
+// small lone lids in the cells at either end (ste 887). From the street that lid was a tilted ribbon of
+// texels pasted on the facade and the landings, lone wall-mounted lids, are left out as overhead decals: a
+// zigzag ladder strip with no rail, no landing, ending in mid-air. The street views leave the lid out and
+// build the flight in its band instead: two stringers, treads, a handrail on posts on the open side, a
+// landing with a rail at each end (one per spot: the top of one flight is the foot of the next), a brace
+// under each landing to the wall, and from the lowest landing a ladder down to the ground. All of it is
+// solid boxes in the lid tile's own steel colour (one opaque texel of its art), so it reads from both sides
+// and in first person. The classic view draws the lid as before. GTA2DX9_FIRE_ESCAPES=0: the old ribbon.
+int g_fireFlights = 0, g_fireLandings = 0, g_fireLadders = 0;
+bool FireEscapesEnabled() {
+    static int s_on = -1;
+    if (s_on < 0) { const char* e = getenv("GTA2DX9_FIRE_ESCAPES"); s_on = (e && e[0] == '0') ? 0 : 1; }
+    return s_on != 0;
+}
+bool RampOpposite(int a, int b) {
+    return (a == 41 && b == 42) || (a == 42 && b == 41) || (a == 43 && b == 44) || (a == 44 && b == 43);
+}
+// A flight of a stack: a 41-44 block with a see-through flat lid and no sides, with a block above or under it
+// in the same cell of the opposite direction and the same lid tile.
+bool FireFlight(const Map& map, const Style& style, int x, int y, int level) {
+    const Block* b = BlockAtLevel(map, x, y, level);
+    if (!b) return false;
+    const int t = b->SlopeType();
+    if (t < 41 || t > 44 || !b->lid || !b->lid.IsFlat() || b->left || b->right || b->top || b->bottom) return false;
+    if (b->lid.Tile() >= style.TileCount() || !style.GetTile(b->lid.Tile()).hasTransparency) return false;
+    for (int d : {-1, 1}) {
+        const Block* o = BlockAtLevel(map, x, y, level + d);
+        if (o && RampOpposite(t, o->SlopeType()) && o->lid && o->lid.IsFlat() && o->lid.Tile() == b->lid.Tile()) return true;
+    }
+    return false;
+}
+// A box from its 8 corners (c[0..3] the bottom ring, c[4..7] the top ring above them), outward faces, street views.
+void AddStreetBox(MeshBuilder* builder, int slot, const std::array<Vec3, 8>& c, const Uv& uv) {
+    Vec3 mid{0.0f, 0.0f, 0.0f};
+    for (const Vec3& p : c) { mid.x += p.x / 8.0f; mid.y += p.y / 8.0f; mid.z += p.z / 8.0f; }
+    static const int kFaces[6][4] = {{0, 1, 2, 3}, {4, 5, 6, 7}, {0, 1, 5, 4}, {1, 2, 6, 5}, {2, 3, 7, 6}, {3, 0, 4, 7}};
+    const std::array<Uv, 4> uvs = {{uv, uv, uv, uv}};
+    for (const auto& f : kFaces) {
+        const Vec3 &a = c[static_cast<size_t>(f[0])], &b = c[static_cast<size_t>(f[1])], &d = c[static_cast<size_t>(f[3])];
+        const Vec3 e1{b.x - a.x, b.y - a.y, b.z - a.z}, e2{d.x - a.x, d.y - a.y, d.z - a.z};
+        Vec3 n{e1.y * e2.z - e1.z * e2.y, e1.z * e2.x - e1.x * e2.z, e1.x * e2.y - e1.y * e2.x};
+        Vec3 fc{0.0f, 0.0f, 0.0f};
+        for (int k = 0; k < 4; ++k) { fc.x += c[static_cast<size_t>(f[k])].x / 4.0f; fc.y += c[static_cast<size_t>(f[k])].y / 4.0f; fc.z += c[static_cast<size_t>(f[k])].z / 4.0f; }
+        if (n.x * (fc.x - mid.x) + n.y * (fc.y - mid.y) + n.z * (fc.z - mid.z) < 0.0f) { n.x = -n.x; n.y = -n.y; n.z = -n.z; }
+        const float len = std::sqrt(n.x * n.x + n.y * n.y + n.z * n.z);
+        if (len < 1e-7f) continue;
+        builder->AddPlainQuad(slot, {{c[static_cast<size_t>(f[0])], c[static_cast<size_t>(f[1])], c[static_cast<size_t>(f[2])], c[static_cast<size_t>(f[3])]}},
+                              {n.x / len, n.y / len, n.z / len}, uvs);
+    }
+}
+Vec3 V3(float x, float y, float z) { return Vec3{x, y, z}; }
+Vec3 Add3(const Vec3& a, const Vec3& b, float s = 1.0f) { return Vec3{a.x + b.x * s, a.y + b.y * s, a.z + b.z * s}; }
+// A bar from p0 to p1 (centre line), `across` horizontal half-width and `up` half-height vectors.
+void AddBar(MeshBuilder* builder, int slot, const Vec3& p0, const Vec3& p1, const Vec3& across, const Vec3& up, const Uv& uv) {
+    std::array<Vec3, 8> c;
+    const Vec3 q[4] = {Add3(Add3(p0, across, -1.0f), up, -1.0f), Add3(Add3(p0, across, 1.0f), up, -1.0f),
+                       Add3(Add3(p1, across, 1.0f), up, -1.0f), Add3(Add3(p1, across, -1.0f), up, -1.0f)};
+    for (int k = 0; k < 4; ++k) { c[static_cast<size_t>(k)] = q[k]; c[static_cast<size_t>(k + 4)] = Add3(q[k], up, 2.0f); }
+    AddStreetBox(builder, slot, c, uv);
+}
+// The flight for a hidden lid quad. False (the lid stays) when its art has no band along the slope.
+bool AddFireFlight(MeshBuilder* builder, const Map& map, const Style& style, int tile, const std::array<Vertex, 4>& q,
+                   std::set<std::tuple<int, int, int>>* landings) {
+    const Tile& art = style.GetTile(tile);
+    if (art.pixels.size() != static_cast<size_t>(kTilePixels)) return false;
+    float lo = q[0].y, hi = q[0].y;
+    for (const Vertex& v : q) { lo = (std::min)(lo, v.y); hi = (std::max)(hi, v.y); }
+    if (hi - lo < 0.9f) return false;
+    Vec3 hiMid{0, 0, 0}, loMid{0, 0, 0};
+    int nh = 0, nl = 0;
+    for (const Vertex& v : q) {
+        if (std::fabs(v.y - hi) < 0.05f) { hiMid.x += v.x; hiMid.z += v.z; ++nh; }
+        else if (std::fabs(v.y - lo) < 0.05f) { loMid.x += v.x; loMid.z += v.z; ++nl; }
+    }
+    if (nh != 2 || nl != 2) return false;
+    hiMid.x /= 2; hiMid.z /= 2; loMid.x /= 2; loMid.z /= 2;
+    Vec3 d{hiMid.x - loMid.x, 0.0f, hiMid.z - loMid.z};                 // up the flight, one block
+    const float dl = std::sqrt(d.x * d.x + d.z * d.z);
+    if (dl < 0.9f) return false;
+    d.x /= dl; d.z /= dl;
+    const Vec3 e{-d.z, 0.0f, d.x};                                       // across
+    const float cx = 0.5f * (hiMid.x + loMid.x), cz = 0.5f * (hiMid.z + loMid.z);   // the cell's centre
+    // Where the art is opaque across the flight: 16 bins across, 16 samples along each.
+    constexpr int kBins = 16;
+    float cover[kBins] = {}, total[kBins] = {};
+    Uv steel{-1.0f, -1.0f};
+    for (int i = 0; i < kBins; ++i) {
+        for (int j = 0; j < 16; ++j) {
+            const float s = (j + 0.5f) / 16.0f, t = (i + 0.5f) / kBins;
+            // bilinear over the quad's corners: s along q0->q1, t along q0->q3
+            auto lerpUv = [&](float a, float b) {
+                const Uv u01{q[0].u + (q[1].u - q[0].u) * a, q[0].v + (q[1].v - q[0].v) * a};
+                const Uv u32{q[3].u + (q[2].u - q[3].u) * a, q[3].v + (q[2].v - q[3].v) * a};
+                return Uv{u01.u + (u32.u - u01.u) * b, u01.v + (u32.v - u01.v) * b};
+            };
+            auto lerpP = [&](float a, float b) {
+                const float x01 = q[0].x + (q[1].x - q[0].x) * a, z01 = q[0].z + (q[1].z - q[0].z) * a;
+                const float x32 = q[3].x + (q[2].x - q[3].x) * a, z32 = q[3].z + (q[2].z - q[3].z) * a;
+                return std::make_pair(x01 + (x32 - x01) * b, z01 + (z32 - z01) * b);
+            };
+            const Uv uv = lerpUv(s, t);
+            const auto pos = lerpP(s, t);
+            const int px = (std::min)(kTileSize - 1, (std::max)(0, static_cast<int>(uv.u * kTileSize)));
+            const int py = (std::min)(kTileSize - 1, (std::max)(0, static_cast<int>(uv.v * kTileSize)));
+            const uint32_t texel = art.pixels[static_cast<size_t>(py) * kTileSize + px];
+            const float acr = (pos.first - cx) * e.x + (pos.second - cz) * e.z;   // -0.5..0.5 across
+            const int bin = (std::min)(kBins - 1, (std::max)(0, static_cast<int>((acr + 0.5f) * kBins)));
+            total[bin] += 1.0f;
+            if (texel >> 24) cover[bin] += 1.0f;
+        }
+    }
+    for (int i = 0; i < kBins; ++i) cover[i] = total[i] > 0.0f ? cover[i] / total[i] : 0.0f;
+    // The band: the bins with opaque texels in at least a third of the samples, one run, a fifth to two thirds wide.
+    int b0 = -1, b1 = -1, runs = 0;
+    for (int i = 0; i < kBins; ++i) {
+        const bool in = cover[i] >= 0.33f;
+        if (in && (i == 0 || cover[i - 1] < 0.33f)) ++runs;
+        if (in) { if (b0 < 0) b0 = i; b1 = i; }
+    }
+    if (runs != 1 || b0 < 0) return false;
+    const int width = b1 - b0 + 1;
+    if (width * 5 < kBins || width * 3 > kBins * 2) return false;
+    if (b0 > 1 && b1 < kBins - 2) return false;                        // the band hugs one edge: the wall side
+    if (b0 <= 1 && b1 >= kBins - 2) return false;
+    if (b0 <= 1) b0 = 0; else b1 = kBins - 1;                          // (its last row is only the legs)
+    // The steel colour: the opaque texel of the art closest to its median brightness, among those with six or
+    // more opaque neighbours (little see-through filtered into it).
+    {
+        std::vector<std::pair<int, int>> lums;
+        for (int i = 0; i < kTilePixels; ++i) {
+            const uint32_t t = art.pixels[static_cast<size_t>(i)];
+            const int tx = i % kTileSize, ty = i / kTileSize;
+            if (!(t >> 24) || tx == 0 || ty == 0 || tx == kTileSize - 1 || ty == kTileSize - 1) continue;
+            int solid = 0;   // opaque neighbours of the eight (a grille's bars are two texels thick: six will do)
+            for (int dy = -1; dy <= 1; ++dy) for (int dx = -1; dx <= 1; ++dx)
+                solid += (dx || dy) && (art.pixels[static_cast<size_t>(ty + dy) * kTileSize + tx + dx] >> 24) != 0;
+            if (solid < 6) continue;
+            lums.push_back({static_cast<int>(((t >> 16) & 0xFF) * 2 + ((t >> 8) & 0xFF) * 3 + (t & 0xFF)), i});
+        }
+        if (lums.size() < 4) return false;
+        std::nth_element(lums.begin(), lums.begin() + static_cast<long>(lums.size() / 2), lums.end());
+        const int i = lums[lums.size() / 2].second;
+        steel = Uv{((i % kTileSize) + 0.5f) / kTileSize, ((i / kTileSize) + 0.5f) / kTileSize};
+    }
+    const float a0 = -0.5f + static_cast<float>(b0) / kBins, a1 = -0.5f + static_cast<float>(b1 + 1) / kBins;   // across, cell units
+    const float wallSide = b0 == 0 ? -1.0f : 1.0f;                     // which way across is the wall
+    const float openA = wallSide < 0 ? a1 : a0, wallA = wallSide < 0 ? a0 : a1;
+    const float mA = 0.5f * (a0 + a1), halfW = 0.5f * (a1 - a0);
+    auto P = [&](float along, float across, float yy) {                // along -0.5 (low end) .. 0.5 (high end)
+        return V3(cx + d.x * along + e.x * across, yy, cz + d.z * along + e.z * across);
+    };
+    const float rise = hi - lo;
+    const Vec3 up1{0.0f, 1.0f, 0.0f};
+    auto scale = [](const Vec3& v, float s) { return Vec3{v.x * s, v.y * s, v.z * s}; };
+    // Stringers: along both long edges, from the low end to the high end.
+    const float inset = 0.025f;
+    for (float acr : {a0 + inset, a1 - inset})
+        AddBar(builder, tile, P(-0.5f, acr, lo + 0.02f), P(0.5f, acr, hi + 0.02f), scale(e, 0.018f), scale(up1, 0.045f), steel);
+    // Treads.
+    constexpr int kTreads = 9;
+    for (int k = 0; k < kTreads; ++k) {
+        const float u0 = -0.5f + (k + 0.08f) / kTreads, u1 = -0.5f + (k + 0.92f) / kTreads;
+        const float yy = lo + rise * (k + 1.0f) / (kTreads + 1.0f);
+        const float acr0 = a0 + inset, acr1 = a1 - inset;
+        std::array<Vec3, 8> c = {{P(u0, acr0, yy - 0.012f), P(u1, acr0, yy - 0.012f), P(u1, acr1, yy - 0.012f), P(u0, acr1, yy - 0.012f),
+                                  P(u0, acr0, yy + 0.012f), P(u1, acr0, yy + 0.012f), P(u1, acr1, yy + 0.012f), P(u0, acr1, yy + 0.012f)}};
+        AddStreetBox(builder, tile, c, steel);
+    }
+    // Handrail on the open side: posts at both ends and the middle, a rail along the slope.
+    const float railH = 0.38f, openIn = openA - (openA - mA) * 0.12f;
+    for (float u : {-0.46f, 0.0f, 0.46f}) {
+        const float yy = lo + rise * (u + 0.5f);
+        std::array<Vec3, 8> c = {{P(u - 0.012f, openIn - 0.012f, yy), P(u + 0.012f, openIn - 0.012f, yy), P(u + 0.012f, openIn + 0.012f, yy), P(u - 0.012f, openIn + 0.012f, yy),
+                                  P(u - 0.012f, openIn - 0.012f, yy + railH), P(u + 0.012f, openIn - 0.012f, yy + railH), P(u + 0.012f, openIn + 0.012f, yy + railH), P(u - 0.012f, openIn + 0.012f, yy + railH)}};
+        AddStreetBox(builder, tile, c, steel);
+    }
+    AddBar(builder, tile, P(-0.5f, openIn, lo + railH), P(0.5f, openIn, hi + railH), scale(e, 0.016f), scale(up1, 0.014f), steel);
+    ++g_fireFlights;
+    // Landings: a plate the band's width square past each end, at that end's height, with a rail round its
+    // open sides and a brace under it to the wall. One per spot.
+    const float plate = (std::max)(0.3f, 2.0f * halfW);
+    for (int end = 0; end < 2; ++end) {
+        const float sgn = end == 0 ? -1.0f : 1.0f;                       // past the low end / the high end
+        const float yy = end == 0 ? lo : hi;
+        const Vec3 c0 = P(sgn * (0.5f + 0.5f * plate), mA, yy);
+        const auto key = std::make_tuple(static_cast<int>(std::lround(c0.x * 20.0f)), static_cast<int>(std::lround(c0.z * 20.0f)),
+                                         static_cast<int>(std::lround(yy * 4.0f)));
+        if (!landings->insert(key).second) continue;
+        const float u0 = sgn * 0.5f, u1 = sgn * (0.5f + plate);
+        const float lu = (std::min)(u0, u1), hu = (std::max)(u0, u1);
+        std::array<Vec3, 8> c = {{P(lu, a0, yy - 0.04f), P(hu, a0, yy - 0.04f), P(hu, a1, yy - 0.04f), P(lu, a1, yy - 0.04f),
+                                  P(lu, a0, yy), P(hu, a0, yy), P(hu, a1, yy), P(lu, a1, yy)}};
+        AddStreetBox(builder, tile, c, steel);
+        const float farU = sgn * (0.5f + plate) - sgn * 0.015f;
+        // rail along the open side and across the far end, posts at the open corners
+        AddBar(builder, tile, P(lu, openIn, yy + railH), P(hu, openIn, yy + railH), scale(e, 0.016f), scale(up1, 0.014f), steel);
+        AddBar(builder, tile, P(farU, a0 + inset, yy + railH), P(farU, a1 - inset, yy + railH), scale(d, 0.016f), scale(up1, 0.014f), steel);
+        for (const auto& pc : {std::make_pair(farU, openIn), std::make_pair(farU, wallA - wallSide * 0.02f)}) {
+            std::array<Vec3, 8> pp = {{P(pc.first - 0.012f, pc.second - 0.012f, yy), P(pc.first + 0.012f, pc.second - 0.012f, yy),
+                                       P(pc.first + 0.012f, pc.second + 0.012f, yy), P(pc.first - 0.012f, pc.second + 0.012f, yy),
+                                       P(pc.first - 0.012f, pc.second - 0.012f, yy + railH), P(pc.first + 0.012f, pc.second - 0.012f, yy + railH),
+                                       P(pc.first + 0.012f, pc.second + 0.012f, yy + railH), P(pc.first - 0.012f, pc.second + 0.012f, yy + railH)}};
+            AddStreetBox(builder, tile, pp, steel);
+        }
+        // brace: from the plate's open far corner down to the wall
+        AddBar(builder, tile, P(farU, openIn, yy - 0.04f), P(farU, wallA, yy - 0.04f - 0.32f), scale(d, 0.014f), scale(up1, 0.014f), steel);
+        ++g_fireLandings;
+        // The lowest landing of a stack hangs over the street: a ladder from it to the ground.
+        if (end == 0) {
+            const int gx = static_cast<int>(std::floor(c0.x)), gy = kMapHeight - 1 - static_cast<int>(std::floor(c0.z));
+            const int lvl = static_cast<int>(std::lround(yy)) - 1;           // the level whose top is this landing
+            // only the stack's lowest flight: nothing of the stack under it
+            bool lowest = true;
+            for (int l = lvl - 1; l >= 0 && l >= lvl - 2; --l) {
+                const int fx = static_cast<int>(std::floor(cx)), fy = kMapHeight - 1 - static_cast<int>(std::floor(cz));
+                const Block* fb = BlockAtLevel(map, fx, fy, l);
+                if (fb && fb->SlopeType() >= 41 && fb->SlopeType() <= 44 && fb->lid && fb->lid.IsFlat() && fb->lid.Tile() == tile) lowest = false;
+            }
+            if (lowest) {
+                float ground = 0.0f;
+                for (int l = lvl; l >= 0; --l) {
+                    const Block* g = BlockAtLevel(map, gx, gy, l);
+                    if (g && g->lid && !g->lid.IsFlat()) { ground = static_cast<float>(l + 1); break; }
+                }
+                const float drop = yy - ground;
+                if (drop > 0.2f && drop < 3.5f) {
+                    const float lu2 = sgn * (0.5f + 0.5f * plate);
+                    const float bottom = ground + (drop > 1.2f ? 0.35f : 0.0f);
+                    for (float acr : {mA - 0.6f * halfW, mA + 0.6f * halfW})
+                        AddBar(builder, tile, P(lu2, acr, bottom), P(lu2, acr, yy), scale(d, 0.012f), scale(e, 0.012f), steel);
+                    for (float yr = yy - 0.12f; yr > bottom + 0.05f; yr -= 0.12f)
+                        AddBar(builder, tile, P(lu2, mA - 0.6f * halfW, yr), P(lu2, mA + 0.6f * halfW, yr), scale(d, 0.008f), scale(up1, 0.008f), steel);
+                    ++g_fireLadders;
+                }
+            }
+        }
+    }
+    return true;
+}
 }  // namespace
 
 int LastUprightBoards() { return g_boards; }
+int LastFireEscapeFlights() { return g_fireFlights; }
+int LastFireEscapeLandings() { return g_fireLandings; }
+int LastFireEscapeLadders() { return g_fireLadders; }
 int LastLampPoleSegments() { return g_lampPoleSegments; }
 int LastLampArms() { return g_lampArms; }
 bool LampPoles() { return g_lampPoles; }
@@ -3250,6 +3498,10 @@ void BuildWorldMesh(const Map& map, const Style& style, const SlopeInfo* slopes,
     int plainFaces = 0;
     int lampArmFaces = 0;
     g_lampArms = 0;
+    g_fireFlights = g_fireLandings = g_fireLadders = 0;
+    std::set<std::tuple<int, int, int>> fireLandings;
+    const bool fireEscapes = g_streetFill && FireEscapesEnabled();
+    int fireFaces = 0;
     for (int y = 0; y < kMapHeight; ++y) {
         for (int x = 0; x < kMapWidth; ++x) {
             const Column& column = map.ColumnAt(x, y);
@@ -3305,6 +3557,13 @@ void BuildWorldMesh(const Map& map, const Style& style, const SlopeInfo* slopes,
                 else if (signal) signalFaces += builder.StreetHiddenCount() - hiddenBefore;
                 else if (!plainSides.empty() && level >= 0 && level <= 8 && plainSides[treeSlot(x, y, level)])
                     plainFaces += builder.StreetHiddenCount() - hiddenBefore;
+                if (boardCandidate && fireEscapes && FireFlight(map, style, x, y, level)) {
+                    std::array<Vertex, 4> quad;
+                    builder.SetStreetMode(1);
+                    const bool built = builder.LastHiddenLid(&quad) && AddFireFlight(&builder, map, style, block.lid.Tile(), quad, &fireLandings);
+                    builder.SetStreetMode(0);
+                    if (built) { ++fireFaces; builder.SetStreetHidden(false); continue; }
+                }
                 if (boardCandidate) {
                     std::array<Vertex, 4> quad;
                     std::array<Vec3, 4> corners;
@@ -3328,7 +3587,7 @@ void BuildWorldMesh(const Map& map, const Style& style, const SlopeInfo* slopes,
     }
     (void)plainBefore;
     g_plainPanelSides = plainFaces;
-    g_overheadStats = OverheadDecalStats{decals.tiles, builder.StreetHiddenCount() - boards - treeFaces - plainFaces - signalFaces - lampArmFaces};
+    g_overheadStats = OverheadDecalStats{decals.tiles, builder.StreetHiddenCount() - boards - fireFaces - treeFaces - plainFaces - signalFaces - lampArmFaces};
     g_mapTreeStats = MapTreeStats{static_cast<int>(trees.size()), treeFaces};
     g_boards = boards;
     AddImplicitFloors(&builder, map);
