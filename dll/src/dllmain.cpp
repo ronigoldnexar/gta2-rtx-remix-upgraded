@@ -1522,9 +1522,26 @@ __declspec(dllexport) void __stdcall gbh_BeginScene() {
     }
 }
 
+// FIX-CLASSIC-WATER-1: GTA2DX9_PROXY_STATE=1 (off by default) logs the player's position and
+// facing every third frame in proxy mode, in the takeover log's 'view: player' form, so a
+// scripted walker (gamerun/drive_lib.py) can steer the game's ORIGINAL renderer to a spot
+// for a classic ground-truth frame. Reads only; draws nothing.
+static void ProxyStateProbe() {
+    static int on = -1;
+    static unsigned frame = 0;
+    if (on < 0) { char b[8] = {}; on = GetEnvironmentVariableA("GTA2DX9_PROXY_STATE", b, sizeof b) && b[0] == '1' ? 1 : 0; }
+    if (!on || (++frame % 3u) != 0) return;
+    try {
+        gta2dx9::PlayerState s;
+        if (!gta2dx9::LocatePlayer(&s) || !s.valid) return;
+        Log("view: player x=%.2f y=%.2f z=%.2f face=%.3f,%.3f %s | car none x=0.00 y=0.00 d=0.00 | parked none x=0.00 y=0.00 d=0.00 (proxy probe)",
+            s.x, s.y, s.z, s.dirX, s.dirY, s.inVehicle ? "driving" : "on foot");
+    } catch (...) {}
+}
+
 __declspec(dllexport) void __stdcall gbh_EndScene() {
     gta2dx9::ExeGuardsUpdate();
-    if (Proxying() && g_p_gbh_EndScene) { Backend<void(__stdcall*)()>(g_p_gbh_EndScene)(); return; }
+    if (Proxying() && g_p_gbh_EndScene) { ProxyStateProbe(); Backend<void(__stdcall*)()>(g_p_gbh_EndScene)(); return; }
     // Between this frame's particle update and the next, which is when a limb
     // about to land has to be caught.
     try {

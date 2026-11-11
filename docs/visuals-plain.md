@@ -306,6 +306,40 @@ times` lines' sprite stage (where the post resolves) 17.8 vs 17.3 ms avg. The ch
 `tools/vreg/vreg.sh stage` gives `spawn_classic` PASS, 0 tiles changed. The Remix path draws no AO of ours (the post
 chain does not start on a Remix device).
 
+## Classic water: the game's per-block coordinates (0w, FIX-CLASSIC-WATER-1, 11 Nov 2026)
+
+Defect 0w (triage pass 234, from FIX-WORLD-20's pmq1 note): in the classic view every river, canal and harbour was ONE
+flat colour (stddev 0 over the water) where the game draws its rippled, animated water tile.
+
+Ground truth first. The same classic walk (wil spawn 159.5,139.5 on foot to the canal bank at 209.5,139.5, a 4-block-wide
+canal, `gamerun/water1_walk.py`, closed loop from the `view: player` lines) under three stages:
+- GTA2's own renderer: this DLL in `[renderer] mode=proxy` with the game's `d3ddll.dll` beside it as `d3ddll_orig.dll`
+  (the original renderer draws everything; `GTA2DX9_PROXY_STATE=1` makes our DLL log the player's position in proxy
+  mode so the walker can steer, nothing else). The canal is the textured ripple tile repeated once per block, animating:
+  mean (75,123,99), sd 7-12 per channel, ~7-9 k colours over a 350x420 crop; consecutive frames 0.25 s apart differ by
+  mean |d| ~8.
+- HEAD 193732f3 (takeover): one colour per frame (sd 0.00, 1 colour), the colour itself changing with the animation.
+- This fix: the textured tile once per block, mean (76,123,100), sd 6-11, ~7-9 k colours, frames differ by |d| ~8-9.
+(An open-loop replay of the walk on the upstream gebdag DLL drifted onto another street; the proxy route is the one
+that reached the water.)
+
+Cause: the water lids carry world-space texture coordinates (block x / `WaterUvBlocks`, 2.5 blocks a repeat,
+world_mesh.cpp AddFaceUv) for the street views' water shader, which wraps them. The classic pass samples stage 0 with
+CLAMP, so past the first 2.5 blocks of the map every water texel clamped to one edge texel of the current frame: a flat
+slab whose colour flickered with the animation (the animated frame itself was always bound right).
+
+Fix: the mesh keeps each water lid's game coordinates (the per-block ones the game passes to gbh_DrawTile) and appends,
+after every other vertex and index, a copy of each batch that holds water lids with those coordinates
+(`TileBatch::classicIndices`). `Renderer::DrawWorld` draws that copy only when the view is classic; the street views,
+their water shader, shadows, eye collision and every other range are untouched (the copy is past all of them). The
+log says `classic water (FIX-CLASSIC-WATER-1): N batch(es)` at the world upload (wil: 1). A/B:
+`GTA2DX9_CLASSIC_ANIM_TILES=0` draws the old world coordinates (the flat slab).
+
+What it does not do: the classic view shows our HD replacement of the water frames, as it does for every other tile in
+takeover mode; the game's renderer shows its 64 px art (the ripple pattern of the HD set is an upscale of the same
+frames, same block repeat and mean colour, finer detail). Verified on wil only (one water tile, 608); ste and bil use
+the same group. Evidence: defects/evidence/water1/ (side by side and four-frame animation strips).
+
 ## Costs
 
 (Filled in from the measurement runs below.)

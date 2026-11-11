@@ -139,6 +139,16 @@ bool g_toneMatch = true;
 void SetToneMatch(bool on) { g_toneMatch = on; }
 void SetTileDumpDir(const char* dir) { g_tileDumpDir = dir ? dir : ""; }
 bool g_waterEffect = true;
+// FIX-CLASSIC-WATER-1: GTA2DX9_CLASSIC_ANIM_TILES=0 draws the classic view's water lids with the
+// street views' world-space coordinates again (the flat one-colour river, for an A/B).
+bool ClassicWaterUv() {
+    static int on = -1;
+    if (on < 0) {
+        char b[8] = {};
+        on = (GetEnvironmentVariableA("GTA2DX9_CLASSIC_ANIM_TILES", b, sizeof b) && b[0] == '0') ? 0 : 1;
+    }
+    return on != 0;
+}
 void SetWaterEffect(bool on) { g_waterEffect = on; }
 bool g_windowGlow = true;
 void SetWindowGlow(bool on) { g_windowGlow = on; }
@@ -847,6 +857,12 @@ bool Renderer::UploadWorld(const WorldMesh& mesh, const Style& style, std::strin
     }
     ReleaseResources();
     batches_ = mesh.batches;
+    {
+        int classicWater = 0;
+        for (const TileBatch& b : batches_) classicWater += b.classicIndices ? 1 : 0;
+        Trace("classic water (FIX-CLASSIC-WATER-1): %d batch(es) of water lids drawn with the game's per-block coordinates in the classic view%s",
+              classicWater, ClassicWaterUv() ? "" : " - OFF (GTA2DX9_CLASSIC_ANIM_TILES=0: the street views' world coordinates, one flat colour)");
+    }
     // FIX-TRANSITION-ART: the street lights, one group per light: the stacked pole segments at one
     // spot, and an arm or head whose solid starts within a block of that pole's top.
     streetPoles_ = mesh.streetPoles;
@@ -2016,13 +2032,18 @@ void Renderer::DrawWorld(const Camera& camera) {
         }
         // The street views leave the overhead decals out (world_mesh.h, TileBatch::streetIndices).
         const bool streetRange = streetView_ && batch.streetIndices;
-        const uint32_t fullFirst = streetRange ? batch.streetIndexStart : batch.indexStart;
-        const uint32_t fullCount = streetRange ? batch.streetIndexCount : batch.indexCount;
         const size_t batchIndex = static_cast<size_t>(&batch - batches_.data());
         const bool polePath = anyPoleFaded_ && batchIndex < polesOfBatch_.size() && !polesOfBatch_[batchIndex].empty();
+        // FIX-CLASSIC-WATER-1: the classic view draws the water lids with the game's own per-block
+        // coordinates (TileBatch::classicIndices); GTA2DX9_CLASSIC_ANIM_TILES=0 = before. Classic only,
+        // so never together with FIX-PERF-9's span (street views only).
+        const bool classicRange = !streetView_ && batch.classicIndices && ClassicWaterUv() && !polePath;
+        const uint32_t fullFirst = classicRange ? batch.classicIndexStart : streetRange ? batch.streetIndexStart : batch.indexStart;
+        const uint32_t fullCount = classicRange ? batch.classicIndexCount : streetRange ? batch.streetIndexCount : batch.indexCount;
+        const uint32_t minVertex = classicRange ? batch.classicVertexStart : batch.vertexStart;
         // FIX-PERF-9: the span in view; the faded-pole path keeps the whole range (its pole ranges index into it).
-        const uint32_t first = spanSet && !polePath ? spanFirst : fullFirst;
-        const uint32_t count = spanSet && !polePath ? spanCount : fullCount;
+        const uint32_t first = spanSet && !polePath && !classicRange ? spanFirst : fullFirst;
+        const uint32_t count = spanSet && !polePath && !classicRange ? spanCount : fullCount;
         if (polePath) {
             // FIX-TRANSITION-ART: around the street lights that are fading or gone (UpdatePoleFades).
             uint32_t at = first;
@@ -2039,7 +2060,7 @@ void Renderer::DrawWorld(const Camera& camera) {
             if (end > at + 2)
                 device_->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, batch.vertexStart, batch.vertexCount, at, (end - at) / 3);
         } else if (count >= 3)
-            device_->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, batch.vertexStart, batch.vertexCount,
+            device_->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, minVertex, batch.vertexCount,
                                           first, count / 3);
         if (photoBlend) {
             device_->SetTextureStageState(0, D3DTSS_COLOROP, shading_.sun ? D3DTOP_MODULATE : D3DTOP_SELECTARG1);

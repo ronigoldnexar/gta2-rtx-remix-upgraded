@@ -560,7 +560,8 @@ public:
         std::array<Uv, 4> worldUv;
         const std::array<Uv, 4>* texcoords = &uv;
         const float repeat = WaterUvBlocks();
-        if (repeat > 0.0f && normal.y > 0.5f && style_.IsWaterTile(tile)) {
+        const bool worldUvWater = repeat > 0.0f && normal.y > 0.5f && style_.IsWaterTile(tile);
+        if (worldUvWater) {
             for (int i = 0; i < 4; ++i) {
                 worldUv[i] = Uv{corners[i].x / repeat, corners[i].z / repeat};
             }
@@ -615,6 +616,15 @@ public:
         static const int kForward[4] = {0, 1, 2, 3};
         static const int kReverse[4] = {0, 3, 2, 1};
         const int* order = reversed ? kReverse : kForward;
+        if (worldUvWater) {
+            // FIX-CLASSIC-WATER-1: the game's own coordinates of this lid, in vertex order, for
+            // the classic view's copy of the batch (TileBatch::classicIndices).
+            ClassicUvQuad q;
+            q.quad = static_cast<uint32_t>(out.size() / 4);
+            for (int i = 0; i < 4; ++i) q.uv[static_cast<size_t>(i)] = uv[static_cast<size_t>(order[i])];
+            if (classicUv_[keyed].empty()) for (auto& c : classicUv_) c.resize(perTile_[0].size());
+            classicUv_[keyed][tile].push_back(q);
+        }
         for (int i = 0; i < 4; ++i) {
             const int slot = order[i];
             out.push_back(Vertex{corners[slot].x + surface.x * push,
@@ -742,8 +752,8 @@ public:
         }
         // The overhead decals (after everything, so no classic range moves): each batch
         // that holds some gets a street-view index list without them.
-        if (streetHiddenCount_ == 0) return;
         const size_t classicBatches = out->batches.size();
+        if (streetHiddenCount_ > 0)
         for (size_t b = 0; b < classicBatches; ++b) {
             TileBatch& batch = out->batches[b];
             if (batch.streetOnly || batch.tile < 0 || batch.tile >= static_cast<int>(perTile_[0].size())) continue;
@@ -766,9 +776,35 @@ public:
             }
             batch.streetIndexCount = static_cast<uint32_t>(out->indices.size()) - batch.streetIndexStart;
         }
+        // FIX-CLASSIC-WATER-1: the classic view's copy of every batch holding water lids, the
+        // lids with the game's per-block coordinates (TileBatch::classicIndices). Last of all,
+        // so every vertex and index range above is what it was without it.
+        for (size_t b = 0; b < classicBatches; ++b) {
+            TileBatch& batch = out->batches[b];
+            if (batch.streetOnly || batch.tile < 0 || batch.tile >= static_cast<int>(perTile_[0].size())) continue;
+            const int keyed = batch.doubleSided ? 1 : 0;
+            if (classicUv_[keyed].empty() || classicUv_[keyed][static_cast<size_t>(batch.tile)].empty()) continue;
+            const uint32_t copyStart = static_cast<uint32_t>(out->vertices.size());
+            for (uint32_t v = 0; v < batch.vertexCount; ++v) out->vertices.push_back(out->vertices[batch.vertexStart + v]);
+            for (const ClassicUvQuad& q : classicUv_[keyed][static_cast<size_t>(batch.tile)]) {
+                for (uint32_t i = 0; i < 4; ++i) {
+                    Vertex& v = out->vertices[copyStart + q.quad * 4 + i];
+                    v.u = q.uv[i].u;
+                    v.v = q.uv[i].v;
+                }
+            }
+            batch.classicIndices = true;
+            batch.classicVertexStart = copyStart;
+            batch.classicIndexStart = static_cast<uint32_t>(out->indices.size());
+            for (uint32_t i = 0; i < batch.indexCount; ++i)
+                out->indices.push_back(out->indices[batch.indexStart + i] - batch.vertexStart + copyStart);
+            batch.classicIndexCount = batch.indexCount;
+        }
     }
 
 private:
+    struct ClassicUvQuad { uint32_t quad = 0; std::array<Uv, 4> uv{}; };
+    std::vector<std::vector<ClassicUvQuad>> classicUv_[2];   // [ColourKeyed][tile]: water lids' game coordinates
     bool streetHidden_ = false;
     bool streetHideAll_ = false;
     int streetHiddenCount_ = 0;

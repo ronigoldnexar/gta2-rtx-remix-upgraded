@@ -56,6 +56,17 @@ struct TileBatch {
     bool streetIndices = false;
     uint32_t streetIndexStart = 0;
     uint32_t streetIndexCount = 0;
+    // FIX-CLASSIC-WATER-1: the classic view draws this batch from a copy of its vertices
+    // (classicVertexStart, vertexCount of them; indices classicIndexStart/classicIndexCount)
+    // in which the water lids carry the game's own per-block texture coordinates instead of
+    // the street views' world-space ones (SetWaterUvBlocks). Under the classic view's CLAMP
+    // addressing the world-space ones (block x / 2.5) clamp to one edge texel past the first
+    // 2.5 blocks: the river was one flat colour. Appended after everything, so no other
+    // range moves; the street views never read it.
+    bool classicIndices = false;
+    uint32_t classicVertexStart = 0;
+    uint32_t classicIndexStart = 0;
+    uint32_t classicIndexCount = 0;
 };
 
 // FIX-TRANSITION-ART: one street light's round pole segment (AddLampPole) or its arm and head solid
