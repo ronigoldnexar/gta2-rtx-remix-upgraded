@@ -712,3 +712,19 @@ takeover mode the classic world is drawn by this DLL's renderer. A classic-rende
 cameras (gamerun/keys_qa_fw20rt.sh, out/qa_fw20rt): t0 (811 at 100-102,136) two crisp white stub bars on grained
 asphalt; t2/t3 (827 at 130,121 / 127,122) a crisp white edge line with the faint yellow hatching beside it, no
 scribble. (t1's eye fell inside a wall.)
+
+**Roof grates aliasing at a distance (FIX-WORLD-19 residual).** Downtown 87/95/193 (one-texel slats in the 64 px
+art) are alpha-tested; their photo-set DDS (street views only) box-filters the cutout down the mips, so at the
+128 and 64 px levels the slats are a 1-2 texel alpha pattern with 74-83 % of texels over the reference 128, and a
+grate 10-20 blocks off sparkles (black dots over olive on the 177-178,128-138 gable). `tools/grate_far_mips.py`
+rewrites the levels from 64 px down as opaque, colour premultiplied by coverage (holes as black, matching
+FIX-WORLD-19's dark plates), and copies 512/256/128 byte for byte. Same-camera A/B (WORLD-19's gable poses at
+eye 165.5,149.5,2.6, fov 30/60/90): out/qa_fw20gra (old tiles) vs out/qa_fw20grb (new): the far grates go from
+black-dot noise to a calm olive slatted panel, the near grates keep their slats. The classic view and Remix do not
+load the photo set. Files outside git, need the restage: assets/textures_hd/photo/wil/tile_0087.dds, 0095, 0193
+(old copies in /tmp/fw20/photo_wil_backup). Uses elsewhere (flat lids: 131 x 87, 240 x 193, mostly street-level
+ground grates; 48-81 wall uses each) also turn opaque at those mips: framed only on the gable; a ground grate at a
+distance was not framed (my two cameras for it landed in a wall and inside a structure).
+
+**Not attempted:** ste green stone in shade (FIX-WORLD-19's grey probe found the lighting right at 65 %; a
+per-class tone floor would be a tile fix, not lighting, and was left).
