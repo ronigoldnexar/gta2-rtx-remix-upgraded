@@ -1169,3 +1169,84 @@ a kit body shows its neutral 235 white. Before: out/qa_va22a (HEAD ac5813dd DLLs
 - Model files: `035_benson*`, `030_land_roamer*`, `029_dementia*` (new sets replacing the shells) and
   `027_ice_cream_van.mesh` go to repo/assets/models with backups in `/mnt/gta2/gta2-linux/backup_va22/models`:
   NEEDS A RESTAGE.
+
+## VEHICLE-ART-23 (11 Nov 2026): 011 Bus, 017 Fire Truck and 052 SWAT Van authored
+
+Probes: QA-VISUAL pass 56's own repro (`gamerun/keys_qa_qav51.sh` = `to_level.sh` + `qav51.py`: wil 164.5,147.6, the
+player's car parked and forced to each model, fixed regression-camera poses side / front34 / rear34 / eye / high,
+18:30 clock paused, plain GL, `GTA2DX9_REGRESS_CAM=Z:\tmp\va2_cam.txt`). Before: the filer's run (stage 64c1eb2b).
+After: a private stage of 3f813097 with HEAD f68928ea DLLs and the new model files. Forced models draw at tint 1
+(identity.cpp), so these frames judge shape and finish. All three models are liveries, so their colours are
+authored in.
+
+- **011 Bus (`tools/vehicle_art2/car_011.py`; qav56 "ragged dark-blue awning, black quad holes in the roof, smeared
+  sides").** The shell's upper body carried a sky-blue patch that hung over the windows as a torn skirt. Its roof had
+  four unlit black quads and loose triangles, and the side texture was stretched. The kit body is a 1950s transit bus
+  read from the sprite, nose down (3.13 x 9.92 m). It has well-rounded roof edges and rounded corners in plan.
+  The cream body carries the default remap's brown livery: the roof's centre strip with three smoked escape hatches
+  in pale frames and five round vents (the sprite's dark squares and dots), the letterboard band over the windows
+  with amber markers, and a belt stripe with a chrome moulding. Eight glazed bays a side have pillars, with seat
+  rows, a floor and a liner behind them. The front and centre passenger doors (glass leaves, a rail) are on -x, and
+  the driver's seat, dash and wheel are on +x. The front is flat, with a split windscreen, a destination box,
+  sealed-beam lamps, a small grille, mirrors on arms and a black wraparound bumper (the sprite's dark nose bar). The
+  rear is flat, with a back light, engine louvres, tail lamps and the sprite's amber bar at the roof. The front
+  tyres are single and the rear tyres twin. The end faces are planar panels cut to the section outline, in their
+  own unbaked cream: the side's occlusion picture sampled across a face drew dark specks at the roof edge in the
+  first build.
+  Traffic draws the default remap for most buses (identity lines: paint 115,88,69, palettes 29-31, ~80 % of the
+  bus records in out/), so the brown livery is the common case. The blue, green, red and teal remaps still show
+  brown in 3D. 11 stays a livery (a strip-only paint half tinted by the remap would be the cure; see below).
+- **017 Fire Truck (`car_017.py`; qav56 "black/white shards and a torn hose bed past the tail").** The shell's rear
+  was unshaded black and white fins standing past the outline over a bed of interleaved sliver planes. The kit body
+  is a 1950s pumper read from the sprite's stations (x4 row r -> z = (r - 248) x 0.0195 m). VEHICLE-ART-9's 058
+  closed cab is built in its own frame and mapped onto the nose and cab rows (z scale 0.84). Its pale roof carries
+  the sprite's two red beacons (the orange-red squares in the pale frame). Behind the cab is a pump section with
+  chrome panels, gauges and inlets, a step, and the sprite's ringed disc as a hose reel (a drum of hose between
+  chrome flanges, a dark hub). A lamp bar crosses the bed's front. Red lockers with shutter seams, chrome handles,
+  amber markers and a top grab rail run down both sides, stepped round the rear wheel with a chrome fender lip. The
+  hose bed between them holds folded canvas hose, and two aluminium ladders lie on three brackets inside the
+  outline (the sprite's long white bars). At the back are a diamond-plate tailboard, tail lamps and grab rails.
+  The 058 recipe's cab-back fan cap faced into the cab (mean normal +0.99 z) and is turned out here. The shipped
+  058 has the same inverted cap (not changed: no defect filed; it sits behind the winch).
+- **052 SWAT Van (`car_052.py`; qav56 "roof a blurry low-resolution smear with a floating white pillar").** The
+  shell's roof was a 2-3 px-per-texel copy of the sprite with a stray white-and-red fin down the middle. The kit
+  body is on VEHICLE-ART-10's 004 armoured-van recipe, read from the sprite: the box runs from the tail to sprite
+  row 220 and the cab sits ahead. It has a raked windscreen, a rounded nose, a bar grille and a push bar. The cab
+  roof carries the sprite's light bar (blue lenses rearward, red forward, a clear centre). The box has stiffener
+  ribs, gun ports, a pale roof with the sprite's two navy stripes, two vent grilles between blue/red beacon pods at
+  its rear corners, and rear doors with armoured windows. It is two-tone as the sprite: navy flanks under a pale
+  grey-blue upper body. The 004 recipe's tail fan cap faced into the box (mean normal +0.9 z), so the van's back
+  drew near-black; both box caps and the nose cap are now turned out. The dark rear seen in the rear34 frame is the
+  dusk light on a back-facing panel: the bus's rear in the same pose measures the same (33 vs 32). The shipped 004
+  has the same inverted tail cap (not changed).
+- Driver seats measured (`seat_anchor.py` entries; written into the manifest for these three only). Without them
+  the 017 hero sat in the cab door with his legs outside it (out/qa_va23c rear34 / eye).
+- Offline: `hole_scan.py` max back-face share 011 0.25 %, 052 3.4 %, 017 7.8 %. 017's share is the front arch liners,
+  the floor pan and 058's wing-shoulder seam line, the class every shipped kit body has (070 / 041 20 %). There are
+  no panel or alpha holes. Files: 23 / 28 / 27 per body, 4.9 / 3.9 / 5.0 MB, replacing shells of 6.2 / 5.9 / 5.9 MB.
+- Verified (frames opened): out/qa_va23a (bus first build: clean panels, a seat back through the rear corner),
+  out/qa_va23b (bus final, 052 first build; `ssao` 1 / 0 in the same session: the same body, so FIX-CAR-SHADING-2's
+  SSAO cloud is not in the bake), out/qa_va23c (017, 052 caps), and out/qa_va23d (all three final, at all five
+  poses; sheets `sheet_011/017/052.png` there with the x4 sprite beside them). Every pose shows one closed body with
+  smooth, uniformly shaded panels: the bus with a straight window band and a clean roof strip with hatches and
+  vents, the fire truck with a closed tailboard and ladders inside the outline, the SWAT van with crisp roof
+  stripes, pods and light bar.
+- Colour (forced models, tint 1, 18:30 dusk, high pose, by hue class against the x4 sprite): 017 red L 19 vs the
+  sprite's 20, hue 359 vs 9; 011 brown L 22 vs 38, hue 11 vs 24 (the dusk light and no livery gain); 052 navy L 17
+  vs 41 in the first build, so the navy moved to the sprite's stripe blue (32,58,110; was 38,52,84): hue 227 vs
+  the sprite's 215, L 19 (out/qa_va23e, the final 052 at all five poses). The paint-parity
+  gate tests the tint path of painted bodies (a forced paint tints liveries too), so it does not apply to these
+  three. Natural traffic with the lit-livery gain at noon is untested.
+- Classic view: vreg on the private stage, `spawn_classic` PASS, 0 tiles changed (out/vreg_va23a). Its 3D shots
+  (29 FAIL, 1 WARN) differ from the goldens by 18-30 tiles per shot. Those frames were not opened, so the cause is
+  not established; ART-22's run against the same older goldens showed the same pattern (16 FAIL).
+- Not verified: Remix (no prims for the new textures: they draw from their base textures); night; moving traffic;
+  first person (FIX-COCKPIT-CAB-6's cab tables have no entry for the new interiors; the bus cab class is `bus`, the
+  fire truck `truck`, the SWAT van `van`); the door split on the new bodies (the bus's door span from the sprite is
+  mid-body, not at the authored doors).
+- Still short of a shipping-AAA frame: the kit glass is dark, so the bus's seat rows hardly read through the windows
+  by day (every kit body). The bus livery does not follow the remaps (blue / green / red / teal buses stay brown in
+  3D). 017's lockers and 052's box are hard-edged panels with no rivets or roller-shutter relief. The SWAT van's
+  nose is a 004-family snout, not a purpose-built armoured front.
+- Model files: `011_bus*`, `017_fire_truck*`, `052_swat_van*` (new sets replacing the shells) in repo/assets/models,
+  the shells' 53 files backed up in `/mnt/gta2/gta2-linux/backup_va23/models`: NEEDS A RESTAGE.

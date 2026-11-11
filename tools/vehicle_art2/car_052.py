@@ -20,7 +20,7 @@ from carkit import *  # noqa
 
 NAME = "052_swat_van"
 PALE = (196.0, 208.0, 210.0)
-NAVY = (38.0, 52.0, 84.0)
+NAVY = (32.0, 58.0, 110.0)     # the sprite's stripe blue (30,61,116)
 PAINT = PALE
 SPRITE = None
 LEN = 1.297 * 5.0                 # 6.48 m
