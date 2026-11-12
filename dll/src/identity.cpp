@@ -9,6 +9,8 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <iterator>
+#include <string>
 #include <unordered_map>
 
 #include "car_bodies.h"
@@ -62,9 +64,64 @@ uint32_t Fingerprint(const IdentityRecord& r) {
 
 // ---- People ------------------------------------------------------------------------
 
+// PEDS-VARIETY (12 Nov 2026): a civilian's curated outfit, a shirt and trousers that go together, for an avatar with
+// clothing zones. A port of the reviewed prototype tools/ped_identity/outfits.py (the same palettes in the same order,
+// the same hash, the same guardrails; the sheet tools import that file, so keep the two in step):
+//   - three palettes: men's, women's (the avatar's name has "female") and formal (the name has "business": shirts
+//     in white, pale blue, grey, navy, charcoal, pale pink over charcoal, black, navy or grey trousers);
+//   - the top and the bottom are told apart (RGB distance > 70, > 40 for formal wear);
+//   - at most one strong colour (chroma > 0.28) in an outfit;
+//   - about 1 in 4 (hash % 4 == 0, or no pair passes in 16 draws) keep the colours they had.
+struct Garment { uint8_t r, g, b; };
+constexpr Garment kTopsM[] = {{40, 52, 88}, {62, 64, 68}, {212, 208, 196}, {92, 98, 60}, {112, 36, 46}, {136, 168, 200},
+                              {176, 150, 112}, {40, 78, 54}, {146, 64, 44}, {160, 132, 64}, {72, 98, 136}, {44, 112, 118},
+                              {32, 32, 36}, {128, 130, 134}, {132, 76, 48}};
+constexpr Garment kTopsF[] = {{40, 52, 88}, {214, 210, 200}, {118, 38, 52}, {140, 172, 206}, {206, 146, 160}, {214, 112, 92},
+                              {150, 132, 178}, {224, 212, 184}, {172, 44, 42}, {96, 52, 92}, {44, 116, 122}, {164, 134, 66},
+                              {32, 32, 36}, {40, 80, 56}, {76, 100, 138}};
+constexpr Garment kBottoms[] = {{58, 74, 104}, {38, 46, 66}, {32, 32, 36}, {62, 64, 68}, {172, 156, 118}, {92, 68, 50},
+                                {112, 114, 118}, {36, 44, 72}, {82, 86, 58}};
+constexpr Garment kBottomsF[] = {{58, 74, 104}, {38, 46, 66}, {32, 32, 36}, {62, 64, 68}, {172, 156, 118}, {92, 68, 50},
+                                 {112, 114, 118}, {36, 44, 72}, {82, 86, 58}, {206, 198, 178}, {100, 34, 44}};
+constexpr Garment kTopsFormal[] = {{218, 216, 210}, {168, 188, 212}, {140, 142, 146}, {44, 54, 84}, {66, 68, 72}, {214, 184, 188}};
+constexpr Garment kBottomsFormal[] = {{62, 64, 68}, {32, 32, 36}, {36, 44, 72}, {112, 114, 118}};
+
+float Chroma(const Garment& c) {   // colorsys HLS s * (1 - |2l - 1|) = (max - min) / 255
+    const int mx = (std::max)({c.r, c.g, c.b}), mn = (std::min)({c.r, c.g, c.b});
+    return static_cast<float>(mx - mn) / 255.0f;
+}
+float Distance(const Garment& a, const Garment& b) {
+    const float dr = static_cast<float>(a.r) - b.r, dg = static_cast<float>(a.g) - b.g, db = static_cast<float>(a.b) - b.b;
+    return std::sqrt(dr * dr + dg * dg + db * db);
+}
+
+// The outfit for this seed and avatar kind, or false (keep the colours he has).
+bool CivilianOutfit(uint32_t seed, bool female, bool formal, Garment* top, Garment* bottom) {
+    uint32_t h = Mix(seed);
+    if (h % 4 == 0) return false;
+    const Garment* tops = formal ? kTopsFormal : female ? kTopsF : kTopsM;
+    const uint32_t nt = formal ? std::size(kTopsFormal) : female ? std::size(kTopsF) : std::size(kTopsM);
+    const Garment* bots = formal ? kBottomsFormal : female ? kBottomsF : kBottoms;
+    const uint32_t nb = formal ? std::size(kBottomsFormal) : female ? std::size(kBottomsF) : std::size(kBottoms);
+    for (uint32_t k = 0; k < 16; ++k) {
+        const Garment& t = tops[(h >> 3) % nt];
+        const Garment& b = bots[(h >> 11) % nb];
+        if (Distance(t, b) > (formal ? 40.0f : 70.0f) && !(Chroma(t) > 0.28f && Chroma(b) > 0.28f)) {
+            *top = t; *bottom = b;
+            return true;
+        }
+        h = Mix(h + k + 1);
+    }
+    return false;
+}
+constexpr uint32_t kOutfitSalt = 0x632be5abu;   // the outfit's hash apart from the build's and the pool's
+
 // The crowd's variety, from the record's seed (was CrowdLookFor in live_geometry.cpp, seeded by
 // the sprite object's address): a build (height +-6%, width +-5%), a shade of a zoned outfit
 // (+-12%), and for a civilian without zones three times in four an everyday clothes colour.
+// PEDS-VARIETY: a civilian on an avatar with clothing zones wears, three times in four, a curated outfit
+// (CivilianOutfit), else the avatar's own colours, in place of his remap's sprite colours; shaded +-6% (the
+// palette is already a spread of shades; the full +-12% stays on the other types' zones), applied once.
 void CrowdVariety(IdentityRecord* r) {
     if (!g_crowdVariety || !r->model) return;
     const Model& model = *r->model;
@@ -74,6 +131,29 @@ void CrowdVariety(IdentityRecord* r) {
     r->width = 0.95f + 0.10f * static_cast<float>((h >> 8) & 255) / 255.0f;
     const bool civilian = remap < 0 || remap == 15 || (remap >= 18 && remap != 22);
     const float shade = 0.88f + 0.24f * static_cast<float>((h >> 24) & 255) / 255.0f;
+    if (model.pedZones && PedRemapIsCivilian(remap)) {
+        // A civilian on an avatar with clothing zones: a curated outfit, or else the avatar's own colours (its
+        // artist's; the remap's sprite colours put men in hot pink and olive on olive), shaded +-6% once.
+        Garment top, bottom;
+        const bool dressed = CivilianOutfit(r->seed ^ kOutfitSalt, model.name.find("female") != std::string::npos,
+                                            model.name.find("business") != std::string::npos, &top, &bottom);
+        const float s = 1.0f + (shade - 1.0f) * 0.5f;
+        const float ref = (std::max)(8.0f, model.zoneRef);
+        const uint8_t outfit[2][3] = {{top.r, top.g, top.b}, {bottom.r, bottom.g, bottom.b}};
+        for (int z = 0; z < 2; ++z) {
+            const bool own = model.zoneRgb[z][0] + model.zoneRgb[z][1] + model.zoneRgb[z][2] >= 1.0f;
+            for (int k = 0; k < 3; ++k) {
+                const float want = dressed ? static_cast<float>(outfit[z][k]) : own ? model.zoneRgb[z][k] : ref;
+                r->zone[z][k] = (std::max)(0.0f, (std::min)(2.0f, s * want / ref));
+            }
+        }
+        for (int k = 0; k < 3; ++k) r->zone[2][k] = 1.0f;   // never the hair (ASSET-PEDS-3)
+        r->zoned = true;
+        r->zoneHair = false;
+        r->tinted = false;
+        r->clothes = dressed;
+        return;
+    }
     if (r->zoned) {
         for (int z = 0; z < 2; ++z) for (int k = 0; k < 3; ++k) r->zone[z][k] = (std::min)(2.0f, r->zone[z][k] * shade);
         return;

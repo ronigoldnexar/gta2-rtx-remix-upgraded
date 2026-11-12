@@ -276,3 +276,32 @@ against after:
   traced (the halves differ from the unpadded ones only in the gutters).
 - **Not in git:** the textures ship in the `people` release archive, which needs repacking
   (`python3 tools/pack_release.py <out> people`).
+
+## Civilian variety (PEDS-VARIETY, 12 Nov 2026)
+
+The owner asked for more variety in the civilians' faces and clothes, outfits right for men and women and never
+ridiculous, in the Rocketbox look. Uniforms, gangs, police, medics, the Hulks, the naked type and the player do not
+change.
+
+- **Faces.** Each `civilian_*` type (remaps 15, 18-21, 27-52) now deals from nine or ten zone-ready avatars, four of
+  them women, a mix of its own seeded by the remap (`tools/make_ped_manifest.py` `civilian_pool`; the manifest's
+  `ped_types`). Women: `female_01/03/05/08`, `female_adult_02/04/12/13/17`, `business_female_01`. Men: `male_01/04/07/10/13`,
+  `male_adult_02/05/06/08/09/12/16/18/20`, `business_male_04/06/07`. Left out: the hero (`male_adult_11`), the swimwear,
+  the religious dress and the baked `_hb/_hr/_k/_g/_z` variants. The plain `pedestrians` list (remaps with no type)
+  holds all of them. Before: three or four avatars per type out of fifteen, picked by the sprite's sleeve length.
+- **Clothes** (`identity.cpp` `CrowdVariety` / `CivilianOutfit`, a port of `tools/ped_identity/outfits.py`). A civilian
+  (`PedRemapIsCivilian`: a `civilian_*` type, or no type) on an avatar with clothing zones wears, by a hash of his ped
+  id, a curated outfit three times in four, else the avatar's own colours. Men's, women's (`female` in the avatar's
+  name) and formal (`business`) palettes; the top and the bottom at least 70 apart in RGB (40 for formal wear); at
+  most one strong colour (chroma > 0.28). Zone tint = colour / `zone_ref`, clamped 0..2; the hair is never tinted; a
+  +-6% shade, applied once (other zoned types keep the +-12% over their sprite colours). The record says `clothes`
+  when an outfit was drawn. The C++ and the Python give the same outfit for 60 000 seeds (`tools/ped_identity/outfit_parity.py`:
+  the function compiled natively against `outfits.outfit`).
+- **What it replaces.** Civilians on zoned avatars wore their remap's sprite colours (ASSET-PEDS), so a remap's crowd
+  was one outfit (remap 20 all grey over denim, 52 all hot pink, 33 olive on olive). The 3D civilian no longer
+  matches the classic sprite's shirt colour; `tools/identity_parity.py` checks the player and cars only, so no check
+  changes. `[crowd] variety=0` (or `GTA2DX9_CROWD=0`) restores the sprite colours (with no build or shade variety).
+- **Unzoned avatars.** `business_female_01` (a black suit with a `_paint` half) keeps the old everyday tint three in
+  four: on near-black paint it only darkens or warms the suit.
+- **Sheet.** `CUDA_VISIBLE_DEVICES=0 gen3d/venv/bin/python tools/ped_identity/crowd_sheet.py stage/gta2dx9_models
+  out.jpg --remaps 15,18,20 --seeds 24` renders consecutive ped ids as the DLL dresses them (`outfits.crowd()`).

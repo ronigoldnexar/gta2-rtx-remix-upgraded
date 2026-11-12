@@ -2790,6 +2790,11 @@ bool PedTypeBuild(int remap, float* scale, float* width) {
 
 bool PedRemapHasType(int remap) { return remap >= 0 && remap < 64 && g_pedTypeByRemap[remap] >= 0; }
 
+bool PedRemapIsCivilian(int remap) {
+    if (!PedRemapHasType(remap)) return true;
+    return g_pedTypes[g_pedTypeByRemap[remap]].name.compare(0, 8, "civilian") == 0;
+}
+
 bool PedZoneTints(int remap, const Model& model, float tints[3][3], bool* hairTint) {
     if (hairTint) *hairTint = false;
     if (!model.pedZones || remap < 0 || remap >= 64 || g_pedTypeByRemap[remap] < 0) return false;
