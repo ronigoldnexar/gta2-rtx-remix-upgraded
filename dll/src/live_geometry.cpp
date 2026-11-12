@@ -429,7 +429,8 @@ bool g_crowdVariety = true, g_crowdLookAt = true;
 float g_crowdLookRange = 5.0f;
 float g_crowdPlayerX = 0.0f, g_crowdPlayerZ = 0.0f;
 uint32_t g_crowdPlayerFrame = 0, g_crowdPlayerShot = 0;
-int g_crowdCount[5] = {};   // this frame: drawn, own clothes, looking at the player, glancing, in sprite outfits (ASSET-PEDS)
+int g_crowdCount[6] = {};   // this frame: drawn, own clothes, looking at the player, glancing, with clothing zones (ASSET-PEDS),
+                            // zoned in a curated civilian outfit (PEDS-VARIETY)
 float g_crowdNearD2 = 1e9f, g_crowdNearRel = 0.0f;   // this frame: the nearest other figure to the player (log)
 int g_crowdWin[4] = {};   // over the log's ten seconds: figure-frames in range, passed over (one in four), behind him, looking
 uint32_t CrowdHash(uint32_t x) {
@@ -10418,7 +10419,8 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             Log("crowd: %d figures drawn, %d in clothes of their own, %d looking at the player, %d glancing; nearest %.1f blocks at %.0f deg (player seen %d frames ago)",
                 g_crowdCount[0], g_crowdCount[1], g_crowdCount[2], g_crowdCount[3], std::sqrt(g_crowdNearD2), g_crowdNearRel * 57.3f,
                 g_crowdPlayerFrame ? static_cast<int>(g_carFrame - g_crowdPlayerFrame) : -1);
-            Log("peds: %d of %d figures drawn in their sprite's outfit (ASSET-PEDS zones)", g_crowdCount[4], g_crowdCount[0]);
+            Log("peds: %d of %d figures with clothing zones: %d in a civilian outfit (PEDS-VARIETY), %d in their type's or own colours",
+                g_crowdCount[4], g_crowdCount[0], g_crowdCount[5], g_crowdCount[4] - g_crowdCount[5]);
             Log("crowd: last 300 frames: %d figure-frames within look_range, %d passed over, %d with the player behind them, %d looking",
                 g_crowdWin[0], g_crowdWin[1], g_crowdWin[2], g_crowdWin[3]);
             for (int& c : g_crowdWin) c = 0;
@@ -13321,6 +13323,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 if (zoned) {
                     ModelSetZoneTints(ident.zone[0], ident.zone[1], ident.zoneHair ? ident.zone[2] : nullptr);
                     ++g_crowdCount[4];
+                    if (ident.clothes) ++g_crowdCount[5];
                 }
                 ++g_crowdCount[0];
                 if (ident.clothes) ++g_crowdCount[1];

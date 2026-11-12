@@ -74,10 +74,10 @@ uint32_t Fingerprint(const IdentityRecord& r) {
 //   - about 1 in 4 (hash % 4 == 0, or no pair passes in 16 draws) keep the colours they had.
 struct Garment { uint8_t r, g, b; };
 constexpr Garment kTopsM[] = {{40, 52, 88}, {62, 64, 68}, {212, 208, 196}, {92, 98, 60}, {112, 36, 46}, {136, 168, 200},
-                              {176, 150, 112}, {40, 78, 54}, {146, 64, 44}, {160, 132, 64}, {72, 98, 136}, {44, 112, 118},
+                              {176, 150, 112}, {40, 78, 54}, {146, 64, 44}, {150, 122, 82}, {72, 98, 136}, {44, 112, 118},
                               {32, 32, 36}, {128, 130, 134}, {132, 76, 48}};
 constexpr Garment kTopsF[] = {{40, 52, 88}, {214, 210, 200}, {118, 38, 52}, {140, 172, 206}, {206, 146, 160}, {214, 112, 92},
-                              {150, 132, 178}, {224, 212, 184}, {172, 44, 42}, {96, 52, 92}, {44, 116, 122}, {164, 134, 66},
+                              {150, 132, 178}, {224, 212, 184}, {172, 44, 42}, {96, 52, 92}, {44, 116, 122},
                               {32, 32, 36}, {40, 80, 56}, {76, 100, 138}};
 constexpr Garment kBottoms[] = {{58, 74, 104}, {38, 46, 66}, {32, 32, 36}, {62, 64, 68}, {172, 156, 118}, {92, 68, 50},
                                 {112, 114, 118}, {36, 44, 72}, {82, 86, 58}};
@@ -158,7 +158,9 @@ void CrowdVariety(IdentityRecord* r) {
         for (int z = 0; z < 2; ++z) for (int k = 0; k < 3; ++k) r->zone[z][k] = (std::min)(2.0f, r->zone[z][k] * shade);
         return;
     }
-    if (civilian && model.splitPaint && !model.pedZones && ((h >> 16) & 3) != 0 && !r->tinted) {
+    // PEDS-VARIETY: a suit (business_*) keeps its own look (business_female_01: black suit, white blouse).
+    if (civilian && model.splitPaint && !model.pedZones && ((h >> 16) & 3) != 0 && !r->tinted &&
+        model.name.find("business") == std::string::npos) {
         static const uint8_t kClothes[][3] = {
             {38, 52, 92},    {60, 62, 66},   {28, 28, 32},   {196, 178, 140}, {92, 100, 58},  {118, 32, 44},
             {70, 104, 150},  {214, 212, 204}, {128, 130, 134}, {110, 76, 50},  {36, 80, 52},   {200, 160, 50},

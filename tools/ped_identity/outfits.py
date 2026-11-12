@@ -6,11 +6,11 @@ for the sheets (tools/ped_identity/crowd_sheet.py)."""
 import colorsys
 TOPS_M = {'navy': (40, 52, 88), 'charcoal': (62, 64, 68), 'off-white': (212, 208, 196), 'olive': (92, 98, 60),
           'burgundy': (112, 36, 46), 'sky': (136, 168, 200), 'tan': (176, 150, 112), 'forest': (40, 78, 54),
-          'brick': (146, 64, 44), 'mustard': (160, 132, 64), 'slate': (72, 98, 136), 'teal': (44, 112, 118),
+          'brick': (146, 64, 44), 'camel': (150, 122, 82), 'slate': (72, 98, 136), 'teal': (44, 112, 118),
           'black': (32, 32, 36), 'grey': (128, 130, 134), 'rust': (132, 76, 48)}
 TOPS_F = {'navy': (40, 52, 88), 'off-white': (214, 210, 200), 'burgundy': (118, 38, 52), 'sky': (140, 172, 206),
           'blush': (206, 146, 160), 'coral': (214, 112, 92), 'lavender': (150, 132, 178), 'cream': (224, 212, 184),
-          'red': (172, 44, 42), 'plum': (96, 52, 92), 'teal': (44, 116, 122), 'mustard': (164, 134, 66),
+          'red': (172, 44, 42), 'plum': (96, 52, 92), 'teal': (44, 116, 122),
           'black': (32, 32, 36), 'forest': (40, 80, 56), 'slate': (76, 100, 138)}
 BOTTOMS = {'denim': (58, 74, 104), 'dark denim': (38, 46, 66), 'black': (32, 32, 36), 'charcoal': (62, 64, 68),
            'khaki': (172, 156, 118), 'brown': (92, 68, 50), 'grey': (112, 114, 118), 'navy': (36, 44, 72),
@@ -81,7 +81,7 @@ def crowd(seed, remap, model, entry, sprite_outfit, civilian=True):
             z.append([min(2.0, max(0.0, min(2.0, c / ref)) * shade) for c in want])
         out.update(kind='sprite', label='sprite colours', zone=z)
         return out
-    if civilian and not zoned and any('_paint' in t for t in entry.get('textures', [])) and ((h >> 16) & 3) != 0:
+    if civilian and not zoned and 'business' not in model and any('_paint' in t for t in entry.get('textures', [])) and ((h >> 16) & 3) != 0:
         c = EVERYDAY[(h >> 18) % len(EVERYDAY)]
         paint = entry.get('paint_rgb') or [235.0] * 3
         out.update(kind='everyday', label='everyday %d,%d,%d' % tuple(c),

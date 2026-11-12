@@ -191,18 +191,31 @@ CIV_MEN = ["human_male_01", "human_male_04", "human_male_07", "human_male_10", "
            "human_male_adult_05", "human_male_adult_06", "human_male_adult_08", "human_male_adult_09", "human_male_adult_12",
            "human_male_adult_16", "human_male_adult_18", "human_male_adult_20", "human_business_male_04",
            "human_business_male_06", "human_business_male_07"]
-def civilian_pool(remap, have, hero):
-    rng = random.Random(7919 + remap)
-    w = [x for x in CIV_WOMEN if x in have and x != hero]
-    m_ = [x for x in CIV_MEN if x in have and x != hero]
-    pool = rng.sample(w, min(4, len(w))) + rng.sample(m_, min(5 + remap % 2, len(m_)))
-    rng.shuffle(pool)
-    return pool
+SUIT_POOLS = 4   # human_business_female_01 (a black suit, never recoloured) is in at most this many civilian pools
+def civilian_pools(remaps, have, hero):
+    """remap -> nine or ten avatars, four of them women, a mix of its own (seeded by the remap)."""
+    pools, suits = {}, 0
+    for remap in remaps:
+        rng = random.Random(7919 + remap)
+        w = [x for x in CIV_WOMEN if x in have and x != hero]
+        m_ = [x for x in CIV_MEN if x in have and x != hero]
+        women = rng.sample(w, min(4, len(w)))
+        if "human_business_female_01" in women:
+            if suits >= SUIT_POOLS:
+                spare = [x for x in w if x not in women and x != "human_business_female_01"]
+                women[women.index("human_business_female_01")] = rng.choice(spare)
+            else:
+                suits += 1
+        pool = women + rng.sample(m_, min(5 + remap % 2, len(m_)))
+        rng.shuffle(pool)
+        pools[remap] = pool
+    return pools
 have = {e["name"] for e in m["models"]}
-for r in range(53):
-    if r in typed: continue
-    types.append({"name": f"civilian_{r}", "remaps": [r], "models": civilian_pool(r, have, names.get(HERO)), "tint": 1})
-civ = [x for x in CIV_WOMEN + CIV_MEN if x in have and x != names.get(HERO)]
+civ_remaps = [r for r in range(53) if r not in typed]
+pools = civilian_pools(civ_remaps, have, names.get(HERO))
+for r in civ_remaps:
+    types.append({"name": f"civilian_{r}", "remaps": [r], "models": pools[r], "tint": 1})
+civ = [x for x in CIV_WOMEN + CIV_MEN if x in have and x != names.get(HERO) and x != "human_business_female_01"]
 outfit_rows = []
 for r in range(54):
     o = outfits.get(str(r))

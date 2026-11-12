@@ -288,7 +288,7 @@ change.
   `ped_types`). Women: `female_01/03/05/08`, `female_adult_02/04/12/13/17`, `business_female_01`. Men: `male_01/04/07/10/13`,
   `male_adult_02/05/06/08/09/12/16/18/20`, `business_male_04/06/07`. Left out: the hero (`male_adult_11`), the swimwear,
   the religious dress and the baked `_hb/_hr/_k/_g/_z` variants. The plain `pedestrians` list (remaps with no type)
-  holds all of them. Before: three or four avatars per type out of fifteen, picked by the sprite's sleeve length.
+  holds all of them but the suit. Before: three or four avatars per type out of fifteen, picked by the sprite's sleeve length.
 - **Clothes** (`identity.cpp` `CrowdVariety` / `CivilianOutfit`, a port of `tools/ped_identity/outfits.py`). A civilian
   (`PedRemapIsCivilian`: a `civilian_*` type, or no type) on an avatar with clothing zones wears, by a hash of his ped
   id, a curated outfit three times in four, else the avatar's own colours. Men's, women's (`female` in the avatar's
@@ -301,7 +301,12 @@ change.
   was one outfit (remap 20 all grey over denim, 52 all hot pink, 33 olive on olive). The 3D civilian no longer
   matches the classic sprite's shirt colour; `tools/identity_parity.py` checks the player and cars only, so no check
   changes. `[crowd] variety=0` (or `GTA2DX9_CROWD=0`) restores the sprite colours (with no build or shade variety).
-- **Unzoned avatars.** `business_female_01` (a black suit with a `_paint` half) keeps the old everyday tint three in
-  four: on near-black paint it only darkens or warms the suit.
+- **Unzoned avatars.** `business_female_01` (a black suit, white blouse) keeps her own look: no everyday tint on a
+  `business_*` avatar. She is in at most 4 civilian pools (`SUIT_POOLS`; another woman takes her place in the
+  rest) and not in the plain list.
+- **Palette polish (review):** no mustard tops (loud on the hoodies and jackets); men get a muted camel (150,122,82)
+  in its place.
+- **Log:** every 300 frames, `peds: Z of N figures with clothing zones: O in a civilian outfit (PEDS-VARIETY), Z-O in
+  their type's or own colours` (was `... drawn in their sprite's outfit`, which counted every zoned figure).
 - **Sheet.** `CUDA_VISIBLE_DEVICES=0 gen3d/venv/bin/python tools/ped_identity/crowd_sheet.py stage/gta2dx9_models
   out.jpg --remaps 15,18,20 --seeds 24` renders consecutive ped ids as the DLL dresses them (`outfits.crowd()`).
