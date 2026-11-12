@@ -310,3 +310,32 @@ change.
   their type's or own colours` (was `... drawn in their sprite's outfit`, which counted every zoned figure).
 - **Sheet.** `CUDA_VISIBLE_DEVICES=0 gen3d/venv/bin/python tools/ped_identity/crowd_sheet.py stage/gta2dx9_models
   out.jpg --remaps 15,18,20 --seeds 24` renders consecutive ped ids as the DLL dresses them (`outfits.crowd()`).
+
+## Civilian variety, round 2 (PEDS-VARIETY-2, 12 Nov 2026)
+
+- **More women.** Eleven women join the civilian pools. Two were already staged and have no clothing zones, so
+  they keep their own look and never take a tint or an outfit: `female_adult_06` (headscarf, long tunic) and
+  `female_adult_10` (long black robe). Nine are new from the Rocketbox library (MIT; `fetch_rocketbox_pro.sh Adults
+  Female_Adult_07 ...`, `Professions Business_Female_02 ...`), imported with clothing zones by `tools/import_assets.py`
+  (`ped_zones`) and gated by eye on a render sheet: `female_adult_07/09/11/14/15`, `female_party_02`,
+  `business_female_02/04`, `sports_female_02`. Left out: `Female_Adult_16` (a burqa on a low-detail, single-texture
+  body), `Female_Party_01` (hot pants and knee boots that take the trouser colour), `Business_Female_03` (the skirt
+  speckles under a tint even after `paint_resplit.py`), and the bikini. `Business_Female_02`'s glasses material
+  (`f015_glasses`) is mapped to `f015_glasses_opacity_color.tga` by hand; the generator's fuzzy match misses it.
+  The new avatars' files are not in git (AGENTS.md: avatars ship as release archives).
+- **Pools.** 16 avatars per civilian type: 8 women and 8 men, a mix of its own per remap
+  (`make_ped_manifest.py civilian_pools`); `business_female_01` stays in at most 4.
+- **Unzoned civilians.** No civilian type's avatar without zones gets the old everyday tint any more
+  (`CrowdVariety`: `!PedRemapIsCivilian(remap)`); the special untyped remaps (Hulks, naked, 53+) keep it as before.
+- **Near-future sets.** A third of the dressed civilians (about a quarter of the street) wear a coordinated
+  retro-futuristic pair: signal orange / graphite, electric teal / charcoal, silver-grey / deep violet,
+  ochre / slate, bone white / oxblood, mint / gunmetal. An avatar whose top and bottom read as one set (a
+  tracksuit, a hoodie and joggers: `JumpsuitAvatar`, `JUMPSUIT_AVATARS`) wears a one-colour muted coverall
+  (graphite, gunmetal blue, olive drab, silver, oxblood) half of those times. Never on formal wear. Same hash
+  stream: `outfit_parity.py` checks four kinds (men, women, formal, coverall-capable), 80 000 cases.
+- **Top-down.** `crowd_sheet.py --pitch 85 --cell 110x110` renders the crowd from above (the BEV): the tops read as
+  distinct colours from above.
+- **Cost (in game, qa_pedsvar3 -> qa_pedsvar4).** 281 -> 290 models; managed textures 510.6 -> 546.6 MB,
+  GPU-only textures 399.6 -> 435.6 MB, model heap 182 -> 187.5 MB, buffers 110.8 -> 113.1 MB; private commit at
+  load +30 MB, free address space 2489 -> 2456 MB (largest free block unchanged, 2048 MB); warm-up to "cars ready"
+  5.0 -> 5.7 s. Every avatar is warmed whatever the pools say, so the pool size itself costs nothing.

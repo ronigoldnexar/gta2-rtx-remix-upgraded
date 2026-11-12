@@ -27,10 +27,28 @@ def mix(seed):
     seed = (seed ^ (seed >> 16)) * 0x7feb352d & 0xffffffff; seed = (seed ^ (seed >> 15)) * 0x846ca68b & 0xffffffff
     return seed ^ (seed >> 16)
 
-def outfit(seed, female, formal=False):
-    """None = the avatar's own colours (about 1 in 4)."""
+# PEDS-VARIETY-2: near-future sets (identity.cpp kRetroTops / kRetroBottoms / kCoveralls, same order)
+RETRO = [('signal orange', (226, 104, 40), 'graphite', (50, 52, 58)), ('electric teal', (24, 160, 164), 'charcoal', (62, 64, 68)),
+         ('silver-grey', (178, 182, 188), 'deep violet', (46, 38, 66)), ('ochre', (170, 120, 50), 'slate', (70, 86, 108)),
+         ('bone white', (226, 220, 202), 'oxblood', (92, 28, 34)), ('mint', (150, 196, 176), 'gunmetal', (54, 62, 74))]
+COVERALLS = [('graphite', (62, 64, 70)), ('gunmetal blue', (58, 72, 92)), ('olive drab', (86, 90, 58)), ('silver', (168, 172, 178)),
+             ('oxblood', (92, 28, 34))]
+JUMPSUIT_AVATARS = {'human_male_10', 'human_male_04', 'human_male_adult_18', 'human_male_adult_20', 'human_female_adult_12',
+                    'human_sports_female_02'}
+for _t, _tc, _b, _bc in RETRO: assert dist(_tc, _bc) > 70 and not (sat(_tc) > 0.28 and sat(_bc) > 0.28), _t
+for _n, _c in COVERALLS: assert sat(_c) <= 0.28, _n
+
+
+def outfit(seed, female, formal=False, jumpsuit=False):
+    """None = the avatar's own colours (about 1 in 4). ((top name, rgb), (bottom name, rgb))."""
     h = mix(seed)
     if h % 4 == 0: return None
+    if not formal and (h >> 20) % 3 == 0:
+        if jumpsuit and (h >> 23) & 1:
+            n, c = COVERALLS[(h >> 24) % len(COVERALLS)]
+            return ('coverall ' + n, c), ('coverall', c)
+        t, tc, b, bc = RETRO[(h >> 24) % len(RETRO)]
+        return ('retro ' + t, tc), (b, bc)
     tops = list((TOPS_FORMAL if formal else TOPS_F if female else TOPS_M).items())
     bots = list((BOTTOMS_FORMAL if formal else BOTTOMS_F if female else BOTTOMS).items())
     for k in range(16):
@@ -66,7 +84,7 @@ def crowd(seed, remap, model, entry, sprite_outfit, civilian=True):
     zoned = bool(entry.get('ped_zones'))
     out = dict(height=height, width=width, zone=None, paint=None)
     if zoned and civilian:   # a curated outfit, else the avatar's own colours; shaded +-6% once
-        o = outfit(seed ^ OUTFIT_SALT, 'female' in model, 'business' in model)
+        o = outfit(seed ^ OUTFIT_SALT, 'female' in model, 'business' in model, model in JUMPSUIT_AVATARS)
         s = 1.0 + (shade - 1.0) * 0.5
         own = [entry.get('zone_rgb_t') or [ref] * 3, entry.get('zone_rgb_b') or [ref] * 3]
         cols = [o[0][1], o[1][1]] if o else own
@@ -81,7 +99,8 @@ def crowd(seed, remap, model, entry, sprite_outfit, civilian=True):
             z.append([min(2.0, max(0.0, min(2.0, c / ref)) * shade) for c in want])
         out.update(kind='sprite', label='sprite colours', zone=z)
         return out
-    if civilian and not zoned and 'business' not in model and any('_paint' in t for t in entry.get('textures', [])) and ((h >> 16) & 3) != 0:
+    special = remap < 0 or remap == 15 or (remap >= 18 and remap != 22)   # CrowdVariety's own 'civilian' test
+    if special and not civilian and not zoned and any('_paint' in t for t in entry.get('textures', [])) and ((h >> 16) & 3) != 0:
         c = EVERYDAY[(h >> 18) % len(EVERYDAY)]
         paint = entry.get('paint_rgb') or [235.0] * 3
         out.update(kind='everyday', label='everyday %d,%d,%d' % tuple(c),

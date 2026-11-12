@@ -19,6 +19,8 @@ ap.add_argument('models'); ap.add_argument('out')
 ap.add_argument('--remaps', default='18,30,41,47'); ap.add_argument('--seeds', type=int, default=24)
 ap.add_argument('--first', type=int, default=100); ap.add_argument('--manifest', default=None)
 ap.add_argument('--cell', default='110x200')
+ap.add_argument('--pitch', type=float, default=8.0, help='camera pitch in degrees: 8 the 3/4 view, 85 top-down (the BEV)')
+ap.add_argument('--yaw', type=float, default=25.0)
 a = ap.parse_args()
 M = a.models.rstrip('/') + '/'
 man = json.load(open(M + 'manifest.json'))
@@ -46,7 +48,11 @@ for row, r in enumerate(remaps):
                 if '#pb' in node: return rec['zone'][1]
             if rec['paint'] is not None and '_paint' in tex: return rec['paint']
             return None
-        im = render.render(M + n + '.mesh', [(25, 8)], tints=tints, size=(CW, CH))[0]
+        if a.pitch > 60:   # from above the figure fills little of a frame fitted to his height: render big, keep the middle
+            big = render.render(M + n + '.mesh', [(a.yaw, a.pitch)], tints=tints, size=(CW * 3, CH * 3))[0]
+            im = big.crop((CW, CH, 2 * CW, 2 * CH)).resize((CW, CH))
+        else:
+            im = render.render(M + n + '.mesh', [(a.yaw, a.pitch)], tints=tints, size=(CW, CH))[0]
         x, y = i * CW, row * (CH + 26)
         sheet.paste(im, (x, y))
         d.text((x + 2, y + CH + 1), n.replace('human_', '').replace('business_', 'biz_')[:18], fill=(250, 200, 120))

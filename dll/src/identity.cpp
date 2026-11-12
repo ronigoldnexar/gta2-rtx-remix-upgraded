@@ -96,9 +96,34 @@ float Distance(const Garment& a, const Garment& b) {
 }
 
 // The outfit for this seed and avatar kind, or false (keep the colours he has).
-bool CivilianOutfit(uint32_t seed, bool female, bool formal, Garment* top, Garment* bottom) {
+// PEDS-VARIETY-2: the near-future sets. A third of the dressed (about a quarter of the street) wear one of the
+// coordinated retro-futuristic pairs (one signal colour over a dark neutral, or a pale neutral over a deep one);
+// an avatar whose top and bottom read as one garment set (a tracksuit, a hoodie and joggers: JumpsuitAvatar) wears,
+// half the time, a one-colour coverall instead. Never on formal wear. Each set passes the guardrails above except
+// that a coverall's top and bottom match on purpose (both muted).
+constexpr Garment kRetroTops[] = {{226, 104, 40}, {24, 160, 164}, {178, 182, 188}, {170, 120, 50}, {226, 220, 202}, {150, 196, 176}};
+constexpr Garment kRetroBottoms[] = {{50, 52, 58}, {62, 64, 68}, {46, 38, 66}, {70, 86, 108}, {92, 28, 34}, {54, 62, 74}};
+constexpr Garment kCoveralls[] = {{62, 64, 70}, {58, 72, 92}, {86, 90, 58}, {168, 172, 178}, {92, 28, 34}};
+
+bool JumpsuitAvatar(const std::string& name) {
+    static const char* kNames[] = {"human_male_10", "human_male_04", "human_male_adult_18", "human_male_adult_20",
+                                   "human_female_adult_12", "human_sports_female_02"};
+    for (const char* n : kNames) if (name == n) return true;
+    return false;
+}
+
+bool CivilianOutfit(uint32_t seed, bool female, bool formal, bool jumpsuit, Garment* top, Garment* bottom) {
     uint32_t h = Mix(seed);
     if (h % 4 == 0) return false;
+    if (!formal && (h >> 20) % 3 == 0) {
+        if (jumpsuit && ((h >> 23) & 1)) {
+            *top = *bottom = kCoveralls[(h >> 24) % std::size(kCoveralls)];
+        } else {
+            const uint32_t k = (h >> 24) % std::size(kRetroTops);
+            *top = kRetroTops[k]; *bottom = kRetroBottoms[k];
+        }
+        return true;
+    }
     const Garment* tops = formal ? kTopsFormal : female ? kTopsF : kTopsM;
     const uint32_t nt = formal ? std::size(kTopsFormal) : female ? std::size(kTopsF) : std::size(kTopsM);
     const Garment* bots = formal ? kBottomsFormal : female ? kBottomsF : kBottoms;
@@ -136,7 +161,7 @@ void CrowdVariety(IdentityRecord* r) {
         // artist's; the remap's sprite colours put men in hot pink and olive on olive), shaded +-6% once.
         Garment top, bottom;
         const bool dressed = CivilianOutfit(r->seed ^ kOutfitSalt, model.name.find("female") != std::string::npos,
-                                            model.name.find("business") != std::string::npos, &top, &bottom);
+                                            model.name.find("business") != std::string::npos, JumpsuitAvatar(model.name), &top, &bottom);
         const float s = 1.0f + (shade - 1.0f) * 0.5f;
         const float ref = (std::max)(8.0f, model.zoneRef);
         const uint8_t outfit[2][3] = {{top.r, top.g, top.b}, {bottom.r, bottom.g, bottom.b}};
@@ -158,9 +183,10 @@ void CrowdVariety(IdentityRecord* r) {
         for (int z = 0; z < 2; ++z) for (int k = 0; k < 3; ++k) r->zone[z][k] = (std::min)(2.0f, r->zone[z][k] * shade);
         return;
     }
-    // PEDS-VARIETY: a suit (business_*) keeps its own look (business_female_01: black suit, white blouse).
-    if (civilian && model.splitPaint && !model.pedZones && ((h >> 16) & 3) != 0 && !r->tinted &&
-        model.name.find("business") == std::string::npos) {
+    // PEDS-VARIETY: a civilian type's avatar without zones keeps its own look (business_female_01's black suit and
+    // white blouse, female_adult_06's headscarf and tunic, female_adult_10's black robe); the everyday colour is left
+    // to the untyped special remaps (23, 24, 26, 53+) as before.
+    if (civilian && !PedRemapIsCivilian(remap) && model.splitPaint && !model.pedZones && ((h >> 16) & 3) != 0 && !r->tinted) {
         static const uint8_t kClothes[][3] = {
             {38, 52, 92},    {60, 62, 66},   {28, 28, 32},   {196, 178, 140}, {92, 100, 58},  {118, 32, 44},
             {70, 104, 150},  {214, 212, 204}, {128, 130, 134}, {110, 76, 50},  {36, 80, 52},   {200, 160, 50},

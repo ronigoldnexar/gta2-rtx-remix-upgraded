@@ -13,8 +13,8 @@ t = r'''#include <cstdint>
 #include <iterator>
 uint32_t Mix(uint32_t x) { x ^= x >> 16; x *= 0x7feb352dU; x ^= x >> 15; x *= 0x846ca68bU; x ^= x >> 16; return x; }
 ''' + body + r'''
-int main() { for (uint32_t s = 0; s < 20000; ++s) for (int f = 0; f < 3; ++f) { Garment t, b;
-  bool ok = CivilianOutfit(s * 2654435761u, f == 1, f == 2, &t, &b);
+int main() { for (uint32_t s = 0; s < 20000; ++s) for (int f = 0; f < 4; ++f) { Garment t, b;
+  bool ok = CivilianOutfit(s * 2654435761u, f == 1, f == 2, f == 3, &t, &b);
   if (ok) printf("%u %d %d %d %d %d %d %d\n", s, f, t.r, t.g, t.b, b.r, b.g, b.b); else printf("%u %d -\n", s, f); } }
 '''
 open(os.path.join(tmp, 't.cpp'), 'w').write(t)
@@ -23,12 +23,12 @@ c = subprocess.run([os.path.join(tmp, 't')], capture_output=True, text=True, che
 sys.path.insert(0, here); from outfits import outfit
 p = []
 for s_ in range(20000):
-    for f in range(3):
-        o = outfit((s_ * 2654435761) & 0xffffffff, f == 1, f == 2)
+    for f in range(4):
+        o = outfit((s_ * 2654435761) & 0xffffffff, f == 1, f == 2, f == 3)
         p.append(f'{s_} {f} -' if not o else f'{s_} {f} ' + ' '.join(map(str, o[0][1] + o[1][1])))
 bad = [(x, y) for x, y in zip(c, p) if x != y]
 print('lines', len(c), len(p), 'mismatch', len(bad), bad[:3])
-for f in range(3):
+for f in range(4):
     rows = [x for x in c if x.split()[1] == str(f)]
     print('kind', f, 'kept own', sum(x.endswith('-') for x in rows) / len(rows))
 sys.exit(1 if bad else 0)

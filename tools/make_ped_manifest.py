@@ -180,13 +180,22 @@ def silhouette(o):
     return "shorts" if o["shorts"] else "short" if o["short_sleeves"] else "long"
 default_hair = ([72, 44, 10], [35, 21, 1], [35, 21, 4], [59, 22, 0], [49, 29, 6])
 typed = {r for t in types for r in t["remaps"]}
-# PEDS-VARIETY (12 Nov 2026): each civilian type deals from nine or ten of the zone-ready avatars, four of them
-# women, a mix of its own (seeded by the remap) instead of three or four picked by the sprite's sleeve length.
+# PEDS-VARIETY (12 Nov 2026): each civilian type deals from sixteen avatars (PEDS-VARIETY-2: eight women, eight men;
+# was nine or ten with four women), a mix of its own (seeded by the remap) instead of three or four picked by the sprite's sleeve length.
 # The DLL dresses them (identity.cpp CrowdVariety: a curated outfit three in four, else the avatar's own colours).
 import random
 CIV_WOMEN = ["human_female_01", "human_female_03", "human_female_05", "human_female_08", "human_female_adult_02",
              "human_female_adult_04", "human_female_adult_12", "human_female_adult_13", "human_female_adult_17",
-             "human_business_female_01"]
+             "human_business_female_01",
+             # PEDS-VARIETY-2: the two in religious dress (no zones: their own look, never tinted) and nine fetched
+             # from the Rocketbox library (fetch_rocketbox_pro.sh Adults|Professions ...), gated by eye on a render
+             # sheet. Left out: Female_Adult_16 (a burqa on a low-detail single-texture body), Female_Party_01 (hot
+             # pants, knee boots in the trouser colour), Business_Female_03 (the skirt speckles under a tint even after
+             # paint_resplit.py), Sports_Female_01 (bikini).
+             "human_female_adult_06", "human_female_adult_10",
+             "human_female_adult_07", "human_female_adult_09", "human_female_adult_11", "human_female_adult_14",
+             "human_female_adult_15", "human_female_party_02", "human_business_female_02", "human_business_female_04",
+             "human_sports_female_02"]
 CIV_MEN = ["human_male_01", "human_male_04", "human_male_07", "human_male_10", "human_male_13", "human_male_adult_02",
            "human_male_adult_05", "human_male_adult_06", "human_male_adult_08", "human_male_adult_09", "human_male_adult_12",
            "human_male_adult_16", "human_male_adult_18", "human_male_adult_20", "human_business_male_04",
@@ -199,14 +208,14 @@ def civilian_pools(remaps, have, hero):
         rng = random.Random(7919 + remap)
         w = [x for x in CIV_WOMEN if x in have and x != hero]
         m_ = [x for x in CIV_MEN if x in have and x != hero]
-        women = rng.sample(w, min(4, len(w)))
+        women = rng.sample(w, min(8, len(w)))   # PEDS-VARIETY-2: 8 women and 8 men per type
         if "human_business_female_01" in women:
             if suits >= SUIT_POOLS:
                 spare = [x for x in w if x not in women and x != "human_business_female_01"]
                 women[women.index("human_business_female_01")] = rng.choice(spare)
             else:
                 suits += 1
-        pool = women + rng.sample(m_, min(5 + remap % 2, len(m_)))
+        pool = women + rng.sample(m_, min(8, len(m_)))
         rng.shuffle(pool)
         pools[remap] = pool
     return pools
