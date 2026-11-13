@@ -63,6 +63,9 @@ bool Push(const char* key, float degrees) {
 // leaves the clear sky and the sun at full strength. Sent when the setting changes and
 // again every few seconds while it is on, in case Remix restores its own value (a level
 // load, a settings reload).
+float g_overcast = 0.0f;      // WEATHER-V2: quantised to 0.05
+float g_dayT = -1.0f;            // 0 night .. 1 day, last pushed; -1 unknown (push now)
+float g_sentOvercast = -1.0f;
 bool g_skyKnown = false;
 bool g_skyState = false;
 bool g_skyOk = true;
@@ -75,8 +78,8 @@ void UpdateSky(const LARGE_INTEGER& now) {
         g_skyOk = true;
         return;
     }
-    const bool want = g_settings.clearSky;
-    const bool changed = !g_skyKnown || g_skyState != want;
+    const bool want = g_settings.clearSky && g_overcast < 0.05f;
+    const bool changed = !g_skyKnown || g_skyState != want || g_sentOvercast != g_overcast;
     if (!changed && (!want || Seconds(g_lastSky, now) < 5.0)) return;
     g_lastSky = now;
 
@@ -92,6 +95,16 @@ void UpdateSky(const LARGE_INTEGER& now) {
     // no-shadows: one live push of cloudShadowStrength=0 brought the noon sun back).
     const bool c = PushText("rtx.atmosphere.cloudShadowStrength", want ? "0" : "1");
     g_skyOk = a && b && c;
+    if (g_sentOvercast != g_overcast) {
+        // WEATHER-V2 overcast: coverage from the rain-free default (0.29) toward a closed grey deck.
+        char text[16];
+        _snprintf(text, sizeof(text) - 1, "%.3f", 0.29f + 0.66f * g_overcast);
+        text[sizeof(text) - 1] = '\0';
+        PushText("rtx.atmosphere.cloudCoverageMean", text);
+        Log("time of day: overcast %.2f (cloud coverage %s)", g_overcast, text);
+        g_sentOvercast = g_overcast;
+        g_dayT = -1.0f;   // re-push the day look with the overcast's fill, sun and shadow softness
+    }
     if (changed) {
         Log("time of day: clouds %s %s", want ? "off (clear sky)" : "on",
             g_skyOk ? "set" : "refused by Remix");
@@ -114,7 +127,6 @@ void UpdateSky(const LARGE_INTEGER& now) {
 // the twilight: smoothstep over kDayLookBandDeg either side of dayLookAboveDeg, pushed
 // whenever a value has moved by a step the eye cannot see, and each push is logged.
 constexpr float kDayLookBandDeg = 6.0f;
-float g_dayT = -1.0f;            // 0 night .. 1 day, last pushed; -1 unknown (push now)
 float g_loggedDayT = -1.0f;
 int g_dayState = -1;             // -1 unknown, 0 night, 1 day: for the log only
 bool g_nightHold = false;        // FIX-REMIX-NIGHT-10: auto-exposure held at full night
@@ -144,7 +156,10 @@ void UpdateDayLook(float elevation) {
     const float exposure = s.nightMaxExposure + (s.dayMaxExposure - s.nightMaxExposure) * t;
     const float fill = s.nightSkyFill + (s.daySkyFill - s.nightSkyFill) * t;
     if (s.dayMaxExposure > 0.0f && s.nightMaxExposure > 0.0f) PushFloat("rtx.autoExposure.maxExposure", exposure);
-    if (s.daySkyFill > 0.0f && s.nightSkyFill > 0.0f) PushFloat("rtx.atmosphere.skyIndirectRadianceScale", fill);
+    if (s.daySkyFill > 0.0f && s.nightSkyFill > 0.0f) PushFloat("rtx.atmosphere.skyIndirectRadianceScale", fill * (1.0f + 0.8f * g_overcast));
+    // WEATHER-V2 overcast: the sun's direct light dimmed and its shadows softened (live keys, gate 0).
+    PushFloat("rtx.atmosphere.directionalLightRadianceScale", 1.0f - 0.7f * g_overcast);
+    PushFloat("rtx.atmosphere.sunShadowSoftnessDeg", 0.4f + 5.0f * g_overcast);
     const int state = t >= 1.0f ? 1 : (t <= 0.0f ? 0 : 2);
     // FIX-REMIX-NIGHT-10 (owner 11 Nov: "in the 3D view the night is dark but slightly lit; in first person the world gets
     // brighter"): the renderer pushes only a CAP on Remix's auto-exposure, and the meter then adapts to the frame: a
@@ -173,6 +188,11 @@ void UpdateDayLook(float elevation) {
 }  // namespace
 
 bool TimeOfDayClearSkyOk() { return g_skyOk; }
+
+void TimeOfDaySetOvercast(float overcast) {
+    overcast = overcast < 0.0f ? 0.0f : (overcast > 1.0f ? 1.0f : overcast);
+    g_overcast = std::floor(overcast * 20.0f + 0.5f) / 20.0f;
+}
 
 TimeOfDaySettings& TimeOfDay() { return g_settings; }
 

@@ -108,6 +108,11 @@ void  TimeOfDaySetHour(float hour);
 // What was last computed, whether or not it reached Remix.
 void TimeOfDayAngles(float* elevationDeg, float* rotationDeg);
 
+// WEATHER-V2: how overcast the weather makes the sky, 0 clear .. 1 grey (set every frame by
+// dll/src/weather.cpp; 0 while [weather] is off). Under Remix it switches the cloud layer on and
+// raises its coverage, dims the sun's direct light, softens its shadows and raises the sky fill.
+void TimeOfDaySetOvercast(float overcast);
+
 // Whether the last push went through, and how many have.
 bool        TimeOfDayPushed();
 int         TimeOfDayPushCount();
