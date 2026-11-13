@@ -264,6 +264,7 @@ private:
     // loadedMapObject_, which gbh_EndLevel clears to force a rebuild while the
     // old mesh is still sitting in the vertex buffer.
     bool worldUploaded_ = false;
+    std::string kitStreamFile_;          // DISTRICTS streaming: <style>.kit2 when the level has one (src/kit_stream.h)
     std::string dataDir_;
 
     float minX_ = 0.0f, minY_ = 0.0f, maxX_ = 0.0f, maxY_ = 0.0f;

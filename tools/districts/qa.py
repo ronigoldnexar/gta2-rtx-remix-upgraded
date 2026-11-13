@@ -149,6 +149,21 @@ def main():
         if r["tris"] > 20000: reasons.append(f"{r['tris']} triangles")
         out.append({"id": bid, "archetype": a["archetype"], "triangles": r["tris"], "overhang": round(r["over"], 3), "above_roof": round(r["above_roof"], 2),
                     "zfight_wall": r["zfight_wall"], "zfight_pairs": zf_pairs, "recesses": holes, "weak_recesses": weak, "flagged": bool(reasons), "reasons": reasons})
+    # hard check: every roof part (stack, vent, water tower, roof tooth) stands on its host: the map's flat roof at
+    # the part's base height (the column's top block one under it, flat, lidded, not a floating deck)
+    floating = defaultdict(list)
+    ap = kitp + ".anchors.json"
+    for bid_, kind, x, y, base in (json.load(open(ap)) if os.path.exists(ap) else []):
+        off, idx = m.columns[y * W + x]
+        top = base - 1 - off
+        ok = 0 < top < len(idx) and idx[top] < len(m.blocks) and (m.blocks[idx[top]][6] >> 2) == 0 and (m.blocks[idx[top]][4] & 0x3FF) != 0 \
+            and idx[top - 1] < len(m.blocks) and any(f & 0x3FF for f in m.blocks[idx[top - 1]][:5]) and m.top(x, y)[0] == base
+        if not ok:
+            floating[bid_].append(f"{kind}@{x},{y}")
+    for o in out:
+        if floating.get(o["id"]):
+            o["floating"] = floating[o["id"]]; o["flagged"] = True
+            o["reasons"].append(f"{len(floating[o['id']])} roof parts not on a roof (" + ", ".join(floating[o["id"]][:3]) + ")")
     path = sys.argv[sys.argv.index("--out") + 1] if "--out" in sys.argv else os.path.join(work, f"{lvl}_qa.json")
     json.dump(out, open(path, "w"), indent=0)
     fl = [o for o in out if o["flagged"]]

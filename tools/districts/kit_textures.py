@@ -67,6 +67,11 @@ def make(name, k):
         plank = (xx // 10) % 2
         a[..., :3] = tint((120, 84, 54), 0, k, 0.16) * np.where(plank[..., None] == 0, 1.0, 0.88)
         a[..., :3] *= np.where((xx % 10) < 1, 0.7, 1.0)[..., None]
+    elif name.startswith("canvas_"):
+        col = {"canvas_red": (150, 40, 36), "canvas_green": (40, 92, 56), "canvas_navy": (36, 50, 92), "canvas_maroon": (100, 34, 44),
+               "canvas_cream": (214, 202, 170), "canvas_ochre": (176, 128, 52)}[name]
+        weave = 0.94 + 0.06 * (((xx // 2) + (yy // 2)) % 2)
+        a[..., :3] = tint(col, 0, k, 0.06) * weave[..., None]
     elif name == "rubber":
         a[..., :3] = tint((28, 28, 30), 0, k, 0.08)
     elif name == "glass_dark":

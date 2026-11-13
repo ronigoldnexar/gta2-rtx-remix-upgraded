@@ -864,6 +864,7 @@ bool Renderer::UploadWorld(const WorldMesh& mesh, const Style& style, std::strin
         return false;
     }
     ReleaseResources();
+    kitStream_.Release();
     batches_ = mesh.batches;
     {
         int classicWater = 0;
@@ -1258,6 +1259,22 @@ void MakeWetVariant(DdsImage* dds, int tile, int level, int maxSize, const char*
     Trace("wet variant: tile %d level %d %016llX -> %016llX (%s)", tile, level, dry, wet, set);
 }
 }  // namespace
+IDirect3DTexture9* Renderer::KitMaterialTexture(const Style& style, int tile) {
+    // DISTRICTS: the kit's material from gta2dx9_districts\\kit_NN.dds (fixed content: a fixed Remix hash)
+    if (tile < 0 || tile >= static_cast<int>(textures_.size())) return nullptr;
+    if (textures_[static_cast<size_t>(tile)]) return textures_[static_cast<size_t>(tile)];
+    char leaf[32];
+    snprintf(leaf, sizeof(leaf), "\\kit_%02d.dds", tile - KitTileIndex(style, 0));
+    DdsImage dds;
+    if (ReadDds(DistrictKitDir() + leaf, &dds)) textures_[static_cast<size_t>(tile)] = CreateDdsTexture(device_, dds, 256);
+    return textures_[static_cast<size_t>(tile)];
+}
+
+bool Renderer::LoadKitStream(const std::string& path, const Style& style) {
+    if (!device_ || !kitStream_.Load(path, KitTileIndex(style, 0))) return false;
+    for (int k = 0; k < kKitMaterials; ++k) KitMaterialTexture(style, KitTileIndex(style, k));
+    return true;
+}
 
 IDirect3DTexture9* Renderer::LoadHdTileTexture(int tile) {
     if (hdDir_.empty()) return nullptr;
@@ -1765,6 +1782,73 @@ void Renderer::UpdatePoleFades(const Camera& camera) {
     anyPoleFaded_ = any;
 }
 
+// DISTRICTS streaming: update the resident chunks for the eye and draw them (street views only); a chunk fading in or
+// out, or the whole kit during the camera move (kitAlpha_), is blended with the texture factor's alpha, no depth write.
+void Renderer::DrawKitStream(const Camera& camera) {
+    if (!kitStream_.Loaded() || !device_) return;
+    static LARGE_INTEGER f0 = {}, freq = {};
+    if (!freq.QuadPart) { QueryPerformanceFrequency(&freq); QueryPerformanceCounter(&f0); }
+    LARGE_INTEGER t; QueryPerformanceCounter(&t);
+    const double now = static_cast<double>(t.QuadPart - f0.QuadPart) / static_cast<double>(freq.QuadPart);
+    const Vec3 eye = camera.Position();
+    kitStream_.Update(device_, eye.x, eye.z, now);
+    if (!streetView_ || !kitVisible_ || kitAlpha_ <= 0.02f) {
+        device_->SetStreamSource(0, vertexBuffer_, 0, sizeof(Vertex));
+        device_->SetIndices(indexBuffer_);
+        return;
+    }
+    DWORD factor = 0xFFFFFFFF, aop = D3DTOP_SELECTARG1, a1 = D3DTA_TEXTURE, a2 = D3DTA_CURRENT;
+    device_->GetRenderState(D3DRS_TEXTUREFACTOR, &factor);
+    device_->GetTextureStageState(0, D3DTSS_ALPHAOP, &aop);
+    device_->GetTextureStageState(0, D3DTSS_ALPHAARG1, &a1);
+    device_->GetTextureStageState(0, D3DTSS_ALPHAARG2, &a2);
+    device_->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+    device_->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+    device_->SetFVF(kWorldFvf);
+    for (const KitStream::Resident& r : kitStream_.Residents()) {
+        const float a = r.alpha * kitAlpha_;
+        if (a <= 0.02f || !r.vb || !r.ib) continue;
+        const bool blend = a < 0.999f;
+        device_->SetRenderState(D3DRS_ALPHABLENDENABLE, blend ? TRUE : FALSE);
+        device_->SetRenderState(D3DRS_ZWRITEENABLE, blend ? FALSE : TRUE);
+        if (blend) {
+            device_->SetRenderState(D3DRS_TEXTUREFACTOR, D3DCOLOR_ARGB(static_cast<int>(a * 255.0f + 0.5f), 255, 255, 255));
+            device_->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
+            device_->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+            device_->SetTextureStageState(0, D3DTSS_ALPHAARG2, D3DTA_TFACTOR);
+        } else {
+            device_->SetTextureStageState(0, D3DTSS_ALPHAOP, aop);
+            device_->SetTextureStageState(0, D3DTSS_ALPHAARG1, a1);
+            device_->SetTextureStageState(0, D3DTSS_ALPHAARG2, a2);
+        }
+        device_->SetStreamSource(0, r.vb, 0, sizeof(Vertex));
+        device_->SetIndices(r.ib);
+        for (const KitStream::Group& g : r.groups) {
+            IDirect3DTexture9* tex = g.tile >= 0 && g.tile < static_cast<int>(textures_.size()) ? BoundTileTexture(g.tile) : nullptr;
+            if (!tex) continue;
+            device_->SetTexture(0, tex);
+            device_->SetRenderState(D3DRS_CULLMODE, (g.flags & 2) ? D3DCULL_NONE : cullMode_);
+            device_->SetRenderState(D3DRS_ALPHATESTENABLE, (g.flags & 1) ? TRUE : FALSE);
+            const DWORD addr = (g.flags & 4) ? D3DTADDRESS_WRAP : D3DTADDRESS_CLAMP;
+            device_->SetSamplerState(0, D3DSAMP_ADDRESSU, addr);
+            device_->SetSamplerState(0, D3DSAMP_ADDRESSV, addr);
+            device_->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, static_cast<INT>(g.vstart), 0, g.vcount, g.istart, g.icount / 3);
+        }
+    }
+    device_->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+    device_->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+    device_->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
+    device_->SetRenderState(D3DRS_CULLMODE, cullMode_);
+    device_->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
+    device_->SetRenderState(D3DRS_ZWRITEENABLE, TRUE);
+    device_->SetRenderState(D3DRS_TEXTUREFACTOR, factor);
+    device_->SetTextureStageState(0, D3DTSS_ALPHAOP, aop);
+    device_->SetTextureStageState(0, D3DTSS_ALPHAARG1, a1);
+    device_->SetTextureStageState(0, D3DTSS_ALPHAARG2, a2);
+    device_->SetStreamSource(0, vertexBuffer_, 0, sizeof(Vertex));
+    device_->SetIndices(indexBuffer_);
+}
+
 void Renderer::DrawWorld(const Camera& camera) {
     // Nothing to draw until the game has a world loaded; the frame is still
     // cleared and presented so menus have something to sit on.
@@ -2162,6 +2246,7 @@ void Renderer::DrawWorld(const Camera& camera) {
     if (worldCullLogEvery_ < 0) { const char* e = getenv("GTA2DX9_WORLD_CULL_LOG"); worldCullLogEvery_ = e ? (std::max)(0, atoi(e)) : 0; }
     if (viewCull && worldCullLogEvery_ > 0 && (++worldCullFrames_ % static_cast<uint32_t>(worldCullLogEvery_)) == 0)
         Trace("world view cull: %d of %d batches drawn, %lld of %lld triangles (FIX-PERF-9)", cullDrawn, cullBatches, cullTris, cullTrisAll);
+    DrawKitStream(camera);
     if (!fadedPoles.empty()) {
         // The fading street lights, blended over what is behind them (texture x the factor's alpha),
         // without depth writes, last of the opaque world.

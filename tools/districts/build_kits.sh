@@ -18,6 +18,14 @@ for l in wil ste bil; do
   $PY "$HERE/analyze.py" "$WORK" $l "$HD" "$R/tools/facade_boxes.json" > /dev/null
   $PY "$HERE/pick.py" "$WORK" $l 1 > /dev/null
   GTA2_DATA="$DATA" $PY "$HERE/kit.py" "$WORK" $l "$OUT/$l.kit" --hd "$HD" $([ "$MODE" = all ] && echo --all) | head -1
-  rm -f "$OUT/$l.kit.owners.json"
+  rm -f "$OUT/$l.kit.owners.json" "$OUT/$l.kit.anchors.json"
 done
+# DISTRICTS_STREAM="<lvl>:<district key>" (e.g. wil:local_nav:m31): that district of that level as a streamed kit
+# (<lvl>.kit2: chunks, two levels of detail, packed vertices; the renderer prefers it to <lvl>.kit)
+if [ -n "${DISTRICTS_STREAM:-}" ]; then
+  SL=${DISTRICTS_STREAM%%:*}; SD=${DISTRICTS_STREAM#*:}
+  GTA2_DATA="$DATA" $PY "$HERE/kit.py" "$WORK" $SL "$WORK/${SL}_stream0.kit" --hd "$HD" --district "$SD" | head -1
+  GTA2_DATA="$DATA" $PY "$HERE/kit.py" "$WORK" $SL "$WORK/${SL}_stream1.kit" --hd "$HD" --district "$SD" --coarse | head -1
+  $PY "$HERE/pack_kit.py" "$WORK/${SL}_stream0.kit" "$WORK/${SL}_stream1.kit" "$OUT/$SL.kit2"
+fi
 $PY "$HERE/kit_textures.py" "$OUT"

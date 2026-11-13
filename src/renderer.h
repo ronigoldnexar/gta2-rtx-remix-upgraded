@@ -15,6 +15,7 @@
 #include "camera.h"
 #include "gta2_style.h"
 #include "post_fx.h"
+#include "kit_stream.h"
 #include "water.h"
 #include "sky.h"
 #include "weather_fx.h"
@@ -163,6 +164,11 @@ public:
     // DISTRICTS-POC: the facade kit's batches (TileBatch::kit) are drawn at this opacity (the street
     // extras' ramp over the move from the classic view: below 1 they go through the see-through pass, as
     // the fading street lights do, so nothing pops), and not at all when !visible (a live A/B).
+    // DISTRICTS streaming (kit_stream.h): load <style>.kit2 for this level (after UploadWorld); its chunks are
+    // streamed around the eye and drawn after the world's batches, faded by SetKitPresentation as the static kit is.
+    bool LoadKitStream(const std::string& path, const Style& style);
+    KitStreamStats KitStreamStatus() const { return kitStream_.Stats(); }
+    bool KitStreaming() const { return kitStream_.Loaded(); }
     void SetKitPresentation(float alpha, bool visible) {
         kitAlpha_ = alpha < 0.0f ? 0.0f : (alpha > 1.0f ? 1.0f : alpha); kitVisible_ = visible;
         post_.SetKitShadow(visible && streetView_ ? kitAlpha_ : 0.0f);
@@ -338,6 +344,9 @@ public:
 private:
     float photoMix_ = 0.0f;
     float kitAlpha_ = 1.0f;             // see SetKitPresentation
+    KitStream kitStream_;
+    void DrawKitStream(const Camera& camera);
+    IDirect3DTexture9* KitMaterialTexture(const Style& style, int tile);
     bool kitVisible_ = true;
     float roadMix_ = 0.0f;              // see SetStreetView
     std::vector<uint8_t> roadTile_;     // per tile: 1 when its street copy came from the roads set

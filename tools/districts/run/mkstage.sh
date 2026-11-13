@@ -10,5 +10,5 @@ for f in gta2dx9.dll d3ddll.dll; do cp --remove-destination dll/build/gta2dx9.dl
 cp --remove-destination dll/build/gta2dx9.map $ST/gta2dx9.map
 cp --remove-destination package/gta2dx9.ini $ST/gta2dx9.ini
 python3 -c "import shutil; shutil.rmtree('$ST/gta2dx9_districts', ignore_errors=True)"
-DISTRICTS_PY=$G/vreg/venv/bin/python DISTRICTS_WORK=$G/districts_work/stagebuild bash tools/districts/build_kits.sh $G/game/data $G/repo/assets/textures_hd $ST/gta2dx9_districts ${1:-poc}
+DISTRICTS_STREAM=${DISTRICTS_STREAM:-wil:local_nav:m31} DISTRICTS_PY=$G/vreg/venv/bin/python DISTRICTS_WORK=$G/districts_work/stagebuild bash tools/districts/build_kits.sh $G/game/data $G/repo/assets/textures_hd $ST/gta2dx9_districts ${1:-poc}
 ls -la $ST/gta2dx9_districts | head -20

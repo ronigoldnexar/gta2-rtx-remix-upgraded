@@ -1671,7 +1671,9 @@ bool WorldView::EnsureWorldLoaded() {
         gta2::SetTileStyleName(leaf.c_str());
         // DISTRICTS-POC: the facade kit, appended after the camera's collision mesh was built (the kit's
         // small overhangs do not push the street cameras) and after every other batch (classic unchanged).
-        if (gta2::DistrictKitEnabled()) {
+        const std::string kitStreamPath = gta2::DistrictKitDir() + "\\" + leaf + ".kit2";
+        kitStreamFile_ = gta2::DistrictKitEnabled() && GetFileAttributesA(kitStreamPath.c_str()) != INVALID_FILE_ATTRIBUTES ? kitStreamPath : std::string();
+        if (gta2::DistrictKitEnabled() && kitStreamFile_.empty()) {
             const size_t vBefore = mesh.vertices.size(), iBefore = mesh.indices.size();
             gta2::DistrictKitStats ks;
             const bool ok = gta2::AppendDistrictKit(style, leaf, &mesh, &ks);
@@ -1734,6 +1736,13 @@ bool WorldView::EnsureWorldLoaded() {
         const int made = renderer_.PreloadWetVariants();
         Log("weather: %d road/pavement lid tiles, %d wet variant textures made at level load", n, made);
         MemStatsLog("level load: wet variants", 1);
+    }
+    if (!kitStreamFile_.empty()) {
+        const bool ok = renderer_.LoadKitStream(kitStreamFile_, style);
+        const gta2::KitStreamStats ks = renderer_.KitStreamStatus();
+        Log("districts: facade kit stream %s %s: %d chunk entries, %u KB packed in memory", kitStreamFile_.c_str(), ok ? "loaded" : "NOT loaded",
+            ks.entries, static_cast<unsigned>(ks.fileBytes / 1024));
+        MemStatsLog("level load: facade kit stream loaded", 1);
     }
     if (game::ViewRotation() != 0xFF) {
         Log("WARNING: view rotation is %u, not the 0xFF the tile orientation assumes",
@@ -4170,6 +4179,16 @@ void WorldView::RenderFrame() {
                 kitShow = v;
             }
             renderer_.SetKitPresentation(worldUploaded_ ? g_presentExtras : 0.0f, kitShow != 0);
+            if (renderer_.KitStreaming()) {
+                // resident chunks, triangles and buffer memory every 2 s; the address space every 10 s (DISTRICTS pilot)
+                static uint32_t kitLogFrame = 0;
+                if ((++kitLogFrame % 60u) == 0) {
+                    const gta2::KitStreamStats s = renderer_.KitStreamStatus();
+                    Log("districts stream: resident %d chunks (LOD0 %d, LOD1 %d, fading %d), %d triangles, %u KB buffers; created %d, released %d",
+                        s.resident, s.lod0, s.lod1, s.fading, s.triangles, static_cast<unsigned>(s.gpuBytes / 1024), s.created, s.released);
+                    if ((kitLogFrame % 300u) == 0) MemStatsLog("districts stream", 1);
+                }
+            }
         }
         {
             // FIX-WORLD-16 qav59: first person clips the sparse lattices (pylon girders) nearer than 0.35

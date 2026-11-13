@@ -31,7 +31,8 @@ import gmap
 from gmap import FaceFrame, W, H
 
 KIT = ["stone_light", "stone_brown", "metal_dark", "metal_galv", "grate", "awning_red", "awning_green",
-       "awning_blue", "brick_dark", "concrete", "glass_dark", "wood", "awning_yellow", "awning_brown", "rubber"]
+       "awning_blue", "brick_dark", "concrete", "glass_dark", "wood", "awning_yellow", "awning_brown", "rubber",
+       "canvas_red", "canvas_green", "canvas_navy", "canvas_maroon", "canvas_cream", "canvas_ochre"]
 K = {n: i for i, n in enumerate(KIT)}
 ALPHA = {K["grate"]}
 
@@ -57,6 +58,9 @@ STYLE = {
     "factory": dict(piers=True, courses=True, hoods=True, cornice="coping", plinth="plain", trim="concrete", parapet=0.12, industrial=True,
                     docks=True, roof="sawtooth", pipes=True, vents=True, stacks=2),
 }
+CANVAS = {"canvas_red": (150, 40, 36), "canvas_green": (40, 92, 56), "canvas_navy": (36, 50, 92), "canvas_maroon": (100, 34, 44),
+          "canvas_cream": (214, 202, 170), "canvas_ochre": (176, 128, 52)}
+FABRIC = {"shopfront_row", "brownstone", "brick_tenement", "house", "block", "civic", "office_tower"}   # who gets fabric awnings
 AWNING_COLOURS = {"awning_red": (168, 36, 34), "awning_green": (34, 104, 58), "awning_blue": (40, 70, 140),
                   "awning_yellow": (200, 160, 40), "awning_brown": (110, 70, 40)}
 
@@ -74,6 +78,7 @@ class Mesh:
         self.tris = 0
         self.owner = defaultdict(list)          # key -> [(building, first index, index count)]
         self.cur = None
+        self.anchors = []                       # [building, kind, x, y, base height]: roof parts' host cells (qa.py)
 
     def poly(self, key, pts, uvs, n):
         vs, ix = self.g[key]
@@ -104,6 +109,7 @@ class Mesh:
     def write(self, path):
         keys = sorted(self.g.keys())
         json.dump([[k[0], k[1], self.owner[k]] for k in keys], open(path + ".owners.json", "w"))
+        json.dump(self.anchors, open(path + ".anchors.json", "w"))
         with open(path, "wb") as f:
             f.write(b"GDK1" + struct.pack("<II", 1, len(keys)))
             for key in keys:
@@ -215,8 +221,9 @@ def cuboid(mesh, mat, x0, x1, y0, y1, z0, z1, bottom=False):
 
 
 class Builder:
-    def __init__(self, m, cat, an, lvl, hd=None):
+    def __init__(self, m, cat, an, lvl, hd=None, coarse=False):
         self.m, self.lvl, self.hd, self.imgs = m, lvl, hd, {}
+        self.coarse = coarse          # LOD1: skin without openings, a two-course cornice, roof silhouettes; nothing else
         self.cat = {b["id"]: b for b in cat["buildings"]}
         self.arch = {b["id"]: b for b in an["buildings"]}
         self.tiles = an["tiles"]
@@ -321,7 +328,7 @@ class Builder:
         front = self.front_run(b, walls)
         for (x, y, side, level), (wl, f) in sorted(walls.items()):
             self.face(b, st, walls, front, x, y, side, level, wl, f, stats)
-        if st.get("fire_escape") and b["levels"] >= 3:
+        if st.get("fire_escape") and b["levels"] >= 3 and not self.coarse:
             self.fire_escapes(b, walls, front, stats)
         if st.get("water_tower"):
             self.water_tower(b, stats)
@@ -329,7 +336,7 @@ class Builder:
             self.industrial_roof(b, st, stats)
         if st.get("vents") or st.get("stacks"):
             self.roof_plant(b, st, stats)
-        if st.get("pipes"):
+        if st.get("pipes") and not self.coarse:
             self.pipes(b, walls, stats)
         n = self.mesh.tris - tris0
         self.report.append({"id": bid, "archetype": a["archetype"], "triangles": n, **stats})
@@ -364,6 +371,15 @@ class Builder:
         roof, street = b["roof"], b["street"]
         el = self.ext(side, self.corner(x, y, side, level, 0), SKIN)
         er = self.ext(side, self.corner(x, y, side, level, 1), SKIN)
+        if self.coarse:
+            self.skin(wl, [], -el, 1.0 + er, stats)
+            self.caps(wl, walls, x, y, side, level, el, er, roof, street, st, stats)
+            if (x, y, side, level + 1) not in walls and level + 1 >= roof - 1 and level + 1 > street + 1:
+                top = level + 1
+                ex = lambda dd: (-self.ext(side, self.corner(x, y, side, level, 0), dd), 1 + self.ext(side, self.corner(x, y, side, level, 1), dd))
+                l, r = ex(0.19); self.band(wl, l, r, top - 0.2, top - 0.06, SKIN, 0.19, top - 0.12, top - 0.01, "blrf")
+                l, r = ex(MAXO); self.band(wl, l, r, top - 0.06, top + 0.02, SKIN, MAXO, top - 0.12, top - 0.01, "tblrf")
+            return
         holes = self.holes_of(wl, st, level, street)
         is_front = front is not None and front == (side, y if side in "NS" else x)
         upper = level >= street + 1
@@ -405,9 +421,9 @@ class Builder:
             elo, ehi = lim.get(tuple(hl[:4]), (max(-el, 0.0), min(1 + er, 1.0)))
             if kind == "window":
                 # a sill ledge (the art under the window) and a hood mould with a drip over it
-                s0, s1 = max(elo, h0 - 0.03), min(ehi, h1 + 0.03)
-                proud = min(0.06, max(0.025, 0.3 * (h1 - h0)))      # a small window gets a small sill
-                self.trim(wl, st["trim"], s0, s1, max(level + 0.002, yy0 - 0.03 - proud * 0.25), yy0, SKIN, SKIN + proud, stats=stats)
+                s0, s1 = max(elo, h0 - 0.025), min(ehi, h1 + 0.025)
+                proud = min(0.045, max(0.012, 0.15 * (h1 - h0)))    # a small window gets a small sill (half of round 2)
+                self.sill(wl, st["trim"], s0, s1, max(level + 0.002, yy0 - 0.012 - 0.25 * proud), yy0, proud, stats)
                 stats["sills"] += 1
                 if st.get("hoods") and yy1 < level + 0.94:
                     hy1 = min(level + 0.995, yy1 + 0.045)
@@ -419,7 +435,13 @@ class Builder:
                     self.balcony(wl, max(elo, h0 - 0.04), min(ehi, h1 + 0.04), yy0 - 0.03)
                     stats["balconies"] += 1
             elif kind == "shop window" and level <= street:
-                self.shopfront(wl, max(-el, h0 - 0.03), min(1 + er, h1 + 0.03), yy1, level, stats)
+                if st.get("industrial"):
+                    # industrial: no fabric; a plain steel hood over the opening (some have none)
+                    if h32(x, y, ord(side), int(h0 * 64), 21) % 3:
+                        box(self.mesh, wl, "metal_galv", max(-el, h0 - 0.03), min(1 + er, h1 + 0.03), yy1, yy1 + 0.03, SKIN, 0.24, "tblrf")
+                        stats["steel_hoods"] += 1
+                else:
+                    self.shopfront(wl, max(-el, h0 - 0.03), min(1 + er, h1 + 0.03), yy1, level, stats, (b["id"], b["district"], x, y, side, h0))
             elif kind in ("door", "loading_door") and level <= street:
                 if st.get("industrial") and (kind == "loading_door" or h1 - h0 >= 0.33):
                     self.dock(wl, max(-el, h0 - 0.04), min(1 + er, h1 + 0.04), level, min(level + 0.96, yy1 + 0.03), stats)
@@ -449,6 +471,24 @@ class Builder:
         # the roof edge: the top of this column's solid wall at the roof or a level under it (a map railing stays above)
         if (x, y, side, level + 1) not in walls and level + 1 >= roof - 1 and level + 1 > street + 1:
             self.cornice(wl, st, x, y, side, level, level + 1, roof, stats)
+
+    def sill(self, wl, mat, h0, h1, y0, y1, proud, stats):
+        """a stone sill: the art under the window carried out, its top bevelled down to the front (water runs off)"""
+        rel = self.lum(wl, h0, h1, y0, y1)
+        P, d0, d1, bev = wl.w, SKIN, SKIN + proud, min(0.008, 0.4 * (y1 - y0))
+        if rel is not None and rel < 0.6:
+            mk = lambda pts, n: self.mesh.kit(mat, pts, n, scale=4.0)
+            stats["trim_kit"] += 1
+        else:
+            key = (wl.tile, 2)
+            uvs = [wl.uv(h0, y0), wl.uv(h1, y0), wl.uv(h1, y1 - 0.002), wl.uv(h0, y1 - 0.002)]   # the sill's own texels
+            mk = lambda pts, n: self.mesh.poly(key, pts, uvs, n)
+        mk([P(h0, y0, d1), P(h1, y0, d1), P(h1, y1 - bev, d1), P(h0, y1 - bev, d1)], wl.n)
+        sl = math.hypot(proud, bev)
+        mk([P(h0, y1, d0), P(h1, y1, d0), P(h1, y1 - bev, d1), P(h0, y1 - bev, d1)], (wl.n[0] * bev / sl, proud / sl, wl.n[2] * bev / sl))
+        mk([P(h0, y0, d0), P(h1, y0, d0), P(h1, y0, d1), P(h0, y0, d1)], (0.0, -1.0, 0.0))
+        for hh, s_ in ((h0, -1), (h1, 1)):
+            mk([P(hh, y0, d0), P(hh, y0, d1), P(hh, y1 - bev, d1), P(hh, y1, d0)], (wl.ha[0] * s_, 0.0, wl.ha[2] * s_))
 
     def trim_limits(self, wins, el, er):
         lim = {}
@@ -575,22 +615,53 @@ class Builder:
                 best, bd = name, d
         return best
 
-    def shopfront(self, wl, h0, h1, yy1, level, stats):
-        """a sign band (the art over the shop window) stood out, and a deep awning coloured from the art under it"""
+    def shopfront(self, wl, h0, h1, yy1, level, stats, key):
+        """a sign band (the art over the shop window) stood out; under it, varied by the shop: a striped or a solid
+        canvas awning, sloped or a flat box canopy, or none; the colour from a small palette per district, the entry
+        nearest the art's own colour"""
+        bid, district, x, y, side, hh = key
         sb1 = min(level + 0.98, yy1 + 0.13)
         if sb1 - yy1 > 0.05:
             art_box(self.mesh, wl, h0, h1, yy1 + 0.005, sb1, SKIN, 0.2, "tblrf")
-        mat = self.awning_colour(wl, h0, h1, yy1, sb1)
-        top, dep, drop = yy1 + 0.0, MAXO, 0.14
+        v = h32(bid, x, y, ord(side), int(hh * 64), 17)
+        if v % 5 == 0:
+            stats["shop_no_awning"] += 1
+            return
+        striped = (v >> 3) % 2 == 0
+        names = sorted(AWNING_COLOURS) if striped else sorted(CANVAS)
+        pal = [names[(h32(district, k, 3) + k) % len(names)] for k in range(3)]       # three per district
+        mat = self.nearest_colour(wl, h0, h1, yy1, sb1, {n: (AWNING_COLOURS if striped else CANVAS)[n] for n in pal})
         P = wl.w
+        top = yy1
+        if (v >> 5) % 3 == 0:     # a flat box canopy
+            box(self.mesh, wl, mat, h0, h1, top - 0.06, top, SKIN, MAXO, "tblrf")
+            stats["canopies_flat"] += 1
+            return
+        dep, drop = MAXO, 0.10 + 0.05 * ((v >> 7) % 2)
         n = (wl.n[0] * drop, dep - SKIN, wl.n[2] * drop)
         ln = math.sqrt(sum(c * c for c in n)); n = tuple(c / ln for c in n)
         self.mesh.kit(mat, [P(h0, top, SKIN), P(h1, top, SKIN), P(h1, top - drop, dep), P(h0, top - drop, dep)], n, scale=1.0)
         self.mesh.kit(mat, [P(h0, top - drop, dep), P(h1, top - drop, dep), P(h1, top - drop - 0.05, dep), P(h0, top - drop - 0.05, dep)], wl.n, scale=1.0)
-        for hh, s in ((h0, -1), (h1, 1)):
-            self.mesh.kit(mat, [P(hh, top, SKIN), P(hh, top - drop, dep), P(hh, top - drop - 0.05, dep), P(hh, top - drop - 0.01, SKIN)],
+        for hh2, s in ((h0, -1), (h1, 1)):
+            self.mesh.kit(mat, [P(hh2, top, SKIN), P(hh2, top - drop, dep), P(hh2, top - drop - 0.05, dep), P(hh2, top - drop - 0.01, SKIN)],
                           (wl.ha[0] * s, 0.0, wl.ha[2] * s), scale=1.0)
-        stats["awnings"] += 1
+        stats["awnings_striped" if striped else "awnings_solid"] += 1
+
+    def nearest_colour(self, wl, h0, h1, y0, y1, choices):
+        r = self.region(wl, h0, h1, y0, y1)
+        names = sorted(choices)
+        if r is None:
+            return names[0]
+        import colorsys
+        rgb = r[0].reshape(-1, 3)
+        sat = rgb.max(1) - rgb.min(1)
+        pick = rgb[sat >= max(0.12, float(sat.mean()))]
+        c = (pick if len(pick) else rgb).mean(0)
+        hh, ss, vv = colorsys.rgb_to_hsv(*[float(v) for v in c])
+        def d(name):
+            h2, s2, v2 = colorsys.rgb_to_hsv(*[v / 255.0 for v in choices[name]])
+            return min(abs(hh - h2), 1 - abs(hh - h2)) * (2.0 if ss > 0.2 else 0.3) + abs(vv - v2) * 0.5
+        return min(names, key=d)
 
     def stoop(self, wl, h0, h1, level, stats):
         """steps up to a street door (stone), cheek walls and an iron rail each side"""
@@ -699,9 +770,28 @@ class Builder:
                     yy += 0.07
                 stats["fire_ladders"] += 1
 
+    def roof_host(self, x, y, height):
+        """a roof part may stand on (x, y) at `height` only where the map has a real flat roof there: the column's
+        top block is at height - 1, flat (slope 0), has a lid, and is not a floating deck (the column reaches down
+        to the block under it)"""
+        if not (0 <= x < W and 0 <= y < H) or self.roof[y][x] != height:
+            return False
+        off, idx = self.m.columns[y * W + x]
+        top = height - 1 - off
+        if top < 1 or top >= len(idx) or idx[top] >= len(self.m.blocks):
+            return False
+        blk = self.m.blocks[idx[top]]
+        under = self.m.blocks[idx[top - 1]] if idx[top - 1] < len(self.m.blocks) else None
+        return (blk[6] >> 2) == 0 and (blk[4] & 0x3FF) != 0 and under is not None and any(f & 0x3FF for f in under[:4] + (under[4],))
+
     def interior(self, b):
         cs = {tuple(c) for c in b["cells"]}
-        return cs, [(x, y) for (x, y) in cs if all((x + dx, y + dy) in cs for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))) and self.roof[y][x] == b["roof"]]
+        R = b["roof"]
+        return cs, [(x, y) for (x, y) in cs if all((x + dx, y + dy) in cs for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+                    and self.roof_host(x, y, R)]
+
+    def anchor(self, kind, x, y, base):
+        self.mesh.anchors.append([self.mesh.cur, kind, x, y, base])
 
     def water_tower(self, b, stats):
         cs, inner = self.interior(b)
@@ -710,6 +800,7 @@ class Builder:
         x, y = max(inner, key=lambda c: h32(c[0], c[1], 5))
         cx, cz, r = x + 0.5, H - y - 0.5, 0.28
         y0 = b["roof"]
+        self.anchor("water_tower", x, y, y0)
         for dx, dz in ((-1, -1), (1, -1), (1, 1), (-1, 1)):
             cuboid(self.mesh, "metal_dark", cx + dx * 0.2 - 0.02, cx + dx * 0.2 + 0.02, y0, y0 + 0.36, cz + dz * 0.2 - 0.02, cz + dz * 0.2 + 0.02)
         cuboid(self.mesh, "metal_dark", cx - 0.25, cx + 0.25, y0 + 0.33, y0 + 0.36, cz - 0.25, cz + 0.25, bottom=True)
@@ -739,6 +830,9 @@ class Builder:
             return
         _, x0, y0, x1, y1 = best
         R = b["roof"]
+        for xx in range(x0, x1 + 1):
+            for yy in range(y0, y1 + 1):
+                self.anchor("roof_" + st["roof"], xx, yy, R)
         wx0, wx1 = x0 + 0.1, x1 + 0.9
         if st["roof"] == "sawtooth":
             for yy in range(y0, y1 + 1):
@@ -766,6 +860,7 @@ class Builder:
         ranked = sorted(inner, key=lambda c: h32(c[0], c[1], 13))
         for k in range(min(st.get("stacks", 0), len(ranked))):
             x, y = ranked[k]
+            self.anchor("stack", x, y, R)
             cyl(self.mesh, "brick_dark", x + 0.5, H - y - 0.5, R, R + 1.4 + 0.5 * k, 0.17, 0.15, n=10)
             cyl(self.mesh, "metal_dark", x + 0.5, H - y - 0.5, R + 1.3 + 0.5 * k, R + 1.4 + 0.5 * k, 0.17, n=10)
             stats["stacks"] += 1
@@ -775,6 +870,7 @@ class Builder:
                 continue
             cx = x + 0.3 + ((hv >> 8) & 15) / 15.0 * 0.4
             cz = H - y - 0.7 + ((hv >> 12) & 15) / 15.0 * 0.4
+            self.anchor("vent", x, y, R)
             if (hv >> 16) & 1:
                 cyl(self.mesh, "metal_galv", cx, cz, R, R + 0.2, 0.07, n=8)
                 cyl(self.mesh, "metal_galv", cx, cz, R + 0.2, R + 0.26, 0.12, 0.05, n=8)
@@ -820,8 +916,14 @@ def main():
     an = json.load(open(os.path.join(work, f"{lvl}_analysis.json")))
     m = gmap.Map(os.path.join(data, f"{lvl}.gmp"))
     hd = sys.argv[sys.argv.index("--hd") + 1] if "--hd" in sys.argv else "/mnt/gta2/gta2-linux/repo/assets/textures_hd"
-    bld = Builder(m, cat, an, lvl, hd if os.path.isdir(hd) else None)
-    if "--all" in sys.argv:
+    bld = Builder(m, cat, an, lvl, hd if os.path.isdir(hd) else None, coarse="--coarse" in sys.argv)
+    if "--district" in sys.argv:
+        # every building of one district of the map (catalogue.py's district keys: gang:..., nav:..., local_nav:...)
+        dk = sys.argv[sys.argv.index("--district") + 1]
+        keys = [d["key"] for d in json.load(open(os.path.join(work, f"{lvl}_districts.json")))["districts"]]
+        arch = {a["id"]: a["archetype"] for a in an["buildings"]}
+        ids = [b["id"] for b in cat["buildings"] if keys[b["district"]] == dk and arch.get(b["id"]) not in (None, "structure")]
+    elif "--all" in sys.argv:
         ids = [b["id"] for b in an["buildings"] if b["archetype"] != "structure"]
     elif "--ids" in sys.argv:
         ids = [int(v) for v in sys.argv[sys.argv.index("--ids") + 1].split(",")]
