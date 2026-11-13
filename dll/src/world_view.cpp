@@ -37,6 +37,7 @@
 #include "game_save.h"
 #include "eye_collision.h"
 #include "remix_wet.h"
+#include "../../src/weather_fx.h"
 #include "live_geometry.h"
 #include "light_bench.h"
 #include "log.h"
@@ -1672,6 +1673,27 @@ bool WorldView::EnsureWorldLoaded() {
     }
 
     MemStatsLog("level load: world uploaded", 1);
+    // WEATHER-V2 C: the road/pavement lid tiles and, on a Remix device, every wet variant of their
+    // textures, made here at level load: creating them in the middle of a frame (p1h) hung the game
+    // thread on a heap lock. Off the plain renderer nothing is made.
+    if (renderer_.IsRemixDevice() && !map_.Empty()) {
+        std::vector<uint8_t> tiles(1024, 0);
+        int n = 0;
+        for (int my = 0; my < gta2::kMapHeight; ++my) {
+            for (int mx = 0; mx < gta2::kMapWidth; ++mx) {
+                for (uint32_t index : map_.ColumnAt(mx, my).blocks) {
+                    if (index >= map_.BlockCount()) continue;
+                    const gta2::Block& b = map_.BlockAt(index);
+                    const int g = b.GroundType();
+                    if (b.lid && b.SlopeType() == 0 && (g == 1 || g == 2) && !tiles[b.lid.Tile()]) { tiles[b.lid.Tile()] = 1; ++n; }
+                }
+            }
+        }
+        renderer_.SetWetTiles(tiles);
+        const int made = renderer_.PreloadWetVariants();
+        Log("weather: %d road/pavement lid tiles, %d wet variant textures made at level load", n, made);
+        MemStatsLog("level load: wet variants", 1);
+    }
     if (game::ViewRotation() != 0xFF) {
         Log("WARNING: view rotation is %u, not the 0xFF the tile orientation assumes",
             game::ViewRotation());
@@ -4190,6 +4212,18 @@ void WorldView::RenderFrame() {
             const auto eye = camera_.Position();
             RemixWetFrame(map_, eye.x, eye.y, eye.z, g_presentStreet ? g_presentMix : 0.0f);
             renderer_.SetRemixWeatherFrame(camera_, g_presentStreet ? g_presentMix : 0.0f);
+            // C: the stepped wet materials. The road/pavement lid tiles once per map; the level from the
+            // wetness with hysteresis ([devtools] wx_wet_level forces one).
+            static int wetLevel = 0;
+            const float wet = gta2::WeatherNow().active ? gta2::WeatherNow().wet : 0.0f;
+            const float up[3] = {0.25f, 0.55f, 0.85f};
+            while (wetLevel < 3 && wet > up[wetLevel] + 0.03f) ++wetLevel;
+            while (wetLevel > 0 && wet < up[wetLevel - 1] - 0.03f) --wetLevel;
+            static int forced = -1, wetPolls = 0;
+            if ((wetPolls++ % 30) == 0) forced = GetPrivateProfileIntA("devtools", "wx_wet_level", -1, CarBodiesDevIni());
+            const int level = g_presentStreet ? (forced >= 0 ? forced : wetLevel) : 0;
+            if (level != renderer_.WetLevel()) Log("weather: Remix wet material level %d (wetness %.2f)", level, wet);
+            renderer_.SetWetLevel(level);
         }
         renderer_.EndWorldShading();
         // LIGHTING-V1: the plain classic view takes the hour too (the street views and the Remix classic view already

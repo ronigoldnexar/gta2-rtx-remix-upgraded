@@ -274,7 +274,7 @@ void WeatherFx::SetRemixFrame(const Mat4& view, const Mat4& proj, const Vec3& ey
 }
 
 void WeatherFx::DrawRainRemix(const WeatherState& w) {
-    static const float kLevelAlpha[kRemixRainLevels] = {0.22f, 0.38f, 0.55f};
+    static const float kLevelAlpha[kRemixRainLevels] = {0.35f, 0.55f, 0.80f};
     if (!remixRain_[0]) {
         const int TW = 8, TH = 64;
         for (int l = 0; l < kRemixRainLevels; ++l) {
@@ -298,12 +298,12 @@ void WeatherFx::DrawRainRemix(const WeatherState& w) {
             RendererTrace("weather: Remix rain streak texture %d (alpha %.2f) %dx%d, fixed content", l, kLevelAlpha[l], TW, TH);
         }
     }
-    const int count = std::max(0, std::min(4000, static_cast<int>(static_cast<float>(w.drops) * 0.6f * w.rain)));
+    const int count = std::max(0, std::min(4000, static_cast<int>(static_cast<float>(w.drops) * 1.0f * w.rain)));
     const float R = 9.0f, H = 7.0f, speed = 7.5f;
     const float t = static_cast<float>(std::fmod(w.seconds, 3600.0));
     const float windX = w.windDir[0] * w.wind * 3.5f, windZ = w.windDir[1] * w.wind * 3.5f;
     const Vec3 dir = Normalize(Vec3{windX, -speed, windZ});
-    const float len = 0.55f + 0.25f * w.wind;
+    const float len = 0.85f + 0.25f * w.wind;
     auto wrap = [](float v, float L) { return v - L * std::floor(v / L + 0.5f); };
     for (auto& v : texVerts_) v.clear();
     for (int i = 0; i < count; ++i) {
@@ -323,7 +323,7 @@ void WeatherFx::DrawRainRemix(const WeatherState& w) {
         Vec3 side = Cross(dir, toEye);
         const float sl = std::sqrt(Dot(side, side));
         if (sl < 1e-4f) continue;
-        side = side * (std::max(0.012f, dist * 0.0035f) / sl);
+        side = side * (std::max(0.022f, dist * 0.0065f) / sl);
         const RainTexVertex v0{p.x - side.x, p.y - side.y, p.z - side.z, 0.0f, 1.0f};
         const RainTexVertex v1{p.x + side.x, p.y + side.y, p.z + side.z, 1.0f, 1.0f};
         const RainTexVertex v2{top.x - side.x, top.y - side.y, top.z - side.z, 0.0f, 0.0f};

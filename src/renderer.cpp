@@ -9,6 +9,9 @@
 #include <cstring>
 #include <map>
 
+#define XXH_INLINE_ALL
+#include "../dll/deps/xxhash/xxhash.h"
+
 namespace gta2 {
 namespace {
 
@@ -708,6 +711,10 @@ void Renderer::ReleaseResources() {
     textures_.clear();
     for (IDirect3DTexture9* t : photoTextures_) if (t) t->Release();
     photoTextures_.clear();
+    for (IDirect3DTexture9* t : wetPhoto_) if (t) t->Release();
+    wetPhoto_.clear();
+    for (IDirect3DTexture9* t : wetHd_) if (t) t->Release();
+    wetHd_.clear();
     roadTile_.clear();
     tileAnimated_.clear();
     animatedPhotoFrame_.clear();
@@ -981,6 +988,10 @@ bool Renderer::UploadWorld(const WorldMesh& mesh, const Style& style, std::strin
     roadTiles_ = 0;
     for (IDirect3DTexture9* t : photoTextures_) if (t) t->Release();
     photoTextures_.assign(textures_.size(), nullptr);
+    for (IDirect3DTexture9* t : wetPhoto_) if (t) t->Release();
+    wetPhoto_.clear();
+    for (IDirect3DTexture9* t : wetHd_) if (t) t->Release();
+    wetHd_.clear();
     roadTile_.assign(textures_.size(), 0);
     tileAnimated_.assign(textures_.size(), 0);
     animatedPhotoFrame_.assign(textures_.size(), -1);
@@ -1212,6 +1223,24 @@ bool Renderer::UploadWorld(const WorldMesh& mesh, const Style& style, std::strin
     return true;
 }
 
+namespace {
+// The wet variant of a tile texture: one byte of the top mip as CreateDdsTexture uploads it XORed with the level.
+void MakeWetVariant(DdsImage* dds, int tile, int level, int maxSize, const char* set) {
+    int first = 0;
+    size_t offset = 0;
+    while (first < dds->mips - 1 && (std::max(1, dds->width >> first) > maxSize || std::max(1, dds->height >> first) > maxSize)) {
+        offset += dds->LevelBytes(first);
+        ++first;
+    }
+    const size_t bytes = dds->LevelBytes(first);
+    if (offset + bytes > dds->data.size() || bytes == 0) return;
+    const unsigned long long dry = XXH3_64bits(dds->data.data() + offset, bytes);
+    dds->data[offset + bytes - 1] ^= static_cast<uint8_t>(level);
+    const unsigned long long wet = XXH3_64bits(dds->data.data() + offset, bytes);
+    Trace("wet variant: tile %d level %d %016llX -> %016llX (%s)", tile, level, dry, wet, set);
+}
+}  // namespace
+
 IDirect3DTexture9* Renderer::LoadHdTileTexture(int tile) {
     if (hdDir_.empty()) return nullptr;
     DdsImage dds;
@@ -1221,13 +1250,14 @@ IDirect3DTexture9* Renderer::LoadHdTileTexture(int tile) {
     return texture;
 }
 
-IDirect3DTexture9* Renderer::LoadPhotoTileTexture(int tile) {
+IDirect3DTexture9* Renderer::LoadPhotoTileTexture(int tile, int wetVariant) {
     DdsImage dds;
     const size_t at = static_cast<size_t>(tile) * 3;
     const float* tint = (at + 2 < streetTint_.size() &&
                          (streetTint_[at] != 1.0f || streetTint_[at + 1] != 1.0f || streetTint_[at + 2] != 1.0f)) ? &streetTint_[at] : nullptr;
     auto make = [&](int* counter) -> IDirect3DTexture9* {
         if (tint) DdsTint(&dds, tint);
+        if (wetVariant > 0) MakeWetVariant(&dds, tile, wetVariant, g_hdTileMax, "photo");
         IDirect3DTexture9* texture = CreateDdsTexture(device_, dds, g_hdTileMax);
         if (texture) ++*counter;
         return texture;
@@ -1903,7 +1933,7 @@ void Renderer::DrawWorld(const Camera& camera) {
             doubleSided = batch.doubleSided;
             device_->SetRenderState(D3DRS_CULLMODE, doubleSided ? D3DCULL_NONE : cullMode_);
         }
-        device_->SetTexture(0, BoundTileTexture(batch.tile));
+        device_->SetTexture(0, WetBoundTileTexture(batch.tile));
         // The fixed-function ripple, when the shader surface is off or unavailable.
         const bool water = !waterShaderOn && g_waterEffect && (shading_.sun || shading_.fog) && waterNoise_ && batch.tile < static_cast<int>(waterTile_.size()) && waterTile_[batch.tile];
         if (water) {
@@ -2317,6 +2347,64 @@ void Renderer::SetWorldShading(const WorldShading& incoming) {
     const float t = std::min(1.0f, std::max(0.0f, (el + 8.0f) / 20.0f));
     f.day = t * t * (3.0f - 2.0f * t);
     if (!post_.BeginScene(f)) shading_ = shading;
+}
+
+
+IDirect3DTexture9* Renderer::LoadHdTileVariant(int tile, int wetVariant) {
+    if (hdDir_.empty()) return nullptr;
+    DdsImage dds;
+    if (!ReadDds(hdDir_ + "\\" + TileDdsFileName(tile), &dds)) return nullptr;
+    MakeWetVariant(&dds, tile, wetVariant, g_hdTileMax, "hd");
+    return CreateDdsTexture(device_, dds, g_hdTileMax);
+}
+
+int Renderer::DumpWetManifest() {
+    int n = 0;
+    for (size_t tile = 0; tile < wetTile_.size() && tile < photoTextures_.size(); ++tile) {
+        if (!wetTile_[tile]) continue;
+        const int saved = roadTiles_, savedPhoto = photoTiles_;
+        for (int k = 1; k <= 3; ++k) {
+            IDirect3DTexture9* t = photoTextures_[tile] ? LoadPhotoTileTexture(static_cast<int>(tile), k)
+                                                        : LoadHdTileVariant(static_cast<int>(tile), k);
+            if (t) { t->Release(); ++n; }
+        }
+        roadTiles_ = saved; photoTiles_ = savedPhoto;
+    }
+    Trace("wet variant manifest: %d variants", n);
+    return n;
+}
+
+int Renderer::PreloadWetVariants() {
+    int n = 0;
+    for (IDirect3DTexture9* t : wetPhoto_) if (t) t->Release();
+    for (IDirect3DTexture9* t : wetHd_) if (t) t->Release();
+    wetPhoto_.assign(wetTile_.size() * 3, nullptr);
+    wetHd_.assign(wetTile_.size() * 3, nullptr);
+    for (size_t tile = 0; tile < wetTile_.size(); ++tile) {
+        if (!wetTile_[tile]) continue;   // the tile's own texture may load later (lazily); its HD file is what Remix keys
+        const bool photo = tile < photoTextures_.size() && photoTextures_[tile];
+        const int saved = roadTiles_, savedPhoto = photoTiles_;
+        for (int k = 1; k <= 3; ++k) {
+            IDirect3DTexture9* t = photo ? LoadPhotoTileTexture(static_cast<int>(tile), k) : LoadHdTileVariant(static_cast<int>(tile), k);
+            if (!t) continue;
+            (photo ? wetPhoto_ : wetHd_)[tile * 3 + k - 1] = t;
+            ++n;
+        }
+        roadTiles_ = saved; photoTiles_ = savedPhoto;
+    }
+    return n;
+}
+
+IDirect3DTexture9* Renderer::WetBoundTileTexture(int tile) {
+    IDirect3DTexture9* dry = BoundTileTexture(tile);
+    if (!remixDevice_ || wetLevel_ <= 0 || tile < 0 || static_cast<size_t>(tile) >= wetTile_.size() || !wetTile_[tile]) return dry;
+    if (!dry) return dry;
+    const size_t at = static_cast<size_t>(tile) * 3 + static_cast<size_t>(wetLevel_ - 1);
+    if (dry == textures_[tile] && dry != PhotoTileTexture(tile)) {   // bound with its HD texture (Remix: no photo set)
+            return (at < wetHd_.size() && wetHd_[at]) ? wetHd_[at] : dry;   // made at level load only
+    }
+    if (TileMix(tile) < 0.5f || dry != PhotoTileTexture(tile)) return dry;
+    return (at < wetPhoto_.size() && wetPhoto_[at]) ? wetPhoto_[at] : dry;   // made at level load only
 }
 
 void Renderer::SetRemixWeatherFrame(const Camera& camera, float blend) {

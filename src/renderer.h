@@ -117,6 +117,13 @@ public:
     void SetWorldShading(const WorldShading& shading);
     const WorldShading& Shading() const { return shading_; }
     void EndWorldShading();
+    void SetWetTiles(const std::vector<uint8_t>& tiles) { wetTile_ = tiles; }
+    void SetWetLevel(int level) { wetLevel_ = level < 0 ? 0 : (level > 3 ? 3 : level); }
+    int WetLevel() const { return wetLevel_; }
+    // Logs every wet tile's three variant hashes ("wet variant:" lines) for tools/remix_wet_levels.py.
+    int DumpWetManifest();
+    // Makes every wet variant (3 per wet tile) of the texture the street views bind; level load only.
+    int PreloadWetVariants();
     // WEATHER-V2: the rain's camera and view weight on a Remix device (see WeatherFx::SetRemixFrame).
     void SetRemixWeatherFrame(const Camera& camera, float blend);
 
@@ -325,7 +332,17 @@ private:
     float TileMix(int tile) const {
         return (tile >= 0 && tile < static_cast<int>(roadTile_.size()) && roadTile_[static_cast<size_t>(tile)]) ? roadMix_ : photoMix_;
     }
-    IDirect3DTexture9* LoadPhotoTileTexture(int tile);
+    IDirect3DTexture9* LoadPhotoTileTexture(int tile, int wetVariant = 0);
+    // WEATHER-V2 (C, stepped wet materials): under Remix, in the street views, a road or pavement
+    // lid tile is drawn with a wet variant of its photo texture at wetness levels 1-3 (damp, wet,
+    // soaked): the same texels with one byte of the top mip changed, so Remix keys a material of
+    // its own (gta2hd's wet prims, tools/remix_wet_levels.py). The DLL logs each variant's hash.
+    std::vector<uint8_t> wetTile_;
+    std::vector<IDirect3DTexture9*> wetPhoto_;   // tile * 3 + level - 1
+    int wetLevel_ = 0;
+    IDirect3DTexture9* WetBoundTileTexture(int tile);
+    IDirect3DTexture9* LoadHdTileVariant(int tile, int wetVariant);
+    std::vector<IDirect3DTexture9*> wetHd_;   // tile * 3 + level - 1, for tiles bound with their HD texture
     IDirect3DTexture9* PhotoTileTexture(int tile) const {
         if (tile < 0 || tile >= static_cast<int>(photoTextures_.size())) return nullptr;
         if (!tileAnimated_[tile]) return photoTextures_[tile];

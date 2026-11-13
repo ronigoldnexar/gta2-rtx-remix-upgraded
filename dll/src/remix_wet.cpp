@@ -21,7 +21,10 @@
 #include "log.h"
 #include "remix_api.h"
 
+#include "time_of_day.h"
+
 #include "../../src/gta2_map.h"
+#include "../../src/weather_fx.h"
 
 namespace gta2dx9 {
 namespace {
@@ -34,6 +37,7 @@ struct Settings {
     int liftMilli = 4;
 };
 Settings g_set;
+Settings g_dev;   // the [devtools] wx_* keys as read; g_set is what is drawn (production when wx_wet_mode < 0)
 float g_lift = 0.004f;   // blocks over the lid ([devtools] wx_lift_milli)
 DWORD g_lastRead = 0;
 char g_ini[MAX_PATH] = "";
@@ -53,7 +57,7 @@ void ReadSettings() {
         if (slash) strcpy(slash + 1, "gta2dx9.ini"); else strcpy(g_ini, "gta2dx9.ini");
     }
     Settings s;
-    s.mode = Dev("wx_wet_mode", 0);
+    s.mode = Dev("wx_wet_mode", -1);
     s.alpha = (std::max)(0, (std::min)(255, Dev("wx_wet_alpha", 160)));
     s.rough = Dev("wx_wet_rough", 8);
     s.albedo = Dev("wx_wet_albedo", 0);
@@ -67,13 +71,10 @@ void ReadSettings() {
     s.waterIor = Dev("wx_water_ior", 133);
     s.liftMilli = Dev("wx_lift_milli", 4);
     s.waterTrans = Dev("wx_water_trans", 80);
-    if (memcmp(&s, &g_set, sizeof s) != 0) {
-        if (s.rough != g_set.rough || s.albedo != g_set.albedo || s.puddleRough != g_set.puddleRough || s.mode != g_set.mode ||
-            s.vcolorAlpha != g_set.vcolorAlpha || s.filmStatic != g_set.filmStatic || (s.filmStatic && s.alpha != g_set.alpha) ||
-            s.waterIor != g_set.waterIor || s.liftMilli != g_set.liftMilli || s.waterTrans != g_set.waterTrans) ++g_generation;
-        Log("remix wet: mode %d alpha %d rough %d%% albedo %d%% puddles %d (rough %d%%) decal bits %X tfblend %d alpha src %d vcolor a %d static %d (gen %d)",
-            s.mode, s.alpha, s.rough, s.albedo, s.puddleAlpha, s.puddleRough, s.decalBits, s.tfBlend, s.alphaSrc, s.vcolorAlpha, s.filmStatic, g_generation);
-        g_set = s;
+    if (memcmp(&s, &g_dev, sizeof s) != 0) {
+        Log("remix wet: devtools mode %d alpha %d rough %d%% albedo %d%% puddles %d lift %d", s.mode, s.alpha, s.rough, s.albedo,
+            s.puddleAlpha, s.liftMilli);
+        g_dev = s;
         g_lift = s.liftMilli / 1000.0f;
     }
 }
@@ -423,6 +424,105 @@ void DrawProbeBoard(const gta2::Map& map, float ex, float ey, float ez) {
         RemixApi()->DrawInstance(&instance);
     }
 }
+
+// ---- Puddles (WEATHER-V2 A): water patches cut from a world-space noise field ----
+// The field is the puddle mask's fbm sampled in world space (period 6 blocks per noise cell);
+// each 1/8-block grid square of an open road/pavement lid is clipped against field > thr
+// (linear crossing on its edges) and the inside fanned into triangles. Puddles are the
+// translucent water (a mirror); the damp rim is the same cut at two lower thresholds drawn with
+// the darkening film, so the puddle's edge steps down into the wet road instead of ending hard.
+float PuddleField(float x, float z) {
+    float f = 0.0f, a = 0.5f, scale = 2.5f / 6.0f;   // features 1-3 m (a block is ~4 m)
+    for (int o = 0; o < 4; ++o, a *= 0.5f, scale *= 2.0f) f += a * Noise(x * scale * 4.0f, z * scale * 4.0f, 1 << 20);
+    return f;
+}
+
+bool OpenGroundLid(const gta2::Map& map, int cx, int cz, float* y) {
+    const int my = gta2::kMapHeight - 1 - cz;
+    if (cx < 0 || cx >= gta2::kMapWidth || my < 0 || my >= gta2::kMapHeight) return false;
+    const gta2::Column& c = map.ColumnAt(cx, my);
+    for (int i = static_cast<int>(c.blocks.size()) - 1; i >= 0; --i) {
+        if (c.blocks[i] >= map.BlockCount()) return false;
+        const gta2::Block& b = map.BlockAt(c.blocks[i]);
+        const int g = b.GroundType();
+        if (b.lid && b.SlopeType() == 0 && (g == 1 || g == 2)) { *y = static_cast<float>(c.offset + i + 1); return true; }
+        if (b.lid && g != 0) return false;
+    }
+    return false;
+}
+
+remixapi_MeshHandle PuddleMesh(const gta2::Map& map, int chunkX, int chunkZ, int kind, float thr, float lift,
+                               remixapi_MaterialHandle material, int level) {
+    const uint64_t key = (static_cast<uint64_t>(kind) << 56) | (static_cast<uint64_t>(level & 0xFF) << 48) |
+                         (static_cast<uint64_t>(g_generation & 0xFFFF) << 32) | (static_cast<uint64_t>(chunkX & 0xFF) << 8) |
+                         static_cast<uint64_t>(chunkZ & 0xFF);
+    auto it = g_meshes.find(key);
+    if (it != g_meshes.end()) return it->second;
+    g_meshes[key] = nullptr;
+    constexpr int kSub = 6;
+    std::vector<remixapi_HardcodedVertex> verts;
+    std::vector<uint32_t> idx;
+    for (int cz = chunkZ * kChunk; cz < chunkZ * kChunk + kChunk; ++cz) {
+        for (int cx = chunkX * kChunk; cx < chunkX * kChunk + kChunk; ++cx) {
+            float y = 0.0f;
+            if (!OpenGroundLid(map, cx, cz, &y)) continue;
+            y += lift;
+            float f[kSub + 1][kSub + 1];
+            bool any = false;
+            for (int j = 0; j <= kSub; ++j)
+                for (int i = 0; i <= kSub; ++i) {
+                    f[j][i] = PuddleField(cx + i / static_cast<float>(kSub), cz + j / static_cast<float>(kSub)) - thr;
+                    any = any || f[j][i] > 0.0f;
+                }
+            if (!any) continue;
+            for (int j = 0; j < kSub; ++j) {
+                for (int i = 0; i < kSub; ++i) {
+                    const float px[4] = {cx + i / 6.0f, cx + (i + 1) / 6.0f, cx + (i + 1) / 6.0f, cx + i / 6.0f};
+                    const float pz[4] = {cz + j / 6.0f, cz + j / 6.0f, cz + (j + 1) / 6.0f, cz + (j + 1) / 6.0f};
+                    const float v[4] = {f[j][i], f[j][i + 1], f[j + 1][i + 1], f[j + 1][i]};
+                    if (v[0] <= 0 && v[1] <= 0 && v[2] <= 0 && v[3] <= 0) continue;
+                    float ox[8], oz[8];
+                    int n = 0;
+                    for (int e = 0; e < 4; ++e) {
+                        const int q = (e + 1) & 3;
+                        if (v[e] > 0) { ox[n] = px[e]; oz[n] = pz[e]; ++n; }
+                        if ((v[e] > 0) != (v[q] > 0)) {
+                            const float t = v[e] / (v[e] - v[q]);
+                            ox[n] = px[e] + (px[q] - px[e]) * t; oz[n] = pz[e] + (pz[q] - pz[e]) * t; ++n;
+                        }
+                    }
+                    if (n < 3) continue;
+                    const uint32_t base = static_cast<uint32_t>(verts.size());
+                    for (int k = 0; k < n; ++k) {
+                        remixapi_HardcodedVertex vx = {};
+                        vx.position[0] = ox[k]; vx.position[1] = y; vx.position[2] = oz[k];
+                        vx.normal[1] = 1.0f;
+                        vx.texcoord[0] = ox[k] / 6.0f; vx.texcoord[1] = oz[k] / 6.0f;
+                        vx.color = 0xFFFFFFFFu;
+                        verts.push_back(vx);
+                    }
+                    for (int k = 1; k + 1 < n; ++k) { idx.push_back(base); idx.push_back(base + k + 1); idx.push_back(base + k); }
+                }
+            }
+        }
+    }
+    if (verts.empty()) return nullptr;
+    remixapi_MeshInfoSurfaceTriangles surface = {};
+    surface.vertices_values = verts.data(); surface.vertices_count = verts.size();
+    surface.indices_values = idx.data(); surface.indices_count = idx.size();
+    surface.skinning_hasvalue = 0; surface.material = material;
+    remixapi_MeshInfo mesh = {};
+    mesh.sType = REMIXAPI_STRUCT_TYPE_MESH_INFO; mesh.hash = key ^ 0x5055444C00000000ull;
+    mesh.surfaces_values = &surface; mesh.surfaces_count = 1;
+    remixapi_MeshHandle handle = nullptr;
+    const remixapi_ErrorCode rc = RemixApi()->CreateMesh(&mesh, &handle);
+    static int logs = 0;
+    if (logs++ < 6) Log("remix wet: puddle chunk %d,%d kind %d level %d: %zu tris -> %d", chunkX, chunkZ, kind, level, idx.size() / 3, static_cast<int>(rc));
+    if (rc != REMIXAPI_ERROR_CODE_SUCCESS) return nullptr;
+    g_meshes[key] = handle;
+    return handle;
+}
+remixapi_MaterialHandle g_puddleWater = nullptr;
 }  // namespace
 
 void RemixWetFrame(const gta2::Map& map, float eyeX, float eyeY, float eyeZ, float viewMix) {
@@ -430,6 +530,36 @@ void RemixWetFrame(const gta2::Map& map, float eyeX, float eyeY, float eyeZ, flo
     if (!g_ini[0] || now - g_lastRead >= 1000) { g_lastRead = now; ReadSettings(); }
     if (!RemixApiHasInstances() || map.Empty() || viewMix < 0.01f) return;
     DrawProbeBoard(map, eyeX, eyeY, eyeZ);
+    {
+        Settings e = g_dev;
+        if (e.mode < 0) {
+            // Production (WEATHER-V2 A): the darkening film follows the wetness; by night a
+            // low-reflection water film fades in by steps of its refractive index (1.0 .. 1.10).
+            const gta2::WeatherState& w = gta2::WeatherNow();
+            const float wet = w.active ? w.wet : 0.0f;
+            float el = 0.0f, az = 0.0f;
+            TimeOfDayAngles(&el, &az);
+            const float n = (std::max)(0.0f, (std::min)(1.0f, (-el - 2.0f) / 8.0f));   // 0 above -2 deg .. 1 below -10 deg
+            const int k = static_cast<int>(std::lround(8.0f * n * wet));
+            e.mode = wet < 0.02f ? 0 : (k > 0 ? 6 : 3);
+            static int dark = 100;
+            static DWORD darkRead = 0;
+            if (GetTickCount() - darkRead >= 1000) { darkRead = GetTickCount(); dark = GetPrivateProfileIntA("weather", "remix_wet_dark", 100, g_ini); }
+            // By night the darkening halves, so the lamp pools keep their light (the water film carries the wet look).
+            e.alpha = static_cast<int>(std::lround(wet * dark * (1.0f - 0.5f * n)));
+            e.rough = 8; e.albedo = 0; e.filmStatic = 0; e.alphaSrc = 3; e.decalBits = 0; e.puddleAlpha = 0;
+            e.waterIor = 100 + static_cast<int>(std::lround(1.25f * k));
+            e.waterTrans = 100 - static_cast<int>(std::lround(0.75f * k));
+        }
+        const bool material = e.mode != g_set.mode || e.rough != g_set.rough || e.albedo != g_set.albedo || e.filmStatic != g_set.filmStatic ||
+                               e.waterIor != g_set.waterIor || e.waterTrans != g_set.waterTrans || e.puddleRough != g_set.puddleRough ||
+                               e.vcolorAlpha != g_set.vcolorAlpha || e.liftMilli != g_set.liftMilli || (e.filmStatic && e.alpha != g_set.alpha);
+        if (material) {
+            ++g_generation;
+            Log("remix wet: mode %d alpha %d water ior %.3f (gen %d)", e.mode, e.alpha, e.waterIor / 100.0f, g_generation);
+        }
+        g_set = e;
+    }
     if (g_set.mode == 0 && g_set.puddleAlpha == 0) return;
     const uint64_t salt = static_cast<uint64_t>(g_generation) << 20;
     if ((g_set.mode == 4 || g_set.mode == 5) && g_filmGen != g_generation) {
@@ -470,6 +600,33 @@ void RemixWetFrame(const gta2::Map& map, float eyeX, float eyeY, float eyeZ, flo
     const int cz0 = static_cast<int>(std::floor((eyeZ - 48.0f) / kChunk)), cz1 = static_cast<int>(std::floor((eyeZ + 48.0f) / kChunk));
     const int alpha = static_cast<int>(g_set.alpha * viewMix + 0.5f);
     const int palpha = static_cast<int>(g_set.puddleAlpha * viewMix + 0.5f);
+    // Puddles: production (wx_wet_mode < 0) from the wetness, or [devtools] wx_puddle_level 1-4.
+    static int puddleForce = -1;
+    static DWORD puddleRead = 0;
+    if (GetTickCount() - puddleRead >= 1000) { puddleRead = GetTickCount(); puddleForce = Dev("wx_puddle_level", -1); }
+    int puddleLevel = 0;
+    if (puddleForce >= 0) puddleLevel = (std::min)(8, puddleForce);
+    else if (g_dev.mode < 0) {
+        const float wet = gta2::WeatherNow().active ? gta2::WeatherNow().wet : 0.0f;
+        // 8 sizes from wetness 0.30 up: the first threshold is above almost every point of the field,
+        // so a puddle grows out of nothing instead of appearing at its size.
+        puddleLevel = wet < 0.3f ? 0 : (std::min)(8, 1 + static_cast<int>((wet - 0.3f) / 0.7f * 8.0f));
+    }
+    if (puddleLevel > 0 && !g_puddleWater) {
+        remixapi_MaterialInfoTranslucentEXT tr = {};
+        tr.sType = REMIXAPI_STRUCT_TYPE_MATERIAL_INFO_TRANSLUCENT_EXT;
+        tr.refractiveIndex = 1.33f; tr.transmittanceColor = {0.85f, 0.85f, 0.86f}; tr.transmittanceMeasurementDistance = 1.0f;
+        tr.thinWallThickness_hasvalue = 1; tr.thinWallThickness_value = 0.1f;
+        remixapi_MaterialInfo info = {};
+        info.sType = REMIXAPI_STRUCT_TYPE_MATERIAL_INFO; info.pNext = &tr; info.hash = 0x5745540500000001ull;
+        RemixApi()->CreateMaterial(&info, &g_puddleWater);
+        Log("remix wet: puddle water material %s", g_puddleWater ? "made" : "refused");
+    }
+    if (puddleLevel > 0 && !g_film) {
+        g_film = MakeOpaque(0x5745540100000001ull ^ salt, 0.0f, 0.08f, nullptr);
+        g_filmGen = g_generation;
+    }
+    const float puddleThr = 0.80f - 0.0175f * puddleLevel;   // level 8: 0.66
     for (int z = cz0; z <= cz1; ++z) {
         for (int x = cx0; x <= cx1; ++x) {
             if (x < 0 || z < 0 || x >= gta2::kMapWidth / kChunk || z >= gta2::kMapHeight / kChunk) continue;
@@ -486,6 +643,13 @@ void RemixWetFrame(const gta2::Map& map, float eyeX, float eyeY, float eyeZ, flo
                 if (remixapi_MeshHandle m = ChunkMesh(map, x, z, 4, g_film)) Draw(m, 0, false, 1, 0, 1, 255);
             } else if (g_set.mode == 2 && g_water && viewMix > 0.99f) {
                 if (remixapi_MeshHandle m = ChunkMesh(map, x, z, 2, g_water)) Draw(m, 0, false, 1, 0, 1, 255);
+            }
+            if (puddleLevel > 0 && g_puddleWater && g_film) {
+                // Rim first (lower thresholds, larger), then the water on top.
+                if (remixapi_MeshHandle m = PuddleMesh(map, x, z, 11, puddleThr - 0.03f, 0.005f, g_film, puddleLevel)) Draw(m, 0, true, 3, 0, 1, static_cast<int>(22 * viewMix));
+                if (remixapi_MeshHandle m = PuddleMesh(map, x, z, 12, puddleThr - 0.015f, 0.0055f, g_film, puddleLevel)) Draw(m, 0, true, 3, 0, 1, static_cast<int>(30 * viewMix));
+                if (viewMix > 0.99f)
+                    if (remixapi_MeshHandle m = PuddleMesh(map, x, z, 13, puddleThr, 0.006f, g_puddleWater, puddleLevel)) Draw(m, 0, false, 1, 0, 1, 255);
             }
             if (palpha > 0 && g_puddle) {
                 if (remixapi_MeshHandle m = ChunkMesh(map, x, z, 3, g_puddle)) Draw(m, static_cast<uint32_t>(g_set.decalBits), true, 1, 3, 3, palpha);
