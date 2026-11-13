@@ -865,7 +865,7 @@ void DrawXf(remixapi_MeshHandle mesh, const float ax[3], const float ay[3], cons
 void DrawRainProxies(float ex, float ey, float ez, float viewMix) {
     const gta2::WeatherState& w = gta2::WeatherNow();
     static int enabled = 0; static DWORD read = 0;
-    if (GetTickCount() - read >= 1000) { read = GetTickCount(); enabled = GetPrivateProfileIntA("weather", "remix_rain_proxies", 0, g_ini);   // px1-px2: not seen with RR on; default off }
+    if (GetTickCount() - read >= 1000) { read = GetTickCount(); enabled = GetPrivateProfileIntA("weather", "remix_rain_proxies", 0, g_ini); }
     if (!enabled || !w.active || w.rain < 0.05f || viewMix < 0.99f) return;
     float el = 0.0f, az = 0.0f;
     TimeOfDayAngles(&el, &az);
