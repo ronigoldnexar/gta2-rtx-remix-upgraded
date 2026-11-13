@@ -180,6 +180,11 @@ void Step(double dt) {
     w.cloud += (cloud - w.cloud) * k;
     w.fog += (fog - w.fog) * k;
     w.wind += (wind - w.wind) * k;
+    {
+        float el = 0.0f, az = 0.0f;
+        TimeOfDayAngles(&el, &az);
+        w.night = (std::max)(0.0f, (std::min)(1.0f, (2.0f - el) / 8.0f));
+    }
     // WEATHER-V2: rain above a drizzle closes the sky (the cloud setting can close it alone), in both
     // renderers: the plain sky greys with w.cloud, Remix's with the overcast pushed from here.
     const float rainCloud = (std::max)(0.0f, (std::min)(1.0f, (w.rain - 0.1f) * 1.6f));

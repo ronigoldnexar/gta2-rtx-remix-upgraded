@@ -1,3 +1,4 @@
+#include <chrono>
 #include "mem_stats.h"
 #include "world_view.h"
 #include "city_map.h"
@@ -1684,6 +1685,23 @@ bool WorldView::EnsureWorldLoaded() {
     if (renderer_.IsRemixDevice() && !map_.Empty() && !weatherOn) {
         renderer_.SetWetTiles(std::vector<uint8_t>());
         Log("weather: off at level load: no wet variant textures (the stepped wet materials start at the next level load)");
+    }
+    // WEATHER-V2: the plain renderer's puddles from the same field as Remix's (gutters, ruts, junctions). Baked at
+    // every level load (road cells only, 4 MB L8) so weather switched on mid-level has them too; the texture is made on first use.
+    if (!renderer_.IsRemixDevice() && !map_.Empty()) {
+        const auto t0 = std::chrono::steady_clock::now();
+        std::vector<uint8_t> field;
+        BuildPuddleField(map_, 2048, &field);
+        renderer_.SetPuddleField(field, 2048);
+        if (const char* dump = std::getenv("GTA2DX9_WX_FIELD_DUMP")) {   // debug: the field's red channel as a PGM
+            if (FILE* f = std::fopen(dump, "wb")) {
+                std::fprintf(f, "P5 2048 2048 255\n");
+                std::fwrite(field.data(), 1, field.size(), f);
+                std::fclose(f);
+            }
+        }
+        Log("weather: plain puddle field 2048x2048 (L8) baked from the map (%.0f ms)",
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
     }
     if (renderer_.IsRemixDevice() && !map_.Empty() && weatherOn) {
         std::vector<uint8_t> tiles(1024, 0);

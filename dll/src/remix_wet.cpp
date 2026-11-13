@@ -432,6 +432,7 @@ void DrawProbeBoard(const gta2::Map& map, float ex, float ey, float ez) {
 // (linear crossing on its edges) and the inside fanned into triangles. Puddles are the
 // translucent water (a mirror); the damp rim is the same cut at two lower thresholds drawn with
 // the darkening film, so the puddle's edge steps down into the wet road instead of ending hard.
+float g_puddleUvOff = 0.0f;   // ripple phase: the puddle mesh texture offset
 float PuddleField(float x, float z) {
     float f = 0.0f, a = 0.5f, scale = 3.0f;   // noise cells a third of a block (~1.3 m): puddles 0.5-2 m
     for (int o = 0; o < 3; ++o, a *= 0.5f, scale *= 2.0f) f += a * Noise(x * scale, z * scale, 1 << 20);
@@ -457,8 +458,26 @@ CellBias BiasFor(const gta2::Map& map, int cx, int cz) {
     };
     b.road = ground(cx, cz) == 1;
     if (!b.road) return b;
+    // A kerb is a neighbour whose surface at this road's level is not road. Its top lid is the wrong test where a
+    // building bridges the street: the road runs on under it, and the bridge's edge drew a gutter (a straight
+    // puddle line) across every lane.
+    int level = -1;
+    {
+        const gta2::Column& c = map.ColumnAt(cx, gta2::kMapHeight - 1 - cz);
+        for (int i = static_cast<int>(c.blocks.size()) - 1; i >= 0 && level < 0; --i)
+            if (c.blocks[i] < map.BlockCount() && map.BlockAt(c.blocks[i]).lid && map.BlockAt(c.blocks[i]).GroundType() != 0) level = c.offset + i;
+    }
+    auto roadAt = [&](int x, int z) -> bool {
+        const int my = gta2::kMapHeight - 1 - z;
+        if (x < 0 || x >= gta2::kMapWidth || my < 0 || my >= gta2::kMapHeight) return false;
+        const gta2::Column& c = map.ColumnAt(x, my);
+        const int i = level - c.offset;
+        if (i < 0 || i >= static_cast<int>(c.blocks.size()) || c.blocks[i] >= map.BlockCount()) return false;
+        const gta2::Block& bl = map.BlockAt(c.blocks[i]);
+        return bl.lid && bl.GroundType() == 1;
+    };
     const int nx[4] = {-1, 1, 0, 0}, nz[4] = {0, 0, -1, 1};
-    for (int e = 0; e < 4; ++e) b.gutter[e] = ground(cx + nx[e], cz + nz[e]) != 1 ? 1.0f : 0.0f;
+    for (int e = 0; e < 4; ++e) b.gutter[e] = roadAt(cx + nx[e], cz + nz[e]) ? 0.0f : 1.0f;
     const int my = gta2::kMapHeight - 1 - cz;
     const gta2::Column& c = map.ColumnAt(cx, my);
     uint8_t arrows = 0;
@@ -547,7 +566,7 @@ remixapi_MeshHandle PuddleMesh(const gta2::Map& map, int chunkX, int chunkZ, int
                         remixapi_HardcodedVertex vx = {};
                         vx.position[0] = ox[k]; vx.position[1] = y; vx.position[2] = oz[k];
                         vx.normal[1] = 1.0f;
-                        vx.texcoord[0] = ox[k] / 6.0f; vx.texcoord[1] = oz[k] / 6.0f;
+                        vx.texcoord[0] = ox[k] / 1.5f + g_puddleUvOff; vx.texcoord[1] = oz[k] / 1.5f + g_puddleUvOff * 0.7f;
                         vx.color = 0xFFFFFFFFu;
                         verts.push_back(vx);
                     }
@@ -573,6 +592,8 @@ remixapi_MeshHandle PuddleMesh(const gta2::Map& map, int chunkX, int chunkZ, int
     return handle;
 }
 remixapi_MaterialHandle g_puddleWater = nullptr;
+remixapi_MaterialHandle g_puddleRipple = nullptr;   // the same water with the layer's ripple normal map (rain)
+bool g_rippleTried = false;
 
 // ---- Rain under Remix (WEATHER-V2): water drops as API geometry ----
 // A drop is two crossed vertical quads (thin water, IOR 1.33, almost clear), so the path tracer gives
@@ -973,11 +994,15 @@ void RemixWetFrame(const gta2::Map& map, float eyeX, float eyeY, float eyeZ, flo
         for (const RemixTrackedLight& t : LightsTracked()) {
             if (!t.drawn || t.def.intensity <= 0.02f) continue;
             const float dx = t.def.pos[0] - eyeX, dy = t.def.pos[1] - eyeY, dz = t.def.pos[2] - eyeZ;
-            const float reach = (std::min)(4.0f, (std::max)(1.0f, t.def.radius * 0.6f));
+            const float reach = t.def.spot ? 6.0f : (std::min)(4.0f, (std::max)(1.0f, t.def.radius * 0.6f));
             if (dx * dx + dy * dy + dz * dz > (reach + 3.0f) * (reach + 3.0f)) continue;
             gta2::ScreenRainLight L;
-            for (int k = 0; k < 3; ++k) { L.pos[k] = t.def.pos[k]; L.rgb[k] = t.def.rgb[k]; }
-            L.intensity = t.def.intensity; L.radius = reach;
+            for (int k = 0; k < 3; ++k) { L.pos[k] = t.def.pos[k]; L.rgb[k] = t.def.rgb[k]; L.dir[k] = t.def.dir[k]; }
+            L.intensity = t.def.intensity; L.radius = reach; L.spot = t.def.spot; L.coneDeg = t.def.coneAngleDeg > 0.0f ? t.def.coneAngleDeg : 25.0f;
+            {
+                const float dl = std::sqrt(L.dir[0] * L.dir[0] + L.dir[1] * L.dir[1] + L.dir[2] * L.dir[2]);
+                if (dl > 1e-4f) for (float& v : L.dir) v /= dl; else L.spot = false;
+            }
             sl.push_back(L);
             if (sl.size() >= 24) break;
         }
@@ -1079,6 +1104,26 @@ void RemixWetFrame(const gta2::Map& map, float eyeX, float eyeY, float eyeZ, flo
         RemixApi()->CreateMaterial(&info, &g_puddleWater);
         Log("remix wet: puddle water material %s", g_puddleWater ? "made" : "refused");
     }
+    if (puddleLevel > 0 && !g_rippleTried) {
+        g_rippleTried = true;
+        wchar_t exe[MAX_PATH] = {};
+        GetModuleFileNameW(nullptr, exe, MAX_PATH);
+        std::wstring path = exe;
+        path = path.substr(0, path.find_last_of(L"\\/")) + L"\\rtx-remix\\mods\\gta2hd\\textures\\water_ripple.n.rtex.dds";
+        if (GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES) {
+            static std::wstring keep; keep = path;
+            remixapi_MaterialInfoTranslucentEXT tr = {};
+            tr.sType = REMIXAPI_STRUCT_TYPE_MATERIAL_INFO_TRANSLUCENT_EXT;
+            tr.refractiveIndex = 1.33f; tr.transmittanceColor = {0.95f, 0.95f, 0.96f}; tr.transmittanceMeasurementDistance = 1.0f;
+            tr.thinWallThickness_hasvalue = 1; tr.thinWallThickness_value = 0.1f;
+            remixapi_MaterialInfo info = {};
+            info.sType = REMIXAPI_STRUCT_TYPE_MATERIAL_INFO; info.pNext = &tr; info.hash = 0x5745540500000002ull;
+            info.normalTexture = keep.c_str();
+            info.wrapModeU = 0; info.wrapModeV = 0; info.filterMode = 1;
+            RemixApi()->CreateMaterial(&info, &g_puddleRipple);
+        }
+        Log("remix wet: puddle ripple material %s", g_puddleRipple ? "made" : "not made (no water_ripple.n.rtex.dds in the layer)");
+    }
     if (puddleLevel > 0 && !g_film) {
         g_film = MakeOpaque(0x5745540100000001ull ^ salt, 0.0f, 0.08f, nullptr);
         g_filmGen = g_generation;
@@ -1107,14 +1152,53 @@ void RemixWetFrame(const gta2::Map& map, float eyeX, float eyeY, float eyeZ, flo
                 if (remixapi_MeshHandle m = PuddleMesh(map, x, z, 10, puddleThr - 0.045f, 0.0050f, g_film, puddleLevel)) Draw(m, 0, true, 3, 0, 1, static_cast<int>(12 * viewMix));
                 if (remixapi_MeshHandle m = PuddleMesh(map, x, z, 11, puddleThr - 0.030f, 0.0052f, g_film, puddleLevel)) Draw(m, 0, true, 3, 0, 1, static_cast<int>(12 * viewMix));
                 if (remixapi_MeshHandle m = PuddleMesh(map, x, z, 12, puddleThr - 0.015f, 0.0054f, g_film, puddleLevel)) Draw(m, 0, true, 3, 0, 1, static_cast<int>(12 * viewMix));
-                if (viewMix > 0.99f)
-                    if (remixapi_MeshHandle m = PuddleMesh(map, x, z, 13, puddleThr, 0.006f, g_puddleWater, puddleLevel)) Draw(m, 0, false, 1, 0, 1, 255);
+                if (viewMix > 0.99f) {
+                    const gta2::WeatherState& ws = gta2::WeatherNow();
+                    if (g_puddleRipple && ws.active && ws.rain > 0.05f) {
+                        // Rain on the water: the ripple map moved in four steps (~8 a second), a mesh per step.
+                        const int phase = static_cast<int>(std::fmod(ws.seconds * 8.0, 4.0));
+                        g_puddleUvOff = phase * 0.25f;
+                        if (remixapi_MeshHandle m = PuddleMesh(map, x, z, 20 + phase, puddleThr, 0.006f, g_puddleRipple, puddleLevel)) Draw(m, 0, false, 1, 0, 1, 255);
+                        g_puddleUvOff = 0.0f;
+                    } else if (remixapi_MeshHandle m = PuddleMesh(map, x, z, 13, puddleThr, 0.006f, g_puddleWater, puddleLevel)) {
+                        Draw(m, 0, false, 1, 0, 1, 255);
+                    }
+                }
             }
             if (palpha > 0 && g_puddle) {
                 if (remixapi_MeshHandle m = ChunkMesh(map, x, z, 3, g_puddle)) Draw(m, static_cast<uint32_t>(g_set.decalBits), true, 1, 3, 3, palpha);
             }
         }
     }
+}
+
+void BuildPuddleField(const gta2::Map& map, int size, std::vector<uint8_t>* out) {
+    // Texel i holds the field at world i * per (a grid vertex, as the Remix mesh is cut on its 1/8-block grid), so a
+    // block edge - where the gutter band peaks at the kerb - is sampled exactly; the shader offsets by half a texel.
+    // Only road cells can hold water (the noise alone stays under every threshold), so the rest is left at 0.
+    out->assign(static_cast<size_t>(size) * size, 0);
+    const float per = static_cast<float>(gta2::kMapWidth) / size;   // blocks per texel
+    const int tpb = (std::max)(1, size / gta2::kMapWidth);           // texels per block
+    int roads = 0, gutters = 0;
+    float vmax = 0.0f;
+    for (int cz = 0; cz < gta2::kMapHeight; ++cz) {
+        for (int cx = 0; cx < gta2::kMapWidth; ++cx) {
+            const CellBias b = BiasFor(map, cx, cz);
+            if (!b.road) continue;
+            ++roads; gutters += (b.gutter[0] + b.gutter[1] + b.gutter[2] + b.gutter[3]) > 0.0f;
+            for (int ty = 0; ty < tpb; ++ty) {
+                for (int tx = 0; tx < tpb; ++tx) {
+                    const int x = cx * tpb + tx, y = cz * tpb + ty;
+                    const float wx = x * per, wz = y * per;
+                    const float v = PuddleField(wx, wz) + Bias(b, wx - cx, wz - cz);
+                    vmax = (std::max)(vmax, v);
+                    const float r = (std::max)(0.0f, (std::min)(1.0f, 0.70f + (v - 0.46f) * 1.6f));
+                    (*out)[static_cast<size_t>(y) * size + x] = static_cast<uint8_t>(r * 255.0f + 0.5f);
+                }
+            }
+        }
+    }
+    Log("weather: puddle field: %d road cells, %d with a gutter, field max %.2f", roads, gutters, vmax);
 }
 
 }  // namespace gta2dx9

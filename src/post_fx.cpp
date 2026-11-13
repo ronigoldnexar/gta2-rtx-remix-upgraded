@@ -1504,6 +1504,12 @@ void PostFx::Resolve() {
             sampler(4, litTex_, true);
             sampler(1, depthTex_, false);
             device_->SetTexture(2, puddles_);
+            device_->SetTexture(3, puddleField_);   // WEATHER-V2: null = no puddles (only the ripples use the noise)
+            device_->SetSamplerState(3, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+            device_->SetSamplerState(3, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+            device_->SetSamplerState(3, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
+            device_->SetSamplerState(3, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
+            device_->SetSamplerState(3, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
             device_->SetSamplerState(2, D3DSAMP_ADDRESSU, D3DTADDRESS_WRAP);
             device_->SetSamplerState(2, D3DSAMP_ADDRESSV, D3DTADDRESS_WRAP);
             device_->SetSamplerState(2, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
@@ -1542,6 +1548,7 @@ void PostFx::Resolve() {
             device_->SetPixelShaderConstantF(0, &c[0][0], 14);
             DrawQuad(w, h);
             device_->SetTexture(2, nullptr);
+            device_->SetTexture(3, nullptr);
             litOut = wetTex_;
         }
     }

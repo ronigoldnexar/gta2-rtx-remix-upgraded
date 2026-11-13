@@ -116,6 +116,7 @@ struct PostStats {
 
 class PostFx {
 public:
+    void SetPuddleField(IDirect3DTexture9* field) { puddleField_ = field; }
     ~PostFx() { Release(); }
     // remix: the device is RTX Remix's; nothing here ever runs then.
     void Init(IDirect3DDevice9* device, int width, int height, bool remix);
@@ -283,6 +284,7 @@ private:
     Cascade cascades_[3];
     int cascadeCount_ = 0;
     std::vector<VisualLight> lights_;
+    IDirect3DTexture9* puddleField_ = nullptr;
 public:
     const std::vector<VisualLight>& FrameLights() const { return lights_; }
 private:

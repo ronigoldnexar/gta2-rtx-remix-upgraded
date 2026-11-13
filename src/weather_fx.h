@@ -33,6 +33,7 @@ struct WeatherState {
     float fog = 0.0f;       // fog bank: the haze pulled in to a few blocks
     float wind = 0.0f;      // slants the rain, drifts it
     float wet = 0.0f;       // the roads' wetness (lags the rain, dries after it)
+    float night = 0.0f;     // WEATHER-V2: 0 day .. 1 night (sun from +2 down to -6 deg)
     float windDir[2] = {0.6f, 0.8f};   // unit, world x/z
     float reflection = 1.0f;           // wet-road reflection strength
     bool streaks = true;
@@ -55,7 +56,7 @@ using WeatherCoverFn = bool (*)(float x, float y, float z);
 void SetWeatherCover(WeatherCoverFn fn);
 bool WeatherCovered(float x, float y, float z);
 // WEATHER-V2: lights near the eye for the screen-space rain under Remix (set by the DLL each frame).
-struct ScreenRainLight { float pos[3]; float rgb[3]; float intensity; float radius; };
+struct ScreenRainLight { float pos[3]; float rgb[3]; float intensity; float radius; bool spot; float dir[3]; float coneDeg; };
 void SetScreenRainLights(const std::vector<ScreenRainLight>& lights);
 
 // The sky and the world's light under this weather (both no-ops when inactive).
@@ -80,6 +81,10 @@ public:
     void DrawRain(const WorldShading& shading);
     // The puddle noise for the wet pass (L8, tiling).
     IDirect3DTexture9* Puddles();
+    IDirect3DTexture9* PuddleField();
+    // WEATHER-V2: a whole-map puddle field (size x size ARGB, 256 blocks across) in place of the tiling noise.
+    void SetPuddleField(const std::vector<uint8_t>& texels, int size);
+    bool HasPuddleField() const { return fieldSize_ > 0; }
 
 private:
     struct RainVertex { float x, y, z; DWORD colour; };
@@ -110,6 +115,9 @@ private:
     uint32_t lensSeed_ = 0x51ED270Bu;
     IDirect3DDevice9* device_ = nullptr;
     IDirect3DTexture9* puddles_ = nullptr;
+    std::vector<uint8_t> field_;
+    IDirect3DTexture9* fieldTex_ = nullptr;
+    int fieldSize_ = 0;
     IDirect3DStateBlock9* saved_ = nullptr;
     bool remix_ = false;
     const std::vector<VisualLight>* lights_ = nullptr;

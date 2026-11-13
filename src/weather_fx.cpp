@@ -1,5 +1,6 @@
 // See weather_fx.h and docs/weather.md.
 #include "weather_fx.h"
+#include <cstring>
 #include "post_fx.h"
 
 #include <algorithm>
@@ -140,6 +141,23 @@ void WeatherFx::SetCamera(const Mat4& view, const Mat4& proj, const Vec3& eye) {
     eye_ = eye;
     g_eye = eye;
     haveCamera_ = true;
+}
+
+IDirect3DTexture9* WeatherFx::PuddleField() {
+    if (fieldSize_ > 0 && !fieldTex_ && device_ && !remix_) {
+        if (SUCCEEDED(device_->CreateTexture(fieldSize_, fieldSize_, 1, 0, D3DFMT_L8, D3DPOOL_MANAGED, &fieldTex_, nullptr))) {
+            D3DLOCKED_RECT lr;
+            if (SUCCEEDED(fieldTex_->LockRect(0, &lr, nullptr, 0))) {
+                for (int y = 0; y < fieldSize_; ++y)
+                    memcpy(static_cast<uint8_t*>(lr.pBits) + y * lr.Pitch, &field_[static_cast<size_t>(y) * fieldSize_], fieldSize_);
+                fieldTex_->UnlockRect(0);
+            }
+            RendererTrace("weather: puddle field %dx%d (whole map, same as Remix)", fieldSize_, fieldSize_);
+        } else {
+            fieldTex_ = nullptr;
+        }
+    }
+    return fieldTex_;
 }
 
 IDirect3DTexture9* WeatherFx::Puddles() {
@@ -310,6 +328,11 @@ void WeatherFx::DrawRain(const WorldShading& shading) {
 void SetWeatherCover(WeatherCoverFn fn) { g_cover = fn; }
 void SetScreenRainLights(const std::vector<ScreenRainLight>& lights) { g_srLights = lights; }
 bool WeatherCovered(float x, float y, float z) { return g_cover && g_cover(x, y, z); }
+
+void WeatherFx::SetPuddleField(const std::vector<uint8_t>& texels, int size) {
+    field_ = texels; fieldSize_ = size;
+    if (fieldTex_) { fieldTex_->Release(); fieldTex_ = nullptr; }
+}
 
 void WeatherFx::SetRemixFrame(const Mat4& view, const Mat4& proj, const Vec3& eye, float blend) {
     SetCamera(view, proj, eye);
@@ -605,14 +628,26 @@ void WeatherFx::DrawScreenRain(int width, int height, float weight) {
         Vec3 lit{0.0f, 0.0f, 0.0f};
         for (const ScreenRainLight& L : g_srLights) {
             const float dx = p.x - L.pos[0], dy = p.y - L.pos[1], dz = p.z - L.pos[2];
-            const float dd = std::sqrt(dx * dx + dy * dy + dz * dz), r = std::max(1.0f, L.radius);
-            if (dd > r) continue;
-            float k = 1.0f - dd / r; k *= k * L.intensity;
-            lit = lit + Vec3{L.rgb[0], L.rgb[1], L.rgb[2]} * k;
+            float k = 0.0f;
+            if (L.spot) {
+                // A head lamp's beam: along it up to 6 blocks, inside its cone (soft edge).
+                const float along = dx * L.dir[0] + dy * L.dir[1] + dz * L.dir[2];
+                if (along > 0.1f && along < 6.0f) {
+                    const float px = dx - L.dir[0] * along, py = dy - L.dir[1] * along, pz = dz - L.dir[2] * along;
+                    const float off = std::sqrt(px * px + py * py + pz * pz);
+                    const float rad = along * std::tan(std::max(8.0f, std::min(45.0f, L.coneDeg)) * 0.0174533f) + 0.1f;
+                    const float in = Clamp01(1.0f - off / rad);
+                    k = in * in * (1.0f - along / 6.0f) * L.intensity * 1.6f;
+                }
+            } else {
+                const float dd = std::sqrt(dx * dx + dy * dy + dz * dz), r = std::max(1.0f, L.radius);
+                if (dd < r) { k = 1.0f - dd / r; k *= k * L.intensity; }
+            }
+            if (k > 0.0f) lit = lit + Vec3{L.rgb[0], L.rgb[1], L.rgb[2]} * k;
         }
         const float li = std::min(1.0f, (lit.x + lit.y + lit.z) / 3.0f);
         const float fade = Clamp01((R - dist) / 1.0f) * Clamp01((dist - 0.6f) / 0.4f);
-        const float a = (0.05f + 0.30f * li) * fade * weight * (0.6f + 0.4f * w.rain);
+        const float a = (0.05f + 0.17f * (1.0f - w.night) + 0.35f * li) * fade * weight * (0.6f + 0.4f * w.rain);
         if (a < 0.01f) continue;
         const Vec3 top = p - dir * (0.35f + 0.15f * Hash01(s0 + 5));
         float x0, y0, w0, x1, y1, w1;
@@ -621,7 +656,8 @@ void WeatherFx::DrawScreenRain(int width, int height, float weight) {
         const float nl = std::sqrt(nx * nx + ny * ny);
         if (nl < 1.0f) continue;
         nx *= 0.75f / nl; ny *= 0.75f / nl;   // 1.5 px wide
-        const float cr = std::min(1.0f, 0.75f + lit.x), cg = std::min(1.0f, 0.78f + lit.y), cb = std::min(1.0f, 0.84f + lit.z);
+        const float day = 0.14f * (1.0f - w.night);   // by day the streaks are whiter than the asphalt and sky glare
+        const float cr = std::min(1.0f, 0.75f + day + lit.x), cg = std::min(1.0f, 0.78f + day + lit.y), cb = std::min(1.0f, 0.84f + day + lit.z);
         const DWORD c0 = D3DCOLOR_ARGB(static_cast<int>(a * 255.0f), static_cast<int>(cr * 255.0f), static_cast<int>(cg * 255.0f), static_cast<int>(cb * 255.0f));
         const DWORD c1 = c0 & 0x00FFFFFFu;
         const V q[4] = {{x0 - nx, y0 - ny, 0, 1, c0}, {x0 + nx, y0 + ny, 0, 1, c0}, {x1 - nx, y1 - ny, 0, 1, c1}, {x1 + nx, y1 + ny, 0, 1, c1}};

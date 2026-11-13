@@ -2419,6 +2419,7 @@ void Renderer::EndWorldShading() {
     weather_.DrawRain(shading_);
     if (post_.Active()) {
         post_.SetPuddles(WeatherNow().wetRoads && WeatherNow().wet > 0.01f ? weather_.Puddles() : nullptr);
+        post_.SetPuddleField(WeatherNow().wetRoads && WeatherNow().wet > 0.01f ? weather_.PuddleField() : nullptr);
         post_.Resolve();
     }
     device_->SetRenderState(D3DRS_FOGENABLE, FALSE);

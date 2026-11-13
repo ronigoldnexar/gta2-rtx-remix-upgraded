@@ -35,6 +35,7 @@ float4 cK5         : register(c13);  // x: depth tolerance (blocks) of the cover
 sampler2D sLit    : register(s4);
 sampler2D sDepth  : register(s1);
 sampler2D sPuddle : register(s2);
+sampler2D sField  : register(s3);   // WEATHER-V2: whole-map puddle field (L8), 8 texels per block (2048 for a 256-block map)
 
 // step() as arithmetic: this compiler has no comparisons in shader model 3 yet.
 float St(float edge, float x) { return saturate((x - edge) * cK.w); }
@@ -97,7 +98,7 @@ float4 ps_wet(WetIn i) : COLOR0 {
     float wet = cUp.w * (1.0 - fog);
 
     float2 wxz = float2(dot(float4(p, 1.0), cToWorldX), dot(float4(p, 1.0), cToWorldZ));
-    float2 pn = tex2Dlod(sPuddle, float4(wxz / 32.0, 0, 0)).rg;
+    float2 pn = tex2Dlod(sField, float4(wxz / 256.0 + 0.000244, 0, 0)).rg;   // + half a texel: texels hold grid vertices
     // Far off the puddle map is minified with no mips and turns to grain: fade the puddles
     // (and below, the reflection) out between 25 and 60 blocks.
     float near = 1.0 - saturate((p.z - 25.0) / 35.0);
