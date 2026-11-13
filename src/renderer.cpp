@@ -1,4 +1,5 @@
 #include "renderer.h"
+#include "district_kit.h"
 
 #include <algorithm>
 #include <array>
@@ -974,7 +975,8 @@ bool Renderer::UploadWorld(const WorldMesh& mesh, const Style& style, std::strin
     // have no tile of their own - see SealTileIndex and RiverbedTileIndex.
     const int sealTile = SealTileIndex(style);
     const int riverbedTile = RiverbedTileIndex(style);
-    textures_.assign(static_cast<size_t>(riverbedTile) + 1, nullptr);
+    // DISTRICTS-POC: and kKitMaterials more for the facade kit's own materials (KitTileIndex).
+    textures_.assign(static_cast<size_t>(riverbedTile) + 1 + kKitMaterials, nullptr);
     warmCursor_ = 0;
     hdTiles_ = 0;
     hdDdsTiles_ = 0;
@@ -1110,7 +1112,7 @@ bool Renderer::UploadWorld(const WorldMesh& mesh, const Style& style, std::strin
         // High-resolution artwork for this tile, if the folder has it: a
         // block-compressed DDS with mips first (tools/pack_textures_dds.py), then
         // the older uncompressed TGA.
-        if (!hdDir.empty() && batch.tile != sealTile && batch.tile != riverbedTile) {
+        if (!hdDir.empty() && batch.tile != sealTile && batch.tile != riverbedTile && !IsKitTile(style, batch.tile)) {
             int w = 0, h = 0;
             if (IDirect3DTexture9* texture = LoadHdTileTexture(batch.tile)) {
                 textures_[batch.tile] = texture;
@@ -1164,6 +1166,17 @@ bool Renderer::UploadWorld(const WorldMesh& mesh, const Style& style, std::strin
             }
         }
 
+        if (IsKitTile(style, batch.tile)) {
+            // DISTRICTS-POC: the facade kit's material k from gta2dx9_districts\kit_NN.dds (tools/districts/
+            // kit_textures.py: fixed content, so a fixed Remix hash); a flat grey stand-in if it is missing.
+            char leaf[32];
+            snprintf(leaf, sizeof(leaf), "\\kit_%02d.dds", batch.tile - KitTileIndex(style, 0));
+            DdsImage dds;
+            if (ReadDds(DistrictKitDir() + leaf, &dds)) {
+                if (IDirect3DTexture9* kt = CreateDdsTexture(device_, dds, 256)) { textures_[batch.tile] = kt; continue; }
+            }
+            Trace("districts: kit material %s missing, flat grey", leaf + 1);
+        }
         IDirect3DTexture9* texture = nullptr;
         if (FAILED(device_->CreateTexture(kTileSize, kTileSize, 1, 0, D3DFMT_A8R8G8B8,
                                           D3DPOOL_MANAGED, &texture, nullptr))) {
@@ -1184,6 +1197,11 @@ bool Renderer::UploadWorld(const WorldMesh& mesh, const Style& style, std::strin
                 uint32_t* row = reinterpret_cast<uint32_t*>(
                     static_cast<uint8_t*>(rect.pBits) + y * rect.Pitch);
                 for (int x = 0; x < kTileSize; ++x) row[x] = 0xFF000000u;
+            }
+        } else if (IsKitTile(style, batch.tile)) {
+            for (int y = 0; y < kTileSize; ++y) {
+                uint32_t* row = reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(rect.pBits) + y * rect.Pitch);
+                for (int x = 0; x < kTileSize; ++x) row[x] = 0xFF808080u;
             }
         } else if (batch.tile == riverbedTile) {
             for (int y = 0; y < kTileSize; ++y) {
@@ -1914,6 +1932,14 @@ void Renderer::DrawWorld(const Camera& camera) {
         // The street views' fill (world_mesh.h, TileBatch::streetOnly): never in the
         // classic view, which keeps exactly the draws it had before the fill existed.
         if (batch.streetOnly && !streetView_) continue;
+        // DISTRICTS-POC: the facade kit, see SetKitPresentation.
+        if (batch.kit) {
+            if (!kitVisible_) continue;
+            if (kitAlpha_ < 0.999f) {
+                if (kitAlpha_ > 0.02f) fadedPoles.push_back({&batch, batch.indexStart, batch.indexCount, kitAlpha_});
+                continue;
+            }
+        }
         if (waterShaderOn && batch.tile < static_cast<int>(waterTile_.size()) && waterTile_[batch.tile]) {
             waterDeferred_.push_back(&batch);
             continue;

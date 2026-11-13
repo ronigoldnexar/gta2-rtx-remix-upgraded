@@ -26,6 +26,7 @@
 
 #include "../../src/gta2_style.h"
 #include "../../src/world_mesh.h"
+#include "../../src/district_kit.h"
 #include "../../src/post_fx.h"   // SetPostCockpitReach (FIX-COCKPIT-CAB-4)
 #include "../../src/weather_fx.h"   // LIGHTING-V1: follow_clock=auto
 #include "debug_overlay.h"
@@ -1668,6 +1669,19 @@ bool WorldView::EnsureWorldLoaded() {
         if (dot != std::string::npos) leaf = leaf.substr(0, dot);
         for (char& c : leaf) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
         gta2::SetTileStyleName(leaf.c_str());
+        // DISTRICTS-POC: the facade kit, appended after the camera's collision mesh was built (the kit's
+        // small overhangs do not push the street cameras) and after every other batch (classic unchanged).
+        if (gta2::DistrictKitEnabled()) {
+            const size_t vBefore = mesh.vertices.size(), iBefore = mesh.indices.size();
+            gta2::DistrictKitStats ks;
+            const bool ok = gta2::AppendDistrictKit(style, leaf, &mesh, &ks);
+            Log("districts: facade kit %s\\%s.kit %s: %d group(s), %d batch(es), %d triangles, %d vertices, %d skipped, file %u KB, "
+                "mesh +%u KB (vertices) +%u KB (indices)", gta2::DistrictKitDir().c_str(), leaf.c_str(), ok ? "loaded" : "NOT loaded",
+                ks.groups, ks.batches, ks.triangles, ks.vertices, ks.skipped, static_cast<unsigned>(ks.bytes / 1024),
+                static_cast<unsigned>((mesh.vertices.size() - vBefore) * sizeof(gta2::Vertex) / 1024),
+                static_cast<unsigned>((mesh.indices.size() - iBefore) * 4 / 1024));
+            MemStatsLog("level load: facade kit appended", 0);
+        }
     }
     if (!renderer_.UploadWorld(mesh, style, &error)) {
         Log("world upload failed: %s", error.c_str());
@@ -4146,6 +4160,16 @@ void WorldView::RenderFrame() {
             const PlayerState& hero = g_viewPlayer;
             renderer_.SetMoveOccluders(worldUploaded_ && g_viewMoving && hero.valid,
                                        gta2::Vec3{hero.x, hero.z, static_cast<float>(gta2::kMapHeight) - hero.y});
+            // DISTRICTS-POC: the facade kit fades in with the street extras over the move from the classic
+            // view (and out on the way back); [devtools] district_kit_show=0 hides it live (A/B frames).
+            static int kitShow = 1;
+            static uint32_t kitPolls = 0;
+            if (CarBodiesDevIni()[0] && (kitPolls++ % 30u) == 0) {
+                const int v = GetPrivateProfileIntA("devtools", "district_kit_show", 1, CarBodiesDevIni());
+                if (v != kitShow) Log("devtools: district_kit_show %d", v);
+                kitShow = v;
+            }
+            renderer_.SetKitPresentation(worldUploaded_ ? g_presentExtras : 0.0f, kitShow != 0);
         }
         {
             // FIX-WORLD-16 qav59: first person clips the sparse lattices (pylon girders) nearer than 0.35

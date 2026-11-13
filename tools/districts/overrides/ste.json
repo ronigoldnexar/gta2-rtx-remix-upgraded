@@ -1,0 +1,7 @@
+{
+  "_comment": "Hand-editable district overrides for Residential (ste); see wil.json.",
+  "names": {"gang:redngang": "Rednecks turf", "gang:zaibgang": "Zaibatsu turf", "gang:sciegang": "Scientists turf", "gang:almagang": "Prison", "gang:poligang": "Cop HQ"},
+  "styles": {"gang:redngang": "residential_redneck", "gang:sciegang": "residential_science", "gang:zaibgang": "residential_suburb",
+             "local_nav:s06": "residential_prison", "local_nav:s07": "residential_mall"},
+  "rects": []
+}

@@ -160,6 +160,10 @@ public:
     // away, so an eye that stands inside a pylon's lattice block does not see one of its faces edge-on
     // as a flat black slab down the frame edge. 0 (the default, every other view): no clip.
     // FIX-CAMERA-20: lids too (the third-person lens: a truss's lattice deck between it and him); first person leaves them
+    // DISTRICTS-POC: the facade kit's batches (TileBatch::kit) are drawn at this opacity (the street
+    // extras' ramp over the move from the classic view: below 1 they go through the see-through pass, as
+    // the fading street lights do, so nothing pops), and not at all when !visible (a live A/B).
+    void SetKitPresentation(float alpha, bool visible) { kitAlpha_ = alpha < 0.0f ? 0.0f : (alpha > 1.0f ? 1.0f : alpha); kitVisible_ = visible; }
     void SetSeeThroughNearClip(float ahead, bool lids = false) { seeThroughClip_ = ahead > 0.0f ? ahead : 0.0f; seeThroughClipLids_ = lids; }
     // FIX-PERF-9 (14p3): the street views leave out the world's tile batches (and the ends of a batch's
     // index range) whose triangles lie wholly outside the view frustum. Exact: a triangle outside a
@@ -330,6 +334,8 @@ public:
     void SetMoveOccluders(bool moving, const Vec3& hero) { moveOccMoving_ = moving; moveOccHero_ = hero; }
 private:
     float photoMix_ = 0.0f;
+    float kitAlpha_ = 1.0f;             // see SetKitPresentation
+    bool kitVisible_ = true;
     float roadMix_ = 0.0f;              // see SetStreetView
     std::vector<uint8_t> roadTile_;     // per tile: 1 when its street copy came from the roads set
     float TileMix(int tile) const {

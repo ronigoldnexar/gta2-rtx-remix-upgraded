@@ -36,3 +36,7 @@ linux/docker/nv_cache_gl/
 stage_candidate/
 stage_*/
 __pycache__/
+# DISTRICTS-POC: generated facade-kit meshes (tools/districts/kit.py; derived from the map, regenerate)
+assets/districts/*.kit
+assets/districts/*.owners.json
+tools/districts/__pycache__/

@@ -51,6 +51,7 @@
 #include "cache_warmup.h"
 #include "world_view.h"
 #include "../../src/sky.h"
+#include "../../src/district_kit.h"
 #include "view_modes.h"
 #include "cockpit_mode.h"
 #include "car_bodies.h"
@@ -546,6 +547,12 @@ void LoadConfig() {
         if (GetPrivateProfileIntA("renderer", "dump_tiles", 0, ini) != 0) {
             PathBesideGame("gta2dx9_tiles", dir, sizeof(dir));
             gta2::SetTileDumpDir(dir);
+        }
+        // DISTRICTS-POC: the facade kit (src/district_kit.h) from gta2dx9_districts\ beside the game.
+        {
+            char kdir[MAX_PATH];
+            PathBesideGame("gta2dx9_districts", kdir, sizeof(kdir));
+            gta2::SetDistrictKit(GetPrivateProfileIntA("districts", "facade_kit", 0, ini) != 0, kdir);
         }
     }
 

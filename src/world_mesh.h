@@ -67,6 +67,9 @@ struct TileBatch {
     uint32_t classicVertexStart = 0;
     uint32_t classicIndexStart = 0;
     uint32_t classicIndexCount = 0;
+    // DISTRICTS-POC (src/district_kit.h): a facade-kit batch, street-only, faded in with the street
+    // presentation (Renderer::SetKitPresentation) and hidden by [devtools] district_kit_show=0.
+    bool kit = false;
 };
 
 // FIX-TRANSITION-ART: one street light's round pole segment (AddLampPole) or its arm and head solid

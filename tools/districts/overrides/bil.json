@@ -1,0 +1,7 @@
+{
+  "_comment": "Hand-editable district overrides for Industrial (bil); see wil.json.",
+  "names": {"gang:russgang": "Russian Mafia turf", "gang:krisgang": "Krishna turf", "gang:zaibgang": "Zaibatsu turf", "gang:islagang": "Mad Island"},
+  "styles": {"gang:russgang": "industrial_russian", "gang:krisgang": "industrial_krishna", "gang:zaibgang": "industrial_zaibatsu",
+             "local_nav:B22": "industrial_docks", "local_nav:B23": "industrial_docks", "local_nav:B21": "industrial_docks"},
+  "rects": []
+}
