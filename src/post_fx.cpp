@@ -332,7 +332,9 @@ void PostFx::BuildWorld(const WorldMesh& mesh, const Style& style, IDirect3DVert
         }
     }
     int side = 1;
-    while (side * side < static_cast<int>(cutoutTiles.size()) + 1) side *= 2;
+    // + 1 for the facade kit's dither cell (DISTRICTS), after the cutout tiles' cells
+    while (side * side < static_cast<int>(cutoutTiles.size()) + 2) side *= 2;
+    ditherCell_ = static_cast<int>(cutoutTiles.size()) + 1;
     const int atlasPx = side * kCellPx;
     atlasCell_ = 1.0f / static_cast<float>(side);
     if (SUCCEEDED(device_->CreateTexture(atlasPx, atlasPx, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &alphaAtlas_, nullptr))) {
@@ -346,6 +348,17 @@ void PostFx::BuildWorld(const WorldMesh& mesh, const Style& style, IDirect3DVert
                 for (int y = 0; y < kCellPx; ++y) {
                     uint32_t* row = reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(r.pBits) + (cy + y) * r.Pitch) + cx;
                     for (int x = 0; x < kCellPx; ++x) row[x] = (t.pixels[static_cast<size_t>(y) * kCellPx + x] & 0xFF000000u) | 0x00FFFFFFu;
+                }
+            }
+            {   // DISTRICTS: the kit's dither cell, an 8x8 Bayer matrix tiled (alpha (b + 0.5) / 64)
+                static const int kBayer[8][8] = {{0, 32, 8, 40, 2, 34, 10, 42}, {48, 16, 56, 24, 50, 18, 58, 26}, {12, 44, 4, 36, 14, 46, 6, 38},
+                                                 {60, 28, 52, 20, 62, 30, 54, 22}, {3, 35, 11, 43, 1, 33, 9, 41}, {51, 19, 59, 27, 49, 17, 57, 25},
+                                                 {15, 47, 7, 39, 13, 45, 5, 37}, {63, 31, 55, 23, 61, 29, 53, 21}};
+                const int c = ditherCell_, cx = (c % side) * kCellPx, cy = (c / side) * kCellPx;
+                for (int y = 0; y < kCellPx; ++y) {
+                    uint32_t* row = reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(r.pBits) + (cy + y) * r.Pitch) + cx;
+                    for (int x = 0; x < kCellPx; ++x)
+                        row[x] = (static_cast<uint32_t>((kBayer[y & 7][x & 7] * 4 + 2)) << 24) | 0x00FFFFFFu;
                 }
             }
             alphaAtlas_->UnlockRect(0);
@@ -367,7 +380,21 @@ void PostFx::BuildWorld(const WorldMesh& mesh, const Style& style, IDirect3DVert
         d[3] = std::min(0.99f, std::max(0.01f, src.u)) * cellSize;
         d[4] = std::min(0.99f, std::max(0.01f, src.v)) * cellSize;
     }
+    std::vector<uint8_t> kitVertex(mesh.vertices.size(), 0);
     for (const TileBatch& b : mesh.batches) {
+        if (!b.kit) continue;
+        const float c0 = static_cast<float>(ditherCell_ % side) * cellSize, c1 = static_cast<float>(ditherCell_ / side) * cellSize;
+        for (uint32_t v = b.vertexStart; v < b.vertexStart + b.vertexCount && v < mesh.vertices.size(); ++v) {
+            const Vertex& src = mesh.vertices[v];
+            float* d = &cells[v * kShadowVertexFloats];
+            const float fu = src.x * 7.0f + src.z * 7.0f, fv = src.y * 7.0f;
+            d[3] = c0 + (0.01f + 0.98f * (fu - std::floor(fu))) * cellSize;
+            d[4] = c1 + (0.01f + 0.98f * (fv - std::floor(fv))) * cellSize;
+            kitVertex[v] = 1;
+        }
+    }
+    for (const TileBatch& b : mesh.batches) {
+        if (b.kit) continue;
         if (!b.needsAlphaTest || b.tile < 0 || b.tile >= static_cast<int>(cellOf.size()) || cellOf[static_cast<size_t>(b.tile)] < 0) continue;
         const int c = cellOf[static_cast<size_t>(b.tile)];
         for (uint32_t v = b.vertexStart; v < b.vertexStart + b.vertexCount && v < mesh.vertices.size(); ++v) {
@@ -403,7 +430,7 @@ void PostFx::BuildWorld(const WorldMesh& mesh, const Style& style, IDirect3DVert
     // chunks a cascade touches still merge into runs.
     const size_t nChunks = static_cast<size_t>(chunksX_) * chunksZ_;
     std::vector<int> chunkOf(triCount);
-    std::vector<uint32_t> perChunk(nChunks * 2 + 1, 0);
+    std::vector<uint32_t> perChunk(nChunks * 3 + 1, 0);
     size_t cutoutTris = 0;
     for (size_t t = 0; t < triCount; ++t) {
         const Vertex& a = mesh.vertices[streetIdx[t * 3]];
@@ -412,11 +439,12 @@ void PostFx::BuildWorld(const WorldMesh& mesh, const Style& style, IDirect3DVert
         const int cx = std::min(chunksX_ - 1, std::max(0, static_cast<int>(((a.x + b.x + c.x) / 3.0f - ox) / kChunk)));
         const int cz = std::min(chunksZ_ - 1, std::max(0, static_cast<int>(((a.z + b.z + c.z) / 3.0f - oz) / kChunk)));
         const bool cut = cutVertex[streetIdx[t * 3]] != 0;
+        const bool kit = kitVertex[streetIdx[t * 3]] != 0;
         cutoutTris += cut ? 1 : 0;
-        chunkOf[t] = (cut ? static_cast<int>(nChunks) : 0) + cz * chunksX_ + cx;
+        chunkOf[t] = (kit ? 2 * static_cast<int>(nChunks) : (cut ? static_cast<int>(nChunks) : 0)) + cz * chunksX_ + cx;
         ++perChunk[static_cast<size_t>(chunkOf[t])];
     }
-    chunks_.assign(nChunks * 2, Chunk{});
+    chunks_.assign(nChunks * 3, Chunk{});
     uint32_t run = 0;
     for (size_t i = 0; i < chunks_.size(); ++i) {
         chunks_[i].start = run;
@@ -831,15 +859,21 @@ void PostFx::RenderShadows(int cascades, const Vec3& sunDirIn) {
             device_->SetPixelShaderConstantF(0, psc, 1);
             device_->SetTexture(0, alphaAtlas_);
             device_->SetIndices(shadowIb_);
-            const size_t nChunks = chunks_.size() / 2;
+            const size_t nChunks = chunks_.size() / 3;
             if (dbg == 10 || dbg == 11) {   // debug: the whole world in one draw, no chunk culling, no cutouts
                 device_->SetPixelShader(psShadowSolid_);
                 device_->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, worldVertexCount_, 0, worldIndexCount_ / 3);
                 ++stats_.worldDraws;
             } else {
-                for (int set = 0; set < 2; ++set) {
+                for (int set = 0; set < 3; ++set) {
                     // debug 8: everything solid; 12: the cutout set left out
-                    if (set == 1 && dbg == 12) break;
+                    if (set == 1 && dbg == 12) continue;
+                    // DISTRICTS: the facade kit's set, dithered against its fade (SetKitShadow); none while it is out
+                    if (set == 2) {
+                        if (kitShadow_ <= 0.02f) break;
+                        const float kpsc[4] = {0.0f, 1.0f - kitShadow_ + 0.004f, 0.0f, 0.0f};
+                        device_->SetPixelShaderConstantF(0, kpsc, 1);
+                    }
                     device_->SetPixelShader(set == 0 || dbg == 8 || dbg == 9 ? psShadowSolid_ : psShadowCutout_);
                     uint32_t runStart = 0, runCount = 0;
                     auto flush = [&]() {
@@ -868,6 +902,7 @@ void PostFx::RenderShadows(int cascades, const Vec3& sunDirIn) {
                     }
                     flush();
                 }
+                device_->SetPixelShaderConstantF(0, psc, 1);
             }
         }
 

@@ -6,7 +6,7 @@
 Score: the level's target archetypes (Downtown: brick tenement / brownstone / office tower; Residential:
 brownstone / tenement / house; Industrial: warehouse / factory), times how much wall with openings faces a
 road or pavement at street level (what a player walking or driving sees), times a height term (3-6 levels),
-times 0.6 inside a landmark (local-nav) zone, times the square of how complete that wall is (faces present), plus a bonus near a point the QA harness already frames (tools/vreg/shots.json, Downtown)."""
+times (1 + 0.15 per street door, up to 6) and halved under 4 upper windows (what the kit builds on), times 0.6 inside a landmark (local-nav) zone, times the square of how complete that wall is (faces present), plus a bonus near a point the QA harness already frames (tools/vreg/shots.json, Downtown)."""
 import json, math, os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gmap
@@ -36,7 +36,7 @@ def main():
             continue
         b = cat[a["id"]]
         seen = 0
-        street_fl, tiled = 0, 0
+        street_fl, tiled, doors, uppers = 0, 0, 0, 0
         for f in b["faces"]:
             dx, dy = gmap.SIDES[f["side"]][3]
             nx, ny = f["x"] + dx, f["y"] + dy
@@ -46,7 +46,11 @@ def main():
             if g not in (1, 2) or f["lo"] > b["street"]:
                 continue
             street_fl += len(f["levels"]); tiled += sum(1 for l in f["levels"] if l["tile"])
-            seen += sum(1 for l in f["levels"] if l["tile"] and l["slope"] == 0 and tiles.get(str(l["tile"]), {}).get("openings"))
+            ops = lambda l: [o for o in tiles.get(str(l["tile"]), {}).get("openings", []) if o.get("conf", 1.0) >= 0.45]
+            seen += sum(1 for l in f["levels"] if l["tile"] and l["slope"] == 0 and ops(l))
+            # what the kit can build here: street doors (stoops, docks) and upper windows (bays, balconies, escapes)
+            doors += sum(1 for l in f["levels"][:1] for o in ops(l) if o["kind"] in ("door", "loading_door", "shop window"))
+            uppers += sum(1 for l in f["levels"][1:] if any(o["kind"] == "window" for o in ops(l)))
         hterm = 1.0 if 3 <= b["levels"] <= 6 else 0.5
         cx = (b["bbox"][0] + b["bbox"][2] + 1) / 2; cy = (b["bbox"][1] + b["bbox"][3] + 1) / 2
         near = min([(math.hypot(cx - x, cy - y), nm) for x, y, nm in qa] or [(999, "")])
@@ -55,7 +59,7 @@ def main():
         # representative: an ordinary street of a gang or neighbourhood district, not a landmark compound
         # (a local-nav zone names one place: the prison, the army base, a mission yard)
         typical = 0.6 if dists[b["district"]]["kind"] == "local_nav" else 1.0
-        score = w * min(seen, 60) * hterm * complete ** 2 * typical * (1.5 if near[0] < 14 else 1.0)
+        score = w * min(seen, 60) * hterm * complete ** 2 * typical * (1.5 if near[0] < 14 else 1.0) * (1.0 + 0.15 * min(doors, 6)) * (1.0 if uppers >= 4 else 0.5)
         rows.append((score, a["id"], a["archetype"], b["levels"], b["area"], seen, b["bbox"], near))
     rows.sort(reverse=True)
     for r in rows[:n]:

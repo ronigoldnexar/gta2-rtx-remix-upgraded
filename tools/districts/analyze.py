@@ -130,6 +130,82 @@ def dark_openings(a, boxes):
     return out
 
 
+def refine_openings(a, boxes):
+    """confidence and snapping for every opening box, so a recess is cut only where the art shows an opening, along
+    the art's own edges: conf from the box's luminance contrast against a 3-texel ring round it (0 at 8 levels of
+    256, 1 at 28); each edge moved to the strongest luminance step within 3 texels; then, within the tile, boxes of
+    one kind whose tops (bottoms) are within 2 texels share the median top (bottom): one window grid per tile."""
+    import numpy as np
+    L = (a[..., :3] @ np.array([0.299, 0.587, 0.114], np.float32)) * 255.0
+    out = []
+    for b in boxes:
+        if b["kind"] == "sill":
+            out.append(b); continue
+        x0, y0, x1, y1 = [int(round(v)) for v in b["box"]]
+        x0, y0, x1, y1 = max(0, x0), max(0, y0), min(64, x1), min(64, y1)
+        if x1 - x0 < 3 or y1 - y0 < 3:
+            continue
+        def best(edge, lo, hi, axis, span):
+            sc, at = -1.0, edge
+            for e in range(max(lo, edge - 3), min(hi, edge + 3) + 1):
+                if e <= 0 or e >= 64:
+                    continue
+                if axis == 0:
+                    d = abs(float(L[span[0]:span[1], e - 1].mean()) - float(L[span[0]:span[1], e].mean()))
+                else:
+                    d = abs(float(L[e - 1, span[0]:span[1]].mean()) - float(L[e, span[0]:span[1]].mean()))
+                if d > sc + 0.5:
+                    sc, at = d, e
+            return at
+        nx0 = best(x0, 1, x1 - 4, 0, (y0, y1)); nx1 = best(x1, nx0 + 4, 63, 0, (y0, y1))
+        ny0 = best(y0, 1, y1 - 4, 1, (nx0, nx1)); ny1 = best(y1, ny0 + 4, 63, 1, (nx0, nx1))
+        if y1 >= 63: ny1 = 64
+        inner = L[ny0:ny1, nx0:nx1]
+        ring = np.concatenate([L[max(0, ny0 - 3):ny0, nx0:nx1].ravel(), L[ny1:min(64, ny1 + 3), nx0:nx1].ravel(),
+                               L[ny0:ny1, max(0, nx0 - 3):nx0].ravel(), L[ny0:ny1, nx1:min(64, nx1 + 3)].ravel()])
+        contrast = abs(float(inner.mean()) - float(ring.mean())) if ring.size and inner.size else 0.0
+        conf = min(1.0, max(0.0, (contrast - 8.0) / 20.0))
+        if b["kind"] == "window" and ring.size and inner.size and float(inner.mean()) > float(ring.mean()) + 5:
+            conf *= 0.3   # lighter than the wall round it: a painted panel or a light plaque, not glass in a hole
+        if b["kind"] == "window" and (nx1 - nx0) > 1.5 * (ny1 - ny0) and conf < 0.9:
+            conf *= 0.3   # wide and short: a panel in a band, a vent, a sign, not a window one could recess
+        if b.get("source") == "dark":
+            conf *= 0.8
+        nb = dict(b); nb["box"] = [float(nx0), float(ny0), float(nx1), float(ny1)]; nb["conf"] = round(conf, 2); nb["contrast"] = round(contrast, 1)
+        out.append(nb)
+    for kind in ("window", "shop window", "door"):
+        same = [b for b in out if b["kind"] == kind]
+        for k in (1, 3):
+            vals = sorted(b["box"][k] for b in same)
+            for b in same:
+                near = [v for v in vals if abs(v - b["box"][k]) <= 2]
+                b["box"][k] = float(sorted(near)[len(near) // 2])
+    return out
+
+
+def pier_spans(a):
+    """vertical bands the art paints between window columns (pilasters, piers): runs of texel columns uniform from
+    top to bottom (vertical luminance std under 9 of 256) between columns that are not (a window column crosses
+    them), 3-22 texels wide. A plain wall (every column uniform) has none."""
+    import numpy as np
+    L = (a[..., :3] @ np.array([0.299, 0.587, 0.114], np.float32)) * 255.0
+    std = L[4:60].std(0)
+    flat = std < 9.0
+    if flat.mean() > 0.8 or flat.mean() < 0.1:
+        return []
+    out, x = [], 0
+    while x < 64:
+        if flat[x]:
+            x0 = x
+            while x < 64 and flat[x]:
+                x += 1
+            if 3 <= x - x0 <= 22 and (x0 == 0 or not flat[x0 - 1]) and (x == 64 or not flat[x]):
+                out.append([float(x0), float(x)])
+        else:
+            x += 1
+    return out
+
+
 def classify(f, lvl):
     ev = f
     if f["thin"] or (f["open_tiles"] == 0 and f["levels"] <= 1):
@@ -163,6 +239,8 @@ def main():
     work, lvl, hd_dir, boxes_path = sys.argv[1:5]
     cat = json.load(open(os.path.join(work, f"{lvl}_buildings.json")))
     boxes = json.load(open(boxes_path))
+    qp = os.path.join(work, f"{lvl}_qwen_archetypes.json")
+    qwen = json.load(open(qp)) if os.path.exists(qp) else {}   # qwen_archetype.py, for the generic ones
     cache = {}
     tiles = {}
     used = Counter(l["tile"] for b in cat["buildings"] for fc in b["faces"] for l in fc["levels"] if l["tile"])
@@ -172,8 +250,10 @@ def main():
         ob = clean_boxes(boxes.get(f"{lvl}:{t}"))
         if a is not None:
             ob += dark_openings(a, ob)
+            ob = refine_openings(a, ob)
         win_area = sum((b["box"][2] - b["box"][0]) * (b["box"][3] - b["box"][1]) for b in ob if b["kind"] in ("window", "shop window"))
-        tiles[t] = {"uses": used[t], "features": feat, "openings": ob, "window_share": round(float(win_area) / 4096.0, 3)}
+        tiles[t] = {"uses": used[t], "features": feat, "openings": ob, "window_share": round(float(win_area) / 4096.0, 3),
+                    "piers": pier_spans(a) if a is not None else []}
     out_b = []
     for b in cat["buildings"]:
         fl = [l for fc in b["faces"] for l in fc["levels"] if l["tile"] and l["slope"] == 0]
@@ -195,6 +275,9 @@ def main():
              "brick": round(tf("brick"), 3), "rib": round(tf("rib"), 3), "hue": round(h, 3), "sat": round(s, 3), "val": round(v, 3),
              "wall_rgb": [round(float(c), 3) for c in rgb]}
         arche = classify(f, lvl)
+        q = qwen.get(str(b["id"]))
+        if arche == "block" and q and q["confidence"] >= 0.6 and q["archetype"] != "block":
+            arche = q["archetype"]; f["source"] = "qwen"; f["qwen_confidence"] = q["confidence"]
         out_b.append({"id": b["id"], "archetype": arche, "evidence": f})
     json.dump({"level": lvl, "tiles": {str(k): v for k, v in tiles.items()}, "buildings": out_b},
               open(os.path.join(work, f"{lvl}_analysis.json"), "w"))

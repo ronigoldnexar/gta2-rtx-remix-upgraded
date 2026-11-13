@@ -40,6 +40,14 @@ def move_in(name):
     time.sleep(3.6)
 
 
+def face_building(p):
+    """a standing ped's logged facing comes from his sprite and can be half a turn off, so turning on the spot is
+    unreliable: walk from the warp point toward the wall (frame_plan's approach point); he ends facing it"""
+    s = D.goto(p["approach"][0], p["approach"][1], tol=0.35, limit=12)
+    say("faced:", T.words(s) if s else "no state")
+    return s
+
+
 def cam(line):
     with open(CAM + ".tmp", "w") as f: f.write(line + "\n")
     os.replace(CAM + ".tmp", CAM)
@@ -120,11 +128,10 @@ for p in POINTS:
         kit(True)
         grab(f"{p['name']}_{tod}_classic_on"); record(f"{p['name']}_{tod}_classic_on")
         kit(False); grab(f"{p['name']}_{tod}_classic_off"); record(f"{p['name']}_{tod}_classic_off"); kit(True)
-        A.face(p["face"][0], p["face"][1])
         # the move from the classic view into third person, kit on: a burst through the 1.4 s move
         move_in(f"{p['name']}_{tod}_move")
-        Q.set_view("third", settle=1.5)
-        A.face(p["face"][0], p["face"][1]); time.sleep(1.0)
+        Q.set_view("third", settle=1.0)
+        face_building(p); time.sleep(1.5)
         ab(f"{p['name']}_{tod}_third")
         Q.set_view("first", settle=1.5)
         ab(f"{p['name']}_{tod}_first")

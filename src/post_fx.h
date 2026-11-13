@@ -130,6 +130,10 @@ public:
     // The world's shadow copy: the same vertex buffer, an index buffer by map chunk, and
     // an atlas of the cutout tiles' alpha.
     void BuildWorld(const WorldMesh& mesh, const Style& style, IDirect3DVertexBuffer9* worldVb);
+    // DISTRICTS: how much of the facade kit's shadow to cast (0..1, the kit's own fade over the camera move from
+    // the classic view). The kit's casters sample an 8x8 ordered-dither cell of the alpha atlas against 1 - this,
+    // so the shadow fills in as the kit fades in instead of appearing in one frame.
+    void SetKitShadow(float a) { kitShadow_ = a < 0.0f ? 0.0f : (a > 1.0f ? 1.0f : a); }
 
     bool Available() const { return device_ && !remix_ && ok_; }
     // Switches the frame to the post's targets; false leaves everything as it was.
@@ -277,7 +281,9 @@ private:
     float atlasCell_ = 1.0f;
     UINT worldVertexCount_ = 0;
     UINT worldIndexCount_ = 0;
-    std::vector<Chunk> chunks_;
+    std::vector<Chunk> chunks_;          // three sets: solid, cutout, facade kit (DISTRICTS)
+    float kitShadow_ = 1.0f;             // see SetKitShadow
+    int ditherCell_ = -1;
     int chunksX_ = 0, chunksZ_ = 0;
 
     std::vector<Caster> casters_;

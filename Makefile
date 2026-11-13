@@ -69,8 +69,9 @@ stage: dll/build/gta2dx9.dll vid/build/gta2dx9_vid.dll
 	rm -rf stage/gta2dx9_models && cp -r assets/models stage/gta2dx9_models
 	# High-resolution tiles, when they have been generated (tools/upscale_textures.py; not in git, 400 MB).
 	rm -rf stage/gta2dx9_textures_hd; if [ -d assets/textures_hd ]; then cp -r assets/textures_hd stage/gta2dx9_textures_hd; fi
-	# DISTRICTS-POC facade kit (tools/districts/; the .kit meshes are generated, see docs/districts-plan.md).
-	rm -rf stage/gta2dx9_districts; if [ -d assets/districts ]; then cp -r assets/districts stage/gta2dx9_districts; fi
+	# DISTRICTS facade kit: regenerated here from the map, deterministically, never committed (docs/districts-plan.md).
+	# Only with DISTRICTS_DATA=<game data dir> (and DISTRICTS_PY=<python with numpy+Pillow>); DISTRICTS_MODE=all for every building.
+	rm -rf stage/gta2dx9_districts; if [ -n "$(DISTRICTS_DATA)" ]; then bash tools/districts/build_kits.sh "$(DISTRICTS_DATA)" assets/textures_hd stage/gta2dx9_districts $(or $(DISTRICTS_MODE),poc); fi
 	@echo "Staged in stage/: unzip-equivalent of the release, see linux/README.md"
 
 # Loads both DLLs under Wine and resolves every export GTA2 asks for. See

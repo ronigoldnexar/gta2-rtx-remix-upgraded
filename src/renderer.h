@@ -163,7 +163,10 @@ public:
     // DISTRICTS-POC: the facade kit's batches (TileBatch::kit) are drawn at this opacity (the street
     // extras' ramp over the move from the classic view: below 1 they go through the see-through pass, as
     // the fading street lights do, so nothing pops), and not at all when !visible (a live A/B).
-    void SetKitPresentation(float alpha, bool visible) { kitAlpha_ = alpha < 0.0f ? 0.0f : (alpha > 1.0f ? 1.0f : alpha); kitVisible_ = visible; }
+    void SetKitPresentation(float alpha, bool visible) {
+        kitAlpha_ = alpha < 0.0f ? 0.0f : (alpha > 1.0f ? 1.0f : alpha); kitVisible_ = visible;
+        post_.SetKitShadow(visible && streetView_ ? kitAlpha_ : 0.0f);
+    }
     void SetSeeThroughNearClip(float ahead, bool lids = false) { seeThroughClip_ = ahead > 0.0f ? ahead : 0.0f; seeThroughClipLids_ = lids; }
     // FIX-PERF-9 (14p3): the street views leave out the world's tile batches (and the ends of a batch's
     // index range) whose triangles lie wholly outside the view frustum. Exact: a triangle outside a

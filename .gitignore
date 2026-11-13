@@ -40,3 +40,4 @@ __pycache__/
 assets/districts/*.kit
 assets/districts/*.owners.json
 tools/districts/__pycache__/
+assets/districts/

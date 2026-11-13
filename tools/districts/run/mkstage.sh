@@ -1,14 +1,14 @@
 #!/bin/bash
-# mkstage.sh: the private stage for the districts POC: hard links of the shared stage, then my DLLs, ini and
-# kit replaced by real copies (--remove-destination: never write through a hard link into repo/stage).
+# mkstage.sh: the private stage for the districts work: hard links of the shared stage, then my DLLs and ini as real
+# copies (--remove-destination: never write through a hard link into repo/stage), and the kits regenerated into it
+# by the same stage-time build the Makefile runs (tools/districts/build_kits.sh).
 set -e
-R=/mnt/gta2/gta2-linux/wt_districts; ST=/mnt/gta2/gta2-linux/stage_districts
-[ -d $ST ] || cp -al /mnt/gta2/gta2-linux/repo/stage $ST
+G=/mnt/gta2/gta2-linux; R=$G/wt_districts; ST=$G/stage_districts
+[ -d $ST ] || cp -al $G/repo/stage $ST
 cd $R
 for f in gta2dx9.dll d3ddll.dll; do cp --remove-destination dll/build/gta2dx9.dll $ST/$f; done
 cp --remove-destination dll/build/gta2dx9.map $ST/gta2dx9.map
-for f in gta2dx9_vid.dll Dmavideo.dll DMAGlide.dll; do cp --remove-destination vid/build/gta2dx9_vid.dll $ST/$f; done
 cp --remove-destination package/gta2dx9.ini $ST/gta2dx9.ini
-mkdir -p $ST/gta2dx9_districts
-for f in assets/districts/*.kit assets/districts/*.dds; do cp --remove-destination $f $ST/gta2dx9_districts/; done
-ls -la $ST/gta2dx9.dll $ST/gta2dx9_districts | head -20
+python3 -c "import shutil; shutil.rmtree('$ST/gta2dx9_districts', ignore_errors=True)"
+DISTRICTS_PY=$G/vreg/venv/bin/python DISTRICTS_WORK=$G/districts_work/stagebuild bash tools/districts/build_kits.sh $G/game/data $G/repo/assets/textures_hd $ST/gta2dx9_districts ${1:-poc}
+ls -la $ST/gta2dx9_districts | head -20

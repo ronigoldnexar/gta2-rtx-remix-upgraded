@@ -34,12 +34,13 @@ def plan(work, lvl, bid):
     along = (oy, -ox) if side in "NS" else (-oy, ox)   # perpendicular in the map plane
     along = (1, 0) if side in "NS" else (0, 1)
     wx, wy = mid["x"] + 0.5 + ox * 0.5, mid["y"] + 0.5 + oy * 0.5        # the wall's middle, map frame
-    px, py = wx + ox * 1.5, wy + oy * 1.5
+    OFF = 2.5                                                          # the warp point, out from the wall
+    px, py = wx + ox * OFF, wy + oy * OFF
     z = float(b["street"])
     rise = b["roof"] - b["street"]
     def pose(name, out, side_, up, at_out, at_side, at_up, fov=60):
-        return {"name": name, "eye": [round(ox * out + along[0] * side_ - ox * 1.5, 3), round(oy * out + along[1] * side_ - oy * 1.5, 3), up],
-                "at": [round(ox * at_out + along[0] * at_side - ox * 1.5, 3), round(oy * at_out + along[1] * at_side - oy * 1.5, 3), at_up], "fov": fov}
+        return {"name": name, "eye": [round(ox * out + along[0] * side_ - ox * OFF, 3), round(oy * out + along[1] * side_ - oy * OFF, 3), up],
+                "at": [round(ox * at_out + along[0] * at_side - ox * OFF, 3), round(oy * at_out + along[1] * at_side - oy * OFF, 3), at_up], "fov": fov}
     def free(gx, gy, gz):
         cx, cy = int(gx // 1), int(gy // 1)
         if not (0 <= cx < 256 and 0 <= cy < 256):
@@ -64,7 +65,8 @@ def plan(work, lvl, bid):
     ]
     poses = [fit(p_) for p_ in poses]
     return {"name": f"{lvl}_{bid}", "level": lvl, "building": bid, "front": side, "x": round(px, 2), "y": round(py, 2), "z": z,
-            "face": [round(wx, 2), round(wy, 2)], "poses": poses}
+            "face": [round(wx, 2), round(wy, 2)],
+            "approach": [round(wx + ox * 2.0, 2), round(wy + oy * 2.0, 2)], "poses": poses}
 
 
 if __name__ == "__main__":

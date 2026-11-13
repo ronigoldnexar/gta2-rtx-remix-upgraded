@@ -50,7 +50,8 @@ def make(name, k):
         a[..., :3] = tint((52, 56, 54), 0, k, 0.10)
         a[..., 3] = np.where(bars, 1.0, 0.0)
     elif name.startswith("awning_"):
-        col = {"awning_red": (168, 36, 34), "awning_green": (34, 104, 58), "awning_blue": (40, 70, 140)}[name]
+        col = {"awning_red": (168, 36, 34), "awning_green": (34, 104, 58), "awning_blue": (40, 70, 140),
+               "awning_yellow": (200, 160, 40), "awning_brown": (110, 70, 40)}[name]
         stripe = ((xx // 16) % 2) == 0
         base = np.where(stripe[..., None], np.array(col, np.float32) / 255.0, np.array((226, 220, 204), np.float32) / 255.0)
         a[..., :3] = base * (0.9 + 0.1 * fbm(k)[..., None])
@@ -62,6 +63,12 @@ def make(name, k):
         a[..., :3] = np.where(mortar[..., None], np.array((150, 140, 128), np.float32) / 255.0, a[..., :3])
     elif name == "concrete":
         a[..., :3] = tint((150, 148, 140), 0, k, 0.12)
+    elif name == "wood":
+        plank = (xx // 10) % 2
+        a[..., :3] = tint((120, 84, 54), 0, k, 0.16) * np.where(plank[..., None] == 0, 1.0, 0.88)
+        a[..., :3] *= np.where((xx % 10) < 1, 0.7, 1.0)[..., None]
+    elif name == "rubber":
+        a[..., :3] = tint((28, 28, 30), 0, k, 0.08)
     elif name == "glass_dark":
         a[..., :3] = tint((30, 40, 52), 0, k, 0.06)
     return np.clip(a, 0, 1)

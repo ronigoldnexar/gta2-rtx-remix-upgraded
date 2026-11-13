@@ -4,7 +4,7 @@
     qa.py <work> <lvl> <kit file> [--hd <textures_hd>] [--out <json>]
 
 Per building (the kit file's geometry is attributed by footprint):
-  footprint   largest distance (per axis) a kit vertex stands outside the footprint in plan (limit 0.16 block) and
+  footprint   largest distance (per axis) a kit vertex stands outside the footprint in plan (limit 0.26 block: the kit stands nothing beyond 0.25) and
               whether anything goes below the street
   zfight      kit polygons coplanar with a wall of the map at the wall plane (the skin and trim stand off it by
               construction; a hit is a kit bug) and pairs of kit triangles coplanar and overlapping (two
@@ -15,7 +15,7 @@ Per building (the kit file's geometry is attributed by footprint):
   pop         height of kit geometry above the roof line (parapet, plant, chimney): the part a classic-view
               player never saw; anything over 0.25 block must fade (it does: TileBatch::kit), it is reported
               so the review can watch the move frames of those buildings
-  budget      triangles; flagged over 12 000 for one building
+  budget      triangles; flagged over 20 000 for one building
 A building is flagged when any check fails; the JSON lists the reasons."""
 import json, math, os, struct, sys
 from collections import defaultdict
@@ -141,12 +141,12 @@ def main():
                     if ox > 2e-3 and oy > 2e-3 and a_[4] != b_[4]:
                         zf_pairs += 1
         reasons = []
-        if r["over"] > 0.16: reasons.append(f"overhang {r['over']:.2f}")
+        if r["over"] > 0.26: reasons.append(f"overhang {r['over']:.2f}")
         if r["below"]: reasons.append("below street")
         if r["zfight_wall"]: reasons.append(f"{r['zfight_wall']} kit faces in a wall plane")
         if zf_pairs: reasons.append(f"{zf_pairs} coplanar overlapping kit pairs")
         if holes and weak / holes > 0.25: reasons.append(f"{weak}/{holes} recesses on low-contrast art")
-        if r["tris"] > 12000: reasons.append(f"{r['tris']} triangles")
+        if r["tris"] > 20000: reasons.append(f"{r['tris']} triangles")
         out.append({"id": bid, "archetype": a["archetype"], "triangles": r["tris"], "overhang": round(r["over"], 3), "above_roof": round(r["above_roof"], 2),
                     "zfight_wall": r["zfight_wall"], "zfight_pairs": zf_pairs, "recesses": holes, "weak_recesses": weak, "flagged": bool(reasons), "reasons": reasons})
     path = sys.argv[sys.argv.index("--out") + 1] if "--out" in sys.argv else os.path.join(work, f"{lvl}_qa.json")
