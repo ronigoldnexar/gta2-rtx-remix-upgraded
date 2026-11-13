@@ -130,7 +130,7 @@ float4 ps_coat(CoatPsIn i) : COLOR0 {
     float texelPx = length(fwidth(i.uvd.xy) / max(cTex.xy, 1e-6));
     float gap = saturate((lap - cTex.w) * 4.0) * cTex.z * saturate(2.0 - texelPx);
 
-    float keep = (1.0 - fr * weight) * (1.0 - crease * 0.55 * paint) * (1.0 - 0.45 * gap) * (1.0 - cWet.x * 0.06 * paint * weight);
+    float keep = (1.0 - fr * weight) * (1.0 - crease * 0.55 * paint) * (1.0 - 0.45 * gap) * (1.0 - cWet.x * 0.03 * paint * weight);
     add *= weight * (1.0 - gap);
 
     // The fixed-function frame under it is fogged (table fog, linear in view depth): fog the coat's own
