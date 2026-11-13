@@ -89,7 +89,7 @@ float4 ps_coat(CoatPsIn i) : COLOR0 {
     float fr = cTune.x + (1.0 - cTune.x) * pow(1.0 - saturate(ndv), 5.0);
     fr = saturate(fr + edge * 0.06);
     // Wet paint (WEATHER-V2): a film of water on the coat - more reflection at every angle.
-    fr = saturate(fr + cWet.x * 0.30 * (1.0 - fr));
+    fr = saturate(fr + cWet.x * 0.15 * (1.0 - fr));
     float3 r = reflect(-v, n);
     float up = r.y;
     float bearing = atan2(r.x, r.z) * 3.0;   // ~19 blocks of skyline around the compass
