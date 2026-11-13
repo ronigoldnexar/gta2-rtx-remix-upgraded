@@ -443,7 +443,11 @@ def arch_parts(car_, wheel, side, angs, prof, hw):
     if np.isnan(rad).all(): rad[:] = 1.12 * r
     idx = np.arange(len(rad)); good = np.isfinite(rad)
     rad = np.interp(idx, idx[good], rad[good])
-    rad = np.clip(rad + 0.004, 1.03 * r, 1.45 * r)
+    # the arch outline found on a render is noisy (texel steps, a lip's shadow): a running median then a mean, and
+    # a little outside it, so the liner's edge sits behind the fender's own lip and never shows as teeth
+    from scipy.ndimage import median_filter, uniform_filter1d
+    rad = uniform_filter1d(median_filter(rad, size=7, mode='nearest'), size=5, mode='nearest')
+    rad = np.clip(rad + 0.010, 1.06 * r, 1.45 * r)
     sel = (angs >= -2) & (angs <= 182)
     a = a[sel]; rad = rad[sel]
     # keep the liner above the road
@@ -592,7 +596,7 @@ def build(m, spec, src, log):
 
     # specials
     if spec.get('lightbar'):
-        kill |= lightbar(kc, V, F, UV, img0, spec['lightbar'], sty, spr, sw, sh, kx, kz, log)
+        kill |= lightbar(kc, V, F, UV, img0, spec['lightbar'], sty, spr, sw, sh, kx, kz, log, paint_img=img)
     if spec.get('roof_sign'):
         roof_sign(kc, shell, spec['roof_sign'], sty, spr, sw, sh, kx, kz, e, log)
 
@@ -632,7 +636,7 @@ def recolour(img, rc):
     return img * (1 - a) + out * a
 
 
-def lightbar(kc, V, F, UV, img, spec, sty, spr, sw, sh, kx, kz, log):
+def lightbar(kc, V, F, UV, img, spec, sty, spr, sw, sh, kx, kz, log, paint_img=None):
     """the cop car's roof lamps, rebuilt: the generated domes (saturated blue / red texels standing above the roof)
     pressed into the roof and painted over, then a slim dark base, a grey siren block on the centre line and two
     domes along each side as the sprite shows them (its siren deltas: the blue pair on +x, the red pair on -x for the
@@ -659,8 +663,17 @@ def lightbar(kc, V, F, UV, img, spec, sty, spr, sw, sh, kx, kz, log):
     pv = np.flatnonzero(press)
     _, nn = tr.query(V[pv][:, [0, 2]], k=6)
     V[pv, 1] = np.median(V[rv[nn], 1], 1)
-    _, n1 = tr.query(V[pv][:, [0, 2]], k=1)
-    UV[pv] = UV[rv[n1]]
+    # the pressed faces' texels painted the clean roof's colour (the ring's median texel), so no trace of the
+    # generated domes' dark base shows round the new ones
+    pim = img if paint_img is None else paint_img
+    roof_rgb = np.median(tex_at(pim, UV[rv]), 0)
+    pf = np.isin(F, pv).any(1)
+    H_, W_ = pim.shape[:2]
+    mimg = Image.new('L', (W_, H_), 0); dr_ = ImageDraw.Draw(mimg)
+    for tri in UV[F[pf]]:
+        dr_.polygon([(float(u % 1.0) * W_, (1.0 - float(v % 1.0)) * H_) for u, v in tri], fill=255)
+    mm = np.asarray(mimg.filter(ImageFilter.MaxFilter(5)).filter(ImageFilter.GaussianBlur(1.5))).astype(np.float64)[..., None] / 255.0
+    pim[...] = pim * (1 - mm) + roof_rgb[None, None, :] * mm
     base_h = spec.get('base_h', 0.006)
     # the siren block on the centre line
     _, ns = tr.query([[cxm, czm]], k=8); ys_ = float(np.median(V[rv[ns[0]], 1]))
@@ -716,6 +729,14 @@ def roof_sign(kc, shell, spec, sty, spr, sw, sh, kx, kz, e, log):
     kc.materials['sign_body'] = K.tex_flat(tuple(spec.get('body_rgb', (34, 30, 26))))
     panel = sign_panel(spec.get('text', 'TAXI'), spec.get('panel_rgb', (246, 226, 168)))
     kc.materials['sign'] = panel
+    # the top: the sprite's own sign pixels (x4), image rows along z, the sprite's right on the car's -x
+    sp = Image.open(os.path.join(ASRC, 'cars', e['remaps'][0]['file_x4'])).convert('RGB')
+    s4 = sp.width / sw
+    kc.materials['sign_top'] = sp.crop((int(x0p * s4), int(y0p * s4), int(x1p * s4), int(y1p * s4))).resize((128, 128), Image.LANCZOS)
+    ty = topy + 0.0008
+    P = np.array([[xhi, ty, zlo], [xlo, ty, zlo], [xlo, ty, zhi], [xhi, ty, zhi]])
+    T = np.array([[0, 0], [1, 0], [1, 1], [0, 1]], float)
+    kc.part('sign_top').add(P, np.tile([[0, 1.0, 0]], (4, 1)), T, np.array([[0, 2, 1], [0, 3, 2]]))
     inset = 0.006
     for zf, end in ((zhi + 0.0012, 1), (zlo - 0.0012, -1)):
         # seen from outside: left of the panel at -x for the +z face seen from the front (x to the viewer's right
