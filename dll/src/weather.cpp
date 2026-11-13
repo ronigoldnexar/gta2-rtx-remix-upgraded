@@ -177,8 +177,11 @@ void Step(double dt) {
     w.cloud += (cloud - w.cloud) * k;
     w.fog += (fog - w.fog) * k;
     w.wind += (wind - w.wind) * k;
-    // WEATHER-V2: rain above a drizzle closes the sky (the cloud setting can close it alone).
-    TimeOfDaySetOvercast((std::max)(w.cloud, (std::min)(1.0f, (w.rain - 0.1f) * 1.6f)));
+    // WEATHER-V2: rain above a drizzle closes the sky (the cloud setting can close it alone), in both
+    // renderers: the plain sky greys with w.cloud, Remix's with the overcast pushed from here.
+    const float rainCloud = (std::max)(0.0f, (std::min)(1.0f, (w.rain - 0.1f) * 1.6f));
+    w.cloud = (std::max)(w.cloud, rainCloud);
+    TimeOfDaySetOvercast(w.cloud);
     // The wind turns slowly.
     const float a = static_cast<float>(0.7 + 0.5 * std::sin(g_clock * 0.013));
     w.windDir[0] = std::cos(a);
