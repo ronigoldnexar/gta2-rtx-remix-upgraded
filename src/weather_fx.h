@@ -47,6 +47,11 @@ WeatherState& WeatherNow();
 using WeatherPollFn = void (*)();
 void SetWeatherPoll(WeatherPollFn fn);
 void WeatherPoll();
+// WEATHER-V2: is the point (world blocks, y up) under a roof, a deck or a bridge? Set by the DLL (the map's
+// columns); null = never covered. Rain streaks, the Remix drops and new lens drops leave covered places out.
+using WeatherCoverFn = bool (*)(float x, float y, float z);
+void SetWeatherCover(WeatherCoverFn fn);
+bool WeatherCovered(float x, float y, float z);
 
 // The sky and the world's light under this weather (both no-ops when inactive).
 void WeatherAdjustSky(SkyColours* colours, SkySettings* settings);

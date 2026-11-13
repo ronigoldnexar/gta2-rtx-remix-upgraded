@@ -667,6 +667,8 @@ void DrawRemixRain(float ex, float ey, float ez, float viewMix) {
             const float oy = L * kRainH - fall;
             for (int gz = bz - 1; gz <= bz + 1; ++gz) {
                 for (int gx = bx - 1; gx <= bx + 1; ++gx) {
+                    if (gta2::WeatherCovered((gx + 0.5f) * kRainBox, ey + 1.0f, (gz + 0.5f) * kRainBox) &&
+                        gta2::WeatherCovered(ex, ey + 0.2f, ez)) continue;   // a tunnel or a covered street: no rain
                     remixapi_InstanceInfo instance = {};
                     instance.sType = REMIXAPI_STRUCT_TYPE_INSTANCE_INFO;
                     instance.mesh = g_rainMesh[m];

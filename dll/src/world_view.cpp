@@ -49,6 +49,8 @@
 #include "time_of_day.h"
 
 namespace gta2dx9 {
+namespace { const gta2::Map* g_coverMap = nullptr; }
+
 namespace { int g_playerAmmoLogged = 0; }
 namespace {
 
@@ -4197,6 +4199,23 @@ void WorldView::RenderFrame() {
             }
             renderer_.SetWorldViewCull(devCull >= 0 ? devCull != 0 : iniCull != 0);
         }
+        // WEATHER-V2: rain leaves covered places out (a lid of a real ground type above the point).
+        g_coverMap = map_.Empty() ? nullptr : &map_;
+        gta2::SetWeatherCover([](float x, float y, float z) -> bool {
+            const gta2::Map* m = g_coverMap;
+            if (!m) return false;
+            const int cx = static_cast<int>(std::floor(x)), my = gta2::kMapHeight - 1 - static_cast<int>(std::floor(z));
+            if (cx < 0 || cx >= gta2::kMapWidth || my < 0 || my >= gta2::kMapHeight) return false;
+            const gta2::Column& c = m->ColumnAt(cx, my);
+            for (int i = static_cast<int>(c.blocks.size()) - 1; i >= 0; --i) {
+                const float top = static_cast<float>(c.offset + i + 1);
+                if (top <= y + 0.05f) break;
+                if (c.blocks[i] >= m->BlockCount()) continue;
+                const gta2::Block& b = m->BlockAt(c.blocks[i]);
+                if (b.lid && b.GroundType() != 0) return true;
+            }
+            return false;
+        });
         renderer_.DrawWorld(camera_);
         // FIX-OCCLUSION: should the eye still be in a block, the block is closed round it
         // (back sides of the faces near the eye, depth-hidden from outside). Street views only,

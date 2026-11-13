@@ -19,7 +19,8 @@ WeatherPollFn g_poll = nullptr;
 Vec3 g_eye{128.0f, 3.0f, 128.0f};
 float g_fogHere = 0.0f;     // this frame's fog at the eye (the bank noise applied)
 float g_overcast = 0.0f;
-float g_blend = 0.0f;      // the view transition's weight, from the shading
+float g_blend = 0.0f;
+gta2::WeatherCoverFn g_cover = nullptr;      // the view transition's weight, from the shading
 
 float Clamp01(float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); }
 Vec3 Lerp(const Vec3& a, const Vec3& b, float t) { return a + (b - a) * t; }
@@ -218,6 +219,7 @@ void WeatherFx::DrawRain(const WorldShading& shading) {
         const Vec3 toEye = p - eye_;
         const float dist = std::sqrt(Dot(toEye, toEye));
         if (dist < 0.35f) continue;
+        if (WeatherCovered(p.x, p.y, p.z)) continue;
         // Fewer, fainter streaks at the box's edge and right in front of the eye.
         const float fade = Clamp01((R - dist) / 3.0f) * Clamp01((dist - 0.35f) / 0.8f);
         if (fade <= 0.01f) continue;
@@ -271,6 +273,9 @@ void WeatherFx::DrawRain(const WorldShading& shading) {
 }
 
 
+void SetWeatherCover(WeatherCoverFn fn) { g_cover = fn; }
+bool WeatherCovered(float x, float y, float z) { return g_cover && g_cover(x, y, z); }
+
 void WeatherFx::SetRemixFrame(const Mat4& view, const Mat4& proj, const Vec3& eye, float blend) {
     SetCamera(view, proj, eye);
     g_blend = Clamp01(blend);
@@ -319,6 +324,7 @@ void WeatherFx::DrawRainRemix(const WeatherState& w) {
         const Vec3 toEye = p - eye_;
         const float dist = std::sqrt(Dot(toEye, toEye));
         if (dist < 0.6f) continue;
+        if (WeatherCovered(p.x, p.y, p.z)) continue;
         const float fade = Clamp01((R - dist) / 3.0f) * Clamp01((dist - 0.6f) / 1.0f) * g_blend * (0.55f + 0.45f * w.rain);
         if (fade < 0.15f) continue;
         const int level = fade < 0.45f ? 0 : (fade < 0.8f ? 1 : 2);
@@ -381,7 +387,7 @@ void WeatherFx::DrawLensDrops(int width, int height, float weight, IDirect3DSurf
     lensClock_ = now;
     auto rnd = [this]() { lensSeed_ ^= lensSeed_ << 13; lensSeed_ ^= lensSeed_ >> 17; lensSeed_ ^= lensSeed_ << 5; return (lensSeed_ & 0xFFFFFF) / 16777215.0f; };
     // New drops while it rains and the view is first person; old ones run their course either way.
-    const float rate = (w.active && w.rain > 0.05f && weight > 0.5f) ? 3.0f * w.rain : 0.0f;
+    const float rate = (w.active && w.rain > 0.05f && weight > 0.5f && !WeatherCovered(eye_.x, eye_.y, eye_.z)) ? 3.0f * w.rain : 0.0f;
     lensSpawn_ += rate * dt;
     while (lensSpawn_ >= 1.0f && lensDrops_.size() < 28) {
         lensSpawn_ -= 1.0f;
