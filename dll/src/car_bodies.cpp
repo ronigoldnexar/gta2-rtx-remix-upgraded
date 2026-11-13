@@ -2554,6 +2554,15 @@ void BuildWheelSplit(const Model& model, const gta2::Mat4& fit, float zF, float 
     // (so its edge can never open a hole), drawn spinning in the hull's own frame a hair outboard.
     const bool shell = wheels.empty() && shellMode == 1;
     *shellOut = shell;
+    // CARS-V3: a converted generator shell (tools/hy_car/hy_convert.py) carries its own wheels as parts (textures
+    // "_hubface_*", "_hubback", "_tyre_*", "_paint_wheel*") beside a hull that keeps its fender lips and arch liners
+    // inside the marker's disc: only the wheel parts may go to a wheel, every other triangle stays on the hull.
+    bool partsOnly = false;
+    for (const ModelMesh& mesh : model.meshes) partsOnly = partsOnly || mesh.texture.find("_hubface_") != std::string::npos;
+    auto wheelPart = [](const std::string& t) {
+        return t.find("_hubface_") != std::string::npos || t.find("_hubback") != std::string::npos ||
+               t.find("_tyre_") != std::string::npos || t.find("_paint_wheel") != std::string::npos;
+    };
     if (wheels.empty()) {
         // The shell: where it touches the road, near each CARI axle.
         float minY = 1e9f;
@@ -2622,10 +2631,11 @@ void BuildWheelSplit(const Model& model, const gta2::Mat4& fit, float zF, float 
         std::vector<gta2::Vec3> q(src.vertices.size());
         for (size_t i = 0; i < src.vertices.size(); ++i) q[i] = PointBy(toCar, src.vertices[i].x, src.vertices[i].y, src.vertices[i].z);
         const ShellTexels* tex = shell ? ShellTexelsFor(src.texture) : nullptr;
+        const bool canTurn = !partsOnly || wheelPart(src.texture);
         for (size_t t = 0; t + 2 < src.indices.size(); t += 3) {
             int owner = -1;
             bool ringFace = false;
-            for (size_t w = 0; w < wheels.size() && owner < 0; ++w) {
+            for (size_t w = 0; w < wheels.size() && owner < 0 && canTurn; ++w) {
                 const Wheel& wh = wheels[w];
                 const float side = wh.c.x >= 0.0f ? 1.0f : -1.0f;
                 // VEHICLE-ART-6: a shell's wheel is its tyre and hub: the faces in the disc that are not
