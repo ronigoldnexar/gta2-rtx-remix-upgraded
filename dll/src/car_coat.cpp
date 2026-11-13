@@ -8,6 +8,7 @@
 #include "log.h"
 #include "remix_api.h"
 #include "../../src/shaders/car_coat_gen.h"
+#include "../../src/weather_fx.h"
 
 namespace gta2dx9 {
 namespace {
@@ -216,7 +217,10 @@ void CarCoatOverlay(IDirect3DDevice9* device, const gta2::Mat4& world, const Car
     }
     const float tint[3] = {d.tint ? d.tint[0] : 1.0f, d.tint ? d.tint[1] : 1.0f, d.tint ? d.tint[2] : 1.0f};
     const float w = g_weight;
-    const float psc[56] = {
+    // WEATHER-V2: the roads' wetness wets the paint too (0 with [weather] off: the dry coat exactly).
+    const gta2::WeatherState& weather = gta2::WeatherNow();
+    const float wetPaint = weather.active ? weather.wet : 0.0f;
+    const float psc[60] = {
         ex, ey, ez, 1.0f,
         g_frame.sunDir[0], g_frame.sunDir[1], g_frame.sunDir[2], g_frame.sunStrength,
         g_frame.sunCol[0], g_frame.sunCol[1], g_frame.sunCol[2], 1.0f,
@@ -231,6 +235,7 @@ void CarCoatOverlay(IDirect3DDevice9* device, const gta2::Mat4& world, const Car
         g_set.sheenPower, g_set.sheen, g_set.creaseScale, d.softPaint ? g_set.rest : 1.0f,
         g_live == 2 ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f,
         texel[0], texel[1], g_live == 3 ? 0.0f : g_set.gaps, g_set.gapThreshold,
+        wetPaint, 0.0f, 0.0f, 0.0f,
     };
     IDirect3DBaseTexture9* s1 = nullptr;
     DWORD s1u = 0, s1v = 0, s1min = 0, s1mag = 0, s1mip = 0;
@@ -251,7 +256,7 @@ void CarCoatOverlay(IDirect3DDevice9* device, const gta2::Mat4& world, const Car
     device->SetVertexShader(g_vs);
     device->SetPixelShader(g_ps);
     device->SetVertexShaderConstantF(0, vsc, 12);
-    device->SetPixelShaderConstantF(0, psc, 14);
+    device->SetPixelShaderConstantF(0, psc, 15);
     device->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
     device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_ONE);
     device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_SRCALPHA);

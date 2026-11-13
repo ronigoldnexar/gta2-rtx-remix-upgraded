@@ -50,7 +50,8 @@ float4 cTune    : register(c9);   // x F0, y reflection strength, z coat highlig
 float4 cMode    : register(c10);  // x alpha-tested, y soft paint (coverage = paint), z glass mask bound, w flake
 float4 cTune2   : register(c11);  // x base sheen power, y base sheen strength, z curvature scale (blocks), w rest-half weight
 float4 cDebug   : register(c12);  // x 1: show the curvature
-float4 cTex     : register(c13);  // xy one texel of sBody (u, v), z groove strength (0: none), w groove threshold
+float4 cTex     : register(c13);
+float4 cWet     : register(c14);  // WEATHER-V2: x wetness 0..1 ([weather] on, street views; 0 = the dry coat exactly)  // xy one texel of sBody (u, v), z groove strength (0: none), w groove threshold
 
 float hash3(float3 p) { return frac(sin(dot(p, float3(12.9898, 78.233, 37.719))) * 43758.5453); }
 
@@ -87,6 +88,8 @@ float4 ps_coat(CoatPsIn i) : COLOR0 {
     // turns) and the sky's gradient above it. The sky is brighter than any paint (cTune2.y's radiance).
     float fr = cTune.x + (1.0 - cTune.x) * pow(1.0 - saturate(ndv), 5.0);
     fr = saturate(fr + edge * 0.06);
+    // Wet paint (WEATHER-V2): a film of water on the coat - more reflection at every angle.
+    fr = saturate(fr + cWet.x * 0.22 * (1.0 - fr));
     float3 r = reflect(-v, n);
     float up = r.y;
     float bearing = atan2(r.x, r.z) * 3.0;   // ~19 blocks of skyline around the compass
@@ -105,7 +108,7 @@ float4 ps_coat(CoatPsIn i) : COLOR0 {
     float ndl = saturate(dot(n, l));
     float3 h = normalize(l + v);
     float ndh = saturate(dot(n, h));
-    float coatSpec = pow(ndh, cTune.z) * (cTune.z + 8.0) * 0.0398 * ndl + pow(ndh, 48.0) * 0.35 * ndl;
+    float coatSpec = (pow(ndh, cTune.z) * (cTune.z + 8.0) * 0.0398 * ndl + pow(ndh, 48.0) * 0.35 * ndl) * (1.0 + cWet.x * 0.8);
     float3 albedo = tex.rgb * cTint.rgb;
     // Flake: a per-cell glint in the sheen, faded out where a cell is smaller than about a pixel.
     float cell = 900.0;
@@ -127,7 +130,7 @@ float4 ps_coat(CoatPsIn i) : COLOR0 {
     float texelPx = length(fwidth(i.uvd.xy) / max(cTex.xy, 1e-6));
     float gap = saturate((lap - cTex.w) * 4.0) * cTex.z * saturate(2.0 - texelPx);
 
-    float keep = (1.0 - fr * weight) * (1.0 - crease * 0.55 * paint) * (1.0 - 0.45 * gap);
+    float keep = (1.0 - fr * weight) * (1.0 - crease * 0.55 * paint) * (1.0 - 0.45 * gap) * (1.0 - cWet.x * 0.15 * paint * weight);
     add *= weight * (1.0 - gap);
 
     // The fixed-function frame under it is fogged (table fog, linear in view depth): fog the coat's own
