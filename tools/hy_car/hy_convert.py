@@ -19,7 +19,9 @@ Per car (docs/car-3d-pipeline.md, "CARS-V3"):
   6. specials from specs.json: a roof light bar from the sprite's siren deltas (cop car), a roof sign (taxis),
      texture recolours;
   7. a GLB whose shell material keeps its picture (the importer's paint_split pair for a remapped car, re-split
-     by tools/car_paint_resplit.py after the import) and whose parts carry surface-named textures.
+     by tools/car_paint_resplit.py after the import over the body's whole hue family, its broad shading half
+     flattened: a two-tone generated body takes the remap colour as the sprite does) and whose parts carry
+     surface-named textures. Remix prims: tools/hy_car/remix_prims.sh.
 Then tools/import_assets.py, car_paint_resplit.py, car_mesh_orient.py fix and vehicle_art/underpan.py, as build.py does.
 """
 import argparse, json, math, os, subprocess, sys
@@ -569,6 +571,13 @@ def build(m, spec, src, log):
                 (xs.max() - xs.min() + 1) / 64 * kx, (ys.max() - ys.min() + 1) / 64 * kz)
     for kind, dl, end in (('head', 6, 1), ('tail', 5, -1)):
         found = lamps[kind]
+        if len(found) == 1:
+            # the car is symmetric: the other side's lamp mirrors the one found (a chrome bezel or a shadow hid it)
+            x, y, z, rr = found[0]
+            zs = surface_z_at(shell, -x, y, end)
+            if zs is not None and abs(zs - z) < 0.03:
+                found.append((-x, y, zs, rr))
+                log(f'  {kind} lamps: one found, the other mirrored')
         if len(found) < 2:
             # LensSpotsFor wants both sides; a guessed lens on the wrong panel is worse than the renderer's own spot
             log(f'  {kind} lamps: {len(found)} found on the shell: no lenses (the renderer places the glow)')
@@ -815,9 +824,12 @@ def main():
         return
     py = sys.executable
     subprocess.check_call([py, os.path.join(TOOLS, 'import_assets.py'), os.path.join(src_root, 'manifest.json'), models_dir])
-    split = [e['name'] for e in entries if e.get('paint_split')]
-    if split:
-        subprocess.check_call([py, os.path.join(TOOLS, 'car_paint_resplit.py'), models_dir, '--only', ','.join(n[:3] for n in split)])
+    # the paint: every texel of the body's hue family (a generated body is often two-tone: 000's dark maroon flanks
+    # under a cream roof; the game's remap recolours the whole body), neutralised, its broad shading half flattened
+    for e in entries:
+        if not e.get('paint_split'): continue
+        extra = specs[e['name'][:3]].get('resplit', ['--hue-tol', '42', '--min-sat', '0.12', '--flatten', '0.5'])
+        subprocess.check_call([py, os.path.join(TOOLS, 'car_paint_resplit.py'), models_dir, '--only', e['name'][:3]] + list(extra))
     # the generator's shells face outward and the parts here are built facing the right way (the liners and the
     # wheel discs on both sides), so car_mesh_orient only checks (its patch rule would turn one copy of a two-sided
     # liner round onto the other)
