@@ -280,6 +280,15 @@ void ProvideLights(std::vector<gta2::VisualLight>* out) {
         // times 0.3 still left two overlapping beams a blown white-yellow pool across the road at
         // night (QB-35, out/qb35_look1 t_w_third_night_clear). A beam is now 0.22 at most.
         if (l.spot) { l.radius = r < 6.0f ? 6.0f : r; l.intensity = 0.22f * (di < 4.0f ? di / 4.0f : 1.0f); }
+        // LIGHTING-V1 (qav111/qav120, gate B: a car nose-to-a-wall lit nothing in first person): the Remix beam starts
+        // 0.03 ahead of the body's nose so the path tracer's bumper does not swallow it; this pass has no occluder, and
+        // with the nose against a wall that put the lamp inside the wall, so the facade faced away from it and stayed
+        // dark. A head-lamp spot here starts 0.3 block back along its beam (inside the body), always on the car's side.
+        if (l.spot && d.source == kLightSourceHeadlight) for (int i = 0; i < 3; ++i) l.pos[i] -= l.dir[i] * 0.30f;
+        // LIGHTING-V1 (gate B sheet lt_b5_plain: a forced SWAT van's beacons washed the whole plaza magenta, a fire truck's
+        // red, ~6 blocks round): a siren's glow (the non-spot light round the beacon, Remix radiance ~10) is a short,
+        // weaker light here; the sweeping spot keeps its reach, so the wall across the street still takes the colour.
+        if (d.source == kLightSourceSiren && !l.spot) { l.intensity *= 0.40f; l.radius = l.radius < 3.0f ? l.radius : 3.0f; }
         // FIX-FIGURE-6 pfeel50: a muzzle flash pulses on the walls by day too (half its night
         // strength), a short warm reach round the shooter.
         if (d.source == kLightSourceMuzzle) { l.day = 0.5f; l.radius = 2.6f; l.intensity = 0.20f + 0.35f * (d.intensity < 1.0f ? d.intensity : 1.0f); }

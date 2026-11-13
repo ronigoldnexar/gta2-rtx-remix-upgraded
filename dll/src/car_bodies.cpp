@@ -4122,10 +4122,8 @@ void DrawBeacons(IDirect3DDevice9* device, const CarBodyUse& use, const gta2::Ma
         case 12: case 52: colA = 0xFFFF2010u; colB = 0xFF1040FFu; along = -0.05f; break;   // police: red, blue
         case 34: colA = 0xFFFF2010u; colB = 0xFFFFF4E0u; kindB = kSirenWhite; along = 0.30f; break;   // ambulance: red, white, over the cab
         case 17: colA = 0xFFFF2010u; colB = 0xFFFF7010u; kindB = kSirenAmber; along = 0.36f; break;   // fire truck: red, amber, over the cab
-        case 84: colA = 0xFF1040FFu; colB = 0xFF1040FFu; kindA = kSirenBlue; along = 0.10f; break;   // LIGHTING-V1: FBI car, blue
-        default: colA = 0xFFFF2010u; colB = 0xFF1040FFu; along = -0.05f; break;   // LIGHTING-V1: any other model whose sprite lights its siren deltas
+        default: return;
     }
-    const bool knownSirenModel = modelNumber == 12 || modelNumber == 52 || modelNumber == 34 || modelNumber == 17 || modelNumber == 84;
     uint32_t mask = 0;
     uintptr_t vehicle = use.object;
     {
@@ -4136,14 +4134,17 @@ void DrawBeacons(IDirect3DDevice9* device, const CarBodyUse& use, const gta2::Ma
             vehicle = reinterpret_cast<uintptr_t>(car);
         }
     }
-    const uint32_t sirenBits = (0xFu << 15) | (0xFu << (15 + 17));   // deltas 15..18 and their mirrored copies
-    // A model outside the list only by the game's own bits (force_sirens lights the known siren models only).
-    const bool on = (mask & sirenBits) != 0 || (g_forceSirens != 0 && knownSirenModel);
+    // Deltas 15..18. LIGHTING-V1: the "mirrored copies" term was 0xF << 32, undefined on a 32-bit mask (x86 masks the
+    // count to 0: bits 0..3, the corner-dent deltas), so a dented cop car or ambulance flashed its beacons. The mirrored
+    // copies (+17) of 15..18 lie past bit 31 and are not in this word.
+    const uint32_t sirenBits = 0xFu << 15;
+    const bool on = (mask & sirenBits) != 0 || g_forceSirens != 0;
     if (!on) return;
     const bool remix = RemixApiAvailable();
     IDirect3DTexture9* glow = GlowTexture(device);
     if (!glow) return;
-    if (g_beaconLogged < 12) {
+    static std::set<int> s_beaconModelsLogged;   // LIGHTING-V1: the first beacon of each model always logged
+    if (g_beaconLogged < 12 || s_beaconModelsLogged.insert(modelNumber).second) {
         ++g_beaconLogged;
         Log("car bodies: beacons on model %d object %p (delta mask %08x%s)", modelNumber, reinterpret_cast<const void*>(use.object), mask,
             g_forceSirens ? ", forced" : "");
