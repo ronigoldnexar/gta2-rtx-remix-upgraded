@@ -121,6 +121,7 @@ void WeatherFx::Init(IDirect3DDevice9* device, bool remix) {
 }
 
 void WeatherFx::Release() {
+    for (auto& t : remixRain_) { if (t) { t->Release(); t = nullptr; } }
     SafeRelease(puddles_);
     SafeRelease(saved_);
     device_ = nullptr;
@@ -182,7 +183,8 @@ IDirect3DTexture9* WeatherFx::Puddles() {
 
 void WeatherFx::DrawRain(const WorldShading& shading) {
     const WeatherState& w = g_now;
-    if (!device_ || (remix_ && !w.remixStreaks) || !haveCamera_ || !w.active || !w.streaks || w.rain < 0.02f || !shading.fog || g_blend < 0.02f) return;
+    if (device_ && remix_ && w.remixStreaks && haveCamera_ && w.active && w.streaks && w.rain >= 0.02f && g_blend >= 0.02f) { DrawRainRemix(w); return; }
+    if (!device_ || remix_ || !haveCamera_ || !w.active || !w.streaks || w.rain < 0.02f || !shading.fog || g_blend < 0.02f) return;
     const int count = std::max(0, std::min(6000, static_cast<int>(static_cast<float>(w.drops) * w.rain)));
     if (count == 0) return;
 
@@ -262,6 +264,108 @@ void WeatherFx::DrawRain(const WorldShading& shading) {
     device_->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
     device_->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
     device_->DrawPrimitiveUP(D3DPT_TRIANGLELIST, static_cast<UINT>(verts_.size() / 3), verts_.data(), sizeof(RainVertex));
+    if (saved_) saved_->Apply();
+}
+
+
+void WeatherFx::SetRemixFrame(const Mat4& view, const Mat4& proj, const Vec3& eye, float blend) {
+    SetCamera(view, proj, eye);
+    g_blend = Clamp01(blend);
+}
+
+void WeatherFx::DrawRainRemix(const WeatherState& w) {
+    static const float kLevelAlpha[kRemixRainLevels] = {0.22f, 0.38f, 0.55f};
+    if (!remixRain_[0]) {
+        const int TW = 8, TH = 64;
+        for (int l = 0; l < kRemixRainLevels; ++l) {
+            if (FAILED(device_->CreateTexture(TW, TH, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &remixRain_[l], nullptr))) { remixRain_[l] = nullptr; continue; }
+            D3DLOCKED_RECT lr;
+            std::vector<uint32_t> texels(static_cast<size_t>(TW) * TH);
+            for (int y = 0; y < TH; ++y) {
+                for (int x = 0; x < TW; ++x) {
+                    const float u = (x + 0.5f) / TW, v = (y + 0.5f) / TH;          // v 0 tail .. 1 head
+                    const float across = std::exp(-((u - 0.5f) * (u - 0.5f)) / (2.0f * 0.18f * 0.18f));
+                    const float along = v * v * (3.0f - 2.0f * v);
+                    const float a = std::min(1.0f, kLevelAlpha[l] * across * along);
+                    const int A = static_cast<int>(a * 255.0f + 0.5f);
+                    texels[static_cast<size_t>(y) * TW + x] = (static_cast<uint32_t>(A) << 24) | (0xD9u << 16) | (0xE0u << 8) | 0xF0u;
+                }
+            }
+            if (SUCCEEDED(remixRain_[l]->LockRect(0, &lr, nullptr, 0))) {
+                for (int y = 0; y < TH; ++y) memcpy(static_cast<uint8_t*>(lr.pBits) + y * lr.Pitch, &texels[static_cast<size_t>(y) * TW], TW * 4);
+                remixRain_[l]->UnlockRect(0);
+            }
+            RendererTrace("weather: Remix rain streak texture %d (alpha %.2f) %dx%d, fixed content", l, kLevelAlpha[l], TW, TH);
+        }
+    }
+    const int count = std::max(0, std::min(4000, static_cast<int>(static_cast<float>(w.drops) * 0.6f * w.rain)));
+    const float R = 9.0f, H = 7.0f, speed = 7.5f;
+    const float t = static_cast<float>(std::fmod(w.seconds, 3600.0));
+    const float windX = w.windDir[0] * w.wind * 3.5f, windZ = w.windDir[1] * w.wind * 3.5f;
+    const Vec3 dir = Normalize(Vec3{windX, -speed, windZ});
+    const float len = 0.55f + 0.25f * w.wind;
+    auto wrap = [](float v, float L) { return v - L * std::floor(v / L + 0.5f); };
+    for (auto& v : texVerts_) v.clear();
+    for (int i = 0; i < count; ++i) {
+        const uint32_t s0 = static_cast<uint32_t>(i) * 3u;
+        const float sp = speed * (0.85f + 0.3f * Hash01(s0 + 2));
+        const float fall = std::fmod(Hash01(s0 + 1) * H + t * sp, H);
+        const float bx = Hash01(s0) * 2.0f * R + windX * t * 0.8f;
+        const float bz = Hash01(s0 + 7777u) * 2.0f * R + windZ * t * 0.8f;
+        const Vec3 p{eye_.x + wrap(bx - eye_.x, 2.0f * R), eye_.y + H * 0.5f - fall, eye_.z + wrap(bz - eye_.z, 2.0f * R)};
+        const Vec3 toEye = p - eye_;
+        const float dist = std::sqrt(Dot(toEye, toEye));
+        if (dist < 0.6f) continue;
+        const float fade = Clamp01((R - dist) / 3.0f) * Clamp01((dist - 0.6f) / 1.0f) * g_blend * (0.55f + 0.45f * w.rain);
+        if (fade < 0.15f) continue;
+        const int level = fade < 0.45f ? 0 : (fade < 0.8f ? 1 : 2);
+        const Vec3 top = p - dir * (len * (0.8f + 0.4f * Hash01(s0 + 5)));
+        Vec3 side = Cross(dir, toEye);
+        const float sl = std::sqrt(Dot(side, side));
+        if (sl < 1e-4f) continue;
+        side = side * (std::max(0.012f, dist * 0.0035f) / sl);
+        const RainTexVertex v0{p.x - side.x, p.y - side.y, p.z - side.z, 0.0f, 1.0f};
+        const RainTexVertex v1{p.x + side.x, p.y + side.y, p.z + side.z, 1.0f, 1.0f};
+        const RainTexVertex v2{top.x - side.x, top.y - side.y, top.z - side.z, 0.0f, 0.0f};
+        const RainTexVertex v3{top.x + side.x, top.y + side.y, top.z + side.z, 1.0f, 0.0f};
+        auto& out = texVerts_[level];
+        out.push_back(v0); out.push_back(v1); out.push_back(v2);
+        out.push_back(v2); out.push_back(v1); out.push_back(v3);
+    }
+    if (!saved_ && FAILED(device_->CreateStateBlock(D3DSBT_ALL, &saved_))) saved_ = nullptr;
+    if (saved_) saved_->Capture();
+    device_->SetVertexShader(nullptr);
+    device_->SetPixelShader(nullptr);
+    device_->SetFVF(D3DFVF_XYZ | D3DFVF_TEX1);
+    const Mat4 identity = Identity();
+    device_->SetTransform(D3DTS_WORLD, reinterpret_cast<const D3DMATRIX*>(&identity));
+    device_->SetTransform(D3DTS_VIEW, reinterpret_cast<const D3DMATRIX*>(&view_));
+    device_->SetTransform(D3DTS_PROJECTION, reinterpret_cast<const D3DMATRIX*>(&proj_));
+    device_->SetRenderState(D3DRS_LIGHTING, FALSE);
+    device_->SetRenderState(D3DRS_ZENABLE, D3DZB_TRUE);
+    device_->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+    device_->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+    device_->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
+    device_->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+    device_->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
+    device_->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+    device_->SetRenderState(D3DRS_BLENDOP, D3DBLENDOP_ADD);
+    device_->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+    device_->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+    device_->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+    device_->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+    device_->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+    device_->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+    device_->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+    device_->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+    device_->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
+    device_->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
+    for (int l = 0; l < kRemixRainLevels; ++l) {
+        if (!remixRain_[l] || texVerts_[l].empty()) continue;
+        device_->SetTexture(0, remixRain_[l]);
+        device_->DrawPrimitiveUP(D3DPT_TRIANGLELIST, static_cast<UINT>(texVerts_[l].size() / 3), texVerts_[l].data(), sizeof(RainTexVertex));
+    }
+    device_->SetTexture(0, nullptr);
     if (saved_) saved_->Apply();
 }
 

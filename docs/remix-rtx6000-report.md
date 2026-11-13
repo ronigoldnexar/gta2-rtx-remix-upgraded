@@ -52,3 +52,20 @@ runner /gta2/gamerun/run_game_remix_proton.sh with PROTON_DIR=/proton, host nvid
 Verification history: verify1 (stage c4cd943b) and verify2 (stage 13ddc23b, 16:03 UTC) both: every required line PASS, FG and NRC n/a with the reasons above.
 
 Deployment state 11 Nov 18:40 UTC: build 13ddc23b on Tokyo's stage, on the RTX 6000 (verify2 PASS) and on the RTX 5090 (hash ba0e8c1c…, play-look rtx.conf, merged ini with the hold at the night cap).
+
+## 5. Measuring on the 6000: the unlicensed-vGPU slowdown and the harness gap (13 Nov 2026, WEATHER-V2)
+
+- **The vGPU is unlicensed** (`nvidia-smi -q`: License Status Unlicensed, RTX Virtual Workstation). After the VM had
+  been up 2 days, every Remix frame took about 200 ms (present 190-230 ms, classic view included; runs
+  /gta2/wx/out/p0a, p0b). After a guest reboot the same scene ran at the 30 fps cap (33 ms; p0c). NVIDIA's unlicensed
+  vGPU runs at full speed for a short time after boot and is then throttled. **Rule: reboot the 6000 (nothing else
+  runs there) and measure within about 20 minutes of the boot.** Frame cost read later is the licence, not the code.
+- **The 6000 harness ran without the shipped look until 13 Nov.** `runremix_dlss.sh` appended the play look to the
+  *upstream* rtx.conf, so `rtx.sceneScale = 0.0025` and the other `package/rtx.conf` keys were missing (Remix read a
+  block as 1 cm), and `/gta2/repo/package` was empty, so `MODS_HD=1` installed no gta2hd material layer. Now
+  `runremix_dlss.sh` appends `/gta2/ship/rtx.conf` (the shipped package/rtx.conf) and installs `/gta2/ship/gta2hd`
+  by default (`SHIP_CONF=0` / `SHIP_MOD=0` for the old behaviour; original kept as `runremix_dlss.sh.bak-20261113`).
+- **What that invalidates above:** soak1/soak2 and verify1/verify2 ran without sceneScale and without the PBR
+  layer, so their frame times (classic ~7.5 ms, street 20-32 ms) and VRAM peak (4.6 GB) are not the shipped game's.
+  The capability verdicts (path tracing, DLSS, RR, Frame Generation and NRC unsupported) do not depend on either
+  and stand. Any look judged from those frames (exposure, fog, volumetric distances in metres) has to be retaken.

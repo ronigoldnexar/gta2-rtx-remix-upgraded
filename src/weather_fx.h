@@ -58,6 +58,9 @@ public:
     void Init(IDirect3DDevice9* device, bool remix);
     void Release();
     void SetCamera(const Mat4& view, const Mat4& proj, const Vec3& eye);
+    // Under Remix the sky pass (which sets the camera) and the shading weight do not run: the
+    // world view hands both over here once a frame.
+    void SetRemixFrame(const Mat4& view, const Mat4& proj, const Vec3& eye, float blend);
     // After the cars, people and props; before the post resolves. light: the
     // scene's ambient level (so streaks are not brighter than the night).
     void DrawRain(const WorldShading& shading);
@@ -66,6 +69,14 @@ public:
 
 private:
     struct RainVertex { float x, y, z; DWORD colour; };
+    // Under RTX Remix (WEATHER-V2): Remix drops vertex colour and draws untextured quads as
+    // nothing, so the streaks there are textured: the streak's shape, colour and opacity baked
+    // into a fixed texture (three opacity levels, one fixed Remix hash each), blended.
+    struct RainTexVertex { float x, y, z, u, v; };
+    static constexpr int kRemixRainLevels = 3;
+    IDirect3DTexture9* remixRain_[kRemixRainLevels] = {};
+    std::vector<RainTexVertex> texVerts_[kRemixRainLevels];
+    void DrawRainRemix(const WeatherState& w);
     IDirect3DDevice9* device_ = nullptr;
     IDirect3DTexture9* puddles_ = nullptr;
     IDirect3DStateBlock9* saved_ = nullptr;

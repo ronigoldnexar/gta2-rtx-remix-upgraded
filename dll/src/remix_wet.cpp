@@ -31,8 +31,10 @@ struct Settings {
     int decalBits = 1 << 11, tfBlend = 0;
     int alphaSrc = 3, vcolorAlpha = 255, filmStatic = 0;
     int waterIor = 133, waterTrans = 80;
+    int liftMilli = 4;
 };
 Settings g_set;
+float g_lift = 0.004f;   // blocks over the lid ([devtools] wx_lift_milli)
 DWORD g_lastRead = 0;
 char g_ini[MAX_PATH] = "";
 int g_generation = 1;   // bumps when a material setting changes: meshes are rebuilt
@@ -63,14 +65,16 @@ void ReadSettings() {
     s.vcolorAlpha = (std::max)(0, (std::min)(255, Dev("wx_vcolor_alpha", 255)));
     s.filmStatic = Dev("wx_film_static", 0);
     s.waterIor = Dev("wx_water_ior", 133);
+    s.liftMilli = Dev("wx_lift_milli", 4);
     s.waterTrans = Dev("wx_water_trans", 80);
     if (memcmp(&s, &g_set, sizeof s) != 0) {
         if (s.rough != g_set.rough || s.albedo != g_set.albedo || s.puddleRough != g_set.puddleRough || s.mode != g_set.mode ||
             s.vcolorAlpha != g_set.vcolorAlpha || s.filmStatic != g_set.filmStatic || (s.filmStatic && s.alpha != g_set.alpha) ||
-            s.waterIor != g_set.waterIor || s.waterTrans != g_set.waterTrans) ++g_generation;
+            s.waterIor != g_set.waterIor || s.liftMilli != g_set.liftMilli || s.waterTrans != g_set.waterTrans) ++g_generation;
         Log("remix wet: mode %d alpha %d rough %d%% albedo %d%% puddles %d (rough %d%%) decal bits %X tfblend %d alpha src %d vcolor a %d static %d (gen %d)",
             s.mode, s.alpha, s.rough, s.albedo, s.puddleAlpha, s.puddleRough, s.decalBits, s.tfBlend, s.alphaSrc, s.vcolorAlpha, s.filmStatic, g_generation);
         g_set = s;
+        g_lift = s.liftMilli / 1000.0f;
     }
 }
 
@@ -132,8 +136,9 @@ remixapi_MaterialHandle MakeOpaque(uint64_t hash, float albedo, float rough, con
     info.hash = hash;
     info.albedoTexture = texture;
     info.filterMode = 1;
-    info.wrapModeU = 0;   // repeat
-    info.wrapModeV = 0;
+    info.wrapModeU = texture ? 0 : 2;   // the mask repeats; constants clamp like the probe cubes
+    info.wrapModeV = texture ? 0 : 2;
+    info.emissiveColorConstant = {0.0f, 0.0f, 0.0f};
     remixapi_MaterialHandle handle = nullptr;
     const remixapi_ErrorCode rc = RemixApi()->CreateMaterial(&info, &handle);
     Log("remix wet: opaque material %016llx albedo %.2f rough %.2f%s -> %d", static_cast<unsigned long long>(hash), albedo, rough,
@@ -162,7 +167,6 @@ remixapi_MaterialHandle MakeWater(uint64_t hash) {
 }
 
 constexpr int kChunk = 16;
-constexpr float kLift = 0.004f;   // blocks (1.6 cm) over the lid
 
 // A chunk's open ground lids (road 1, pavement 2; flat; the column's top block) as quads.
 remixapi_MeshHandle ChunkMesh(const gta2::Map& map, int chunkX, int chunkZ, int kind, remixapi_MaterialHandle material) {
@@ -178,12 +182,20 @@ remixapi_MeshHandle ChunkMesh(const gta2::Map& map, int chunkX, int chunkZ, int 
             const int my = gta2::kMapHeight - 1 - cz;
             if (cx < 0 || cx >= gta2::kMapWidth || my < 0 || my >= gta2::kMapHeight) continue;
             const gta2::Column& c = map.ColumnAt(cx, my);
-            if (c.blocks.empty() || c.blocks.back() >= map.BlockCount()) continue;
-            const gta2::Block& b = map.BlockAt(c.blocks.back());
-            if (!b.lid || b.SlopeType() != 0) continue;
-            const int g = b.GroundType();
-            if (g != 1 && g != 2) continue;
-            const float y = static_cast<float>(c.offset + static_cast<int>(c.blocks.size())) + kLift;
+            // The highest flat road or pavement lid of the column, open to the sky: a block above it
+            // with a lid of a real ground type (a deck, a roof) keeps it dry; thin structures over a
+            // street (sign gantries, lamp heads: ground type 0) do not (the first rule took the
+            // column's top block only and left the road under every gantry dry).
+            int found = -1;
+            for (int i = static_cast<int>(c.blocks.size()) - 1; i >= 0; --i) {
+                if (c.blocks[i] >= map.BlockCount()) break;
+                const gta2::Block& b = map.BlockAt(c.blocks[i]);
+                const int g = b.GroundType();
+                if (b.lid && b.SlopeType() == 0 && (g == 1 || g == 2)) { found = i; break; }
+                if (b.lid && g != 0) break;   // covered by a deck or a roof
+            }
+            if (found < 0) continue;
+            const float y = static_cast<float>(c.offset + found + 1) + g_lift;
             const uint32_t base = static_cast<uint32_t>(verts.size());
             const float xs[4] = {0, 1, 1, 0}, zs[4] = {0, 0, 1, 1};
             for (int k = 0; k < 4; ++k) {
@@ -221,23 +233,28 @@ remixapi_MeshHandle ChunkMesh(const gta2::Map& map, int chunkX, int chunkZ, int 
 }
 
 void Draw(remixapi_MeshHandle mesh, uint32_t categories, bool blend, int alphaArg1, int alphaArg2, int alphaOp, int alpha) {
+    // The instance state of the probe board's cubes that render (p1a): colour = texture modulate,
+    // blend factors ONE/ZERO unless blending, alpha test on (ref 1) when not blending.
     remixapi_InstanceInfo instance = {};
     instance.sType = REMIXAPI_STRUCT_TYPE_INSTANCE_INFO;
     instance.categoryFlags = categories;
     remixapi_InstanceInfoBlendEXT b = {};
     b.sType = REMIXAPI_STRUCT_TYPE_INSTANCE_INFO_BLEND_EXT;
-    b.alphaTestEnabled = 0;
+    const bool legacy = Dev("wx_legacy_draw", 0) != 0;   // A/B: the p0 state that rendered nothing opaque
+    b.alphaTestEnabled = (!blend && !legacy) ? 1 : 0;
+    b.alphaTestReferenceValue = 1;
+    b.alphaTestCompareOp = 6;
     b.alphaBlendEnabled = blend ? 1 : 0;
-    b.srcColorBlendFactor = 6;   // VK_BLEND_FACTOR_SRC_ALPHA
-    b.dstColorBlendFactor = 7;   // ONE_MINUS_SRC_ALPHA
+    b.srcColorBlendFactor = blend ? 6 : 1;
+    b.dstColorBlendFactor = blend ? 7 : 0;
     b.colorBlendOp = 0;
     b.srcAlphaBlendFactor = 1;
-    b.dstAlphaBlendFactor = 7;
+    b.dstAlphaBlendFactor = legacy ? 7 : 0;
     b.alphaBlendOp = 0;
     b.writeMask = 0xFFFFFFFFu;
-    b.textureColorArg1Source = 1;   // texture
+    b.textureColorArg1Source = 1;
     b.textureColorArg2Source = 0;
-    b.textureColorOperation = 1;    // select arg 1
+    b.textureColorOperation = legacy ? 1 : 3;
     b.textureAlphaArg1Source = static_cast<uint32_t>(alphaArg1);
     b.textureAlphaArg2Source = static_cast<uint32_t>(alphaArg2);
     b.textureAlphaOperation = static_cast<uint32_t>(alphaOp);
@@ -252,13 +269,167 @@ void Draw(remixapi_MeshHandle mesh, uint32_t categories, bool blend, int alphaAr
     RemixApi()->DrawInstance(&instance);
 }
 
+
+// ---- Probe board (WEATHER-V2 gate 1, priority 1): which opaque API configurations render ----
+// [devtools] wx_probe_board=1: eight 0.4-block cubes in a ring of radius 2.5 around where the eye
+// was when the key went to 1, each a different material / blend configuration (colour coded).
+struct ProbeVariant { const char* name; float r, g, b; bool texture; int alphaTest; int blend; int alphaSrc; uint32_t cats; bool translucent; bool flat; };
+const ProbeVariant kProbe[8] = {
+    {"car-like white tex, alpha test", 1, 1, 1, true, 1, 0, 1, 0, false, false},
+    {"red const, car blend ext", 1, 0.1f, 0.1f, false, 1, 0, 1, 0, false, false},
+    {"green const, no test", 0.1f, 1, 0.1f, false, 0, 0, 1, 0, false, false},
+    {"blue tex, blend tfactor(3) a128", 0.1f, 0.1f, 1, true, 0, 1, 3, 0, false, false},
+    {"yellow tex, blend tfactor(4) a128", 1, 1, 0.1f, true, 0, 1, 4, 0, false, false},
+    {"magenta tex, decal static", 1, 0.1f, 1, true, 1, 0, 1, 1u << 11, false, false},
+    {"translucent control", 1, 1, 1, false, 0, 0, 1, 0, true, false},
+    {"cyan tex, flat on ground +0.004", 0.1f, 1, 1, true, 1, 0, 1, 0, false, true},
+};
+bool g_probeOn = false;
+float g_probeX = 0, g_probeY = 0, g_probeZ = 0;
+remixapi_MeshHandle g_probeMesh[8] = {};
+std::wstring g_whitePath;
+
+bool WriteWhiteDds(const std::wstring& path) {
+    const int n = 16;
+    std::vector<uint8_t> px(static_cast<size_t>(n) * n * 4, 255);
+    uint32_t header[32] = {};
+    header[0] = 0x20534444; header[1] = 124; header[2] = 0x100F; header[3] = n; header[4] = n; header[5] = n * 4;
+    header[19] = 32; header[20] = 0x41; header[22] = 32;
+    header[23] = 0x00FF0000; header[24] = 0x0000FF00; header[25] = 0x000000FF; header[26] = 0xFF000000;
+    header[27] = 0x1000;
+    FILE* f = _wfopen(path.c_str(), L"wb");
+    if (!f) return false;
+    const bool ok = fwrite(header, 4, 32, f) == 32 && fwrite(px.data(), 1, px.size(), f) == px.size();
+    fclose(f);
+    return ok;
+}
+
+remixapi_MeshHandle ProbeMesh(int i) {
+    const ProbeVariant& v = kProbe[i];
+    if (g_whitePath.empty()) {
+        wchar_t exe[MAX_PATH] = {};
+        GetModuleFileNameW(nullptr, exe, MAX_PATH);
+        std::wstring dir = exe;
+        dir = dir.substr(0, dir.find_last_of(L"\\/")) + L"\\gta2dx9_cache";
+        CreateDirectoryW(dir.c_str(), nullptr);
+        g_whitePath = dir + L"\\wx_white.dds";
+        Log("remix wet probe: white texture %s", WriteWhiteDds(g_whitePath) ? "written" : "NOT written");
+    }
+    remixapi_MaterialHandle mat = nullptr;
+    const uint64_t mhash = 0x5750524F42000000ull + i * 2 + 1;
+    if (v.translucent) {
+        remixapi_MaterialInfoTranslucentEXT tr = {};
+        tr.sType = REMIXAPI_STRUCT_TYPE_MATERIAL_INFO_TRANSLUCENT_EXT;
+        tr.refractiveIndex = 1.5f; tr.transmittanceColor = {0.5f, 0.9f, 0.5f}; tr.transmittanceMeasurementDistance = 1.0f;
+        tr.thinWallThickness_hasvalue = 1; tr.thinWallThickness_value = 0.1f;
+        remixapi_MaterialInfo info = {};
+        info.sType = REMIXAPI_STRUCT_TYPE_MATERIAL_INFO; info.pNext = &tr; info.hash = mhash;
+        RemixApi()->CreateMaterial(&info, &mat);
+    } else {
+        remixapi_MaterialInfoOpaqueEXT op = {};
+        op.sType = REMIXAPI_STRUCT_TYPE_MATERIAL_INFO_OPAQUE_EXT;
+        op.albedoConstant = {v.r, v.g, v.b};
+        op.opacityConstant = 1.0f;
+        op.roughnessConstant = 0.5f;
+        op.useDrawCallAlphaState = 1;
+        remixapi_MaterialInfo info = {};
+        info.sType = REMIXAPI_STRUCT_TYPE_MATERIAL_INFO; info.pNext = &op; info.hash = mhash;
+        info.albedoTexture = v.texture ? g_whitePath.c_str() : nullptr;
+        info.emissiveColorConstant = {0, 0, 0};
+        info.filterMode = 1; info.wrapModeU = 2; info.wrapModeV = 2;
+        const remixapi_ErrorCode rc = RemixApi()->CreateMaterial(&info, &mat);
+        Log("remix wet probe: %d %s material -> %d", i, v.name, static_cast<int>(rc));
+    }
+    if (!mat) return nullptr;
+    std::vector<remixapi_HardcodedVertex> verts;
+    std::vector<uint32_t> idx;
+    auto face = [&](const float* p0, const float* p1, const float* p2, const float* p3, const float* n) {
+        const uint32_t b = static_cast<uint32_t>(verts.size());
+        const float* ps[4] = {p0, p1, p2, p3};
+        const float uv[4][2] = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
+        for (int k = 0; k < 4; ++k) {
+            remixapi_HardcodedVertex vx = {};
+            for (int c = 0; c < 3; ++c) { vx.position[c] = ps[k][c]; vx.normal[c] = n[c]; }
+            vx.texcoord[0] = uv[k][0]; vx.texcoord[1] = uv[k][1]; vx.color = 0xFFFFFFFFu;
+            verts.push_back(vx);
+        }
+        const uint32_t q[6] = {0, 1, 2, 0, 2, 3};
+        for (uint32_t k : q) idx.push_back(b + k);
+    };
+    const float a = static_cast<float>(i) * 0.785398f;
+    const float cx = g_probeX + 2.5f * std::cos(a), cz = g_probeZ + 2.5f * std::sin(a);
+    if (v.flat) {
+        const float y = g_probeY + 0.004f, h = 0.6f;
+        const float p0[3] = {cx - h, y, cz - h}, p1[3] = {cx + h, y, cz - h}, p2[3] = {cx + h, y, cz + h}, p3[3] = {cx - h, y, cz + h};
+        const float up[3] = {0, 1, 0};
+        face(p0, p1, p2, p3, up);
+    } else {
+        const float h = 0.2f, y0 = g_probeY + 0.3f, y1 = y0 + 0.4f;
+        const float c[8][3] = {{cx - h, y0, cz - h}, {cx + h, y0, cz - h}, {cx + h, y0, cz + h}, {cx - h, y0, cz + h},
+                               {cx - h, y1, cz - h}, {cx + h, y1, cz - h}, {cx + h, y1, cz + h}, {cx - h, y1, cz + h}};
+        const float nu[3] = {0, 1, 0}, nd[3] = {0, -1, 0}, nx[3] = {1, 0, 0}, nX[3] = {-1, 0, 0}, nz[3] = {0, 0, 1}, nZ[3] = {0, 0, -1};
+        face(c[4], c[5], c[6], c[7], nu); face(c[3], c[2], c[1], c[0], nd);
+        face(c[1], c[2], c[6], c[5], nx); face(c[3], c[0], c[4], c[7], nX);
+        face(c[2], c[3], c[7], c[6], nz); face(c[0], c[1], c[5], c[4], nZ);
+    }
+    remixapi_MeshInfoSurfaceTriangles surface = {};
+    surface.vertices_values = verts.data(); surface.vertices_count = verts.size();
+    surface.indices_values = idx.data(); surface.indices_count = idx.size();
+    surface.skinning_hasvalue = 0; surface.material = mat;
+    remixapi_MeshInfo mesh = {};
+    mesh.sType = REMIXAPI_STRUCT_TYPE_MESH_INFO; mesh.hash = 0x5750524F424D0000ull + i;
+    mesh.surfaces_values = &surface; mesh.surfaces_count = 1;
+    remixapi_MeshHandle handle = nullptr;
+    const remixapi_ErrorCode rc = RemixApi()->CreateMesh(&mesh, &handle);
+    Log("remix wet probe: %d mesh at %.2f,%.2f,%.2f -> %d", i, cx, g_probeY, cz, static_cast<int>(rc));
+    return rc == REMIXAPI_ERROR_CODE_SUCCESS ? handle : nullptr;
+}
+
+void DrawProbeBoard(const gta2::Map& map, float ex, float ey, float ez) {
+    const bool on = Dev("wx_probe_board", 0) != 0;
+    if (on && !g_probeOn) {
+        g_probeX = ex; g_probeZ = ez; g_probeY = std::floor(ey);
+        const int cx = static_cast<int>(std::floor(ex)), cz = static_cast<int>(std::floor(ez)), my = gta2::kMapHeight - 1 - cz;
+        if (cx >= 0 && cx < gta2::kMapWidth && my >= 0 && my < gta2::kMapHeight) {
+            const gta2::Column& c = map.ColumnAt(cx, my);
+            if (!c.blocks.empty()) g_probeY = static_cast<float>(c.offset + static_cast<int>(c.blocks.size()));
+        }
+        Log("remix wet probe: board at %.2f,%.2f,%.2f (eye y %.2f)", g_probeX, g_probeY, g_probeZ, ey);
+        for (auto& m : g_probeMesh) m = nullptr;
+        for (int i = 0; i < 8; ++i) g_probeMesh[i] = ProbeMesh(i);
+    }
+    g_probeOn = on;
+    if (!on) return;
+    for (int i = 0; i < 8; ++i) {
+        if (!g_probeMesh[i]) continue;
+        const ProbeVariant& v = kProbe[i];
+        remixapi_InstanceInfo instance = {};
+        instance.sType = REMIXAPI_STRUCT_TYPE_INSTANCE_INFO;
+        instance.categoryFlags = v.cats;
+        remixapi_InstanceInfoBlendEXT b = {};
+        b.sType = REMIXAPI_STRUCT_TYPE_INSTANCE_INFO_BLEND_EXT;
+        b.alphaTestEnabled = v.alphaTest; b.alphaTestReferenceValue = 1; b.alphaTestCompareOp = 6;
+        b.alphaBlendEnabled = v.blend;
+        b.srcColorBlendFactor = v.blend ? 6 : 1; b.dstColorBlendFactor = v.blend ? 7 : 0; b.colorBlendOp = 0;
+        b.srcAlphaBlendFactor = 1; b.dstAlphaBlendFactor = 0; b.alphaBlendOp = 0; b.writeMask = 0xFFFFFFFFu;
+        b.textureColorArg1Source = 1; b.textureColorArg2Source = 0; b.textureColorOperation = 3;
+        b.textureAlphaArg1Source = static_cast<uint32_t>(v.alphaSrc); b.textureAlphaArg2Source = 0; b.textureAlphaOperation = 1;
+        b.tFactor = v.blend ? 0x80FFFFFFu : 0xFFFFFFFFu;
+        instance.pNext = v.translucent ? nullptr : &b;
+        instance.mesh = g_probeMesh[i];
+        instance.doubleSided = 1;
+        for (int r = 0; r < 3; ++r)
+            for (int c = 0; c < 4; ++c) instance.transform.matrix[r][c] = (r == c) ? 1.0f : 0.0f;
+        RemixApi()->DrawInstance(&instance);
+    }
+}
 }  // namespace
 
 void RemixWetFrame(const gta2::Map& map, float eyeX, float eyeY, float eyeZ, float viewMix) {
-    (void)eyeY;
     const DWORD now = GetTickCount();
     if (!g_ini[0] || now - g_lastRead >= 1000) { g_lastRead = now; ReadSettings(); }
     if (!RemixApiHasInstances() || map.Empty() || viewMix < 0.01f) return;
+    DrawProbeBoard(map, eyeX, eyeY, eyeZ);
     if (g_set.mode == 0 && g_set.puddleAlpha == 0) return;
     const uint64_t salt = static_cast<uint64_t>(g_generation) << 20;
     if ((g_set.mode == 4 || g_set.mode == 5) && g_filmGen != g_generation) {
@@ -275,10 +446,11 @@ void RemixWetFrame(const gta2::Map& map, float eyeX, float eyeY, float eyeZ, flo
                             g_set.mode == 5 ? g_puddlePath.c_str() : nullptr);
         g_filmGen = g_generation;
     }
-    if (g_set.mode == 1 || g_set.mode == 3) {
+    if (g_set.mode == 1 || g_set.mode == 3 || g_set.mode == 6) {
         if (g_filmGen != g_generation) { g_film = MakeOpaque(0x5745540100000001ull ^ salt, g_set.albedo / 100.0f, g_set.rough / 100.0f, nullptr,
                                                          g_set.filmStatic ? g_set.alpha / 255.0f : -1.0f); g_filmGen = g_generation; }
-    } else if (g_set.mode == 2 && g_waterGen != g_generation) {
+    }
+    if ((g_set.mode == 2 || g_set.mode == 6) && g_waterGen != g_generation) {
         g_water = MakeWater(0x5745540200000001ull ^ salt); g_waterGen = g_generation;
     }
     if (g_set.puddleAlpha > 0 && g_puddleGen != g_generation) {
@@ -303,8 +475,13 @@ void RemixWetFrame(const gta2::Map& map, float eyeX, float eyeY, float eyeZ, flo
             if (x < 0 || z < 0 || x >= gta2::kMapWidth / kChunk || z >= gta2::kMapHeight / kChunk) continue;
             if (g_set.mode == 1 && g_film) {
                 if (remixapi_MeshHandle m = ChunkMesh(map, x, z, 1, g_film)) Draw(m, static_cast<uint32_t>(g_set.decalBits), !g_set.filmStatic, g_set.alphaSrc, 0, 1, alpha);
-            } else if (g_set.mode == 3 && g_film) {
+            } else if ((g_set.mode == 3 || g_set.mode == 6) && g_film) {
                 if (remixapi_MeshHandle m = ChunkMesh(map, x, z, 1, g_film)) Draw(m, 0, !g_set.filmStatic, g_set.alphaSrc, 0, 1, alpha);
+                if (g_set.mode == 6 && g_water && viewMix > 0.99f) {
+                    const float keep = g_lift; g_lift += 0.004f;
+                    if (remixapi_MeshHandle w = ChunkMesh(map, x, z, 2, g_water)) Draw(w, 0, false, 1, 0, 1, 255);
+                    g_lift = keep;
+                }
             } else if ((g_set.mode == 4 || g_set.mode == 5) && g_film) {
                 if (remixapi_MeshHandle m = ChunkMesh(map, x, z, 4, g_film)) Draw(m, 0, false, 1, 0, 1, 255);
             } else if (g_set.mode == 2 && g_water && viewMix > 0.99f) {

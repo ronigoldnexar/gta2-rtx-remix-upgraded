@@ -4189,6 +4189,7 @@ void WorldView::RenderFrame() {
         if (renderer_.IsRemixDevice() && worldUploaded_ && !map_.Empty()) {
             const auto eye = camera_.Position();
             RemixWetFrame(map_, eye.x, eye.y, eye.z, g_presentStreet ? g_presentMix : 0.0f);
+            renderer_.SetRemixWeatherFrame(camera_, g_presentStreet ? g_presentMix : 0.0f);
         }
         renderer_.EndWorldShading();
         // LIGHTING-V1: the plain classic view takes the hour too (the street views and the Remix classic view already

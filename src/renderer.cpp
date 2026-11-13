@@ -2319,6 +2319,12 @@ void Renderer::SetWorldShading(const WorldShading& incoming) {
     if (!post_.BeginScene(f)) shading_ = shading;
 }
 
+void Renderer::SetRemixWeatherFrame(const Camera& camera, float blend) {
+    if (!remixDevice_) return;
+    weather_.SetRemixFrame(camera.ViewMatrix(), camera.ProjectionMatrix(static_cast<float>(width_) / static_cast<float>(height_)),
+                           camera.Position(), blend);
+}
+
 void Renderer::EndWorldShading() {
     if (!device_) return;
     weather_.DrawRain(shading_);
