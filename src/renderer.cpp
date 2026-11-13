@@ -1271,7 +1271,7 @@ IDirect3DTexture9* Renderer::KitMaterialTexture(const Style& style, int tile) {
 }
 
 bool Renderer::LoadKitStream(const std::string& path, const Style& style) {
-    if (!device_ || !kitStream_.Load(path, KitTileIndex(style, 0))) return false;
+    if (!device_ || !kitStream_.Load(path, KitTileIndex(style, 0)) || !kitStream_.CreatePool(device_)) return false;
     for (int k = 0; k < kKitMaterials; ++k) KitMaterialTexture(style, KitTileIndex(style, k));
     return true;
 }
@@ -1805,9 +1805,11 @@ void Renderer::DrawKitStream(const Camera& camera) {
     device_->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
     device_->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
     device_->SetFVF(kWorldFvf);
+    if (!kitStream_.Pool()) { device_->SetStreamSource(0, vertexBuffer_, 0, sizeof(Vertex)); return; }
+    device_->SetStreamSource(0, kitStream_.Pool(), 0, sizeof(Vertex));
     for (const KitStream::Resident& r : kitStream_.Residents()) {
         const float a = r.alpha * kitAlpha_;
-        if (a <= 0.02f || !r.vb || !r.ib) continue;
+        if (a <= 0.02f) continue;
         const bool blend = a < 0.999f;
         device_->SetRenderState(D3DRS_ALPHABLENDENABLE, blend ? TRUE : FALSE);
         device_->SetRenderState(D3DRS_ZWRITEENABLE, blend ? FALSE : TRUE);
@@ -1821,8 +1823,6 @@ void Renderer::DrawKitStream(const Camera& camera) {
             device_->SetTextureStageState(0, D3DTSS_ALPHAARG1, a1);
             device_->SetTextureStageState(0, D3DTSS_ALPHAARG2, a2);
         }
-        device_->SetStreamSource(0, r.vb, 0, sizeof(Vertex));
-        device_->SetIndices(r.ib);
         for (const KitStream::Group& g : r.groups) {
             IDirect3DTexture9* tex = g.tile >= 0 && g.tile < static_cast<int>(textures_.size()) ? BoundTileTexture(g.tile) : nullptr;
             if (!tex) continue;
@@ -1832,7 +1832,7 @@ void Renderer::DrawKitStream(const Camera& camera) {
             const DWORD addr = (g.flags & 4) ? D3DTADDRESS_WRAP : D3DTADDRESS_CLAMP;
             device_->SetSamplerState(0, D3DSAMP_ADDRESSU, addr);
             device_->SetSamplerState(0, D3DSAMP_ADDRESSV, addr);
-            device_->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, static_cast<INT>(g.vstart), 0, g.vcount, g.istart, g.icount / 3);
+            device_->DrawPrimitive(D3DPT_TRIANGLELIST, g.vstart, g.vcount / 3);
         }
     }
     device_->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
