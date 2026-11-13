@@ -582,6 +582,7 @@ remixapi_MaterialHandle g_puddleWater = nullptr;
 constexpr int kRainMeshes = 4, kRainDrops = 700;
 constexpr float kRainBox = 12.0f, kRainH = 8.0f;
 remixapi_MaterialHandle g_rainMat = nullptr;
+int g_rainParticle = 0, g_rainAlpha = 45;
 remixapi_MeshHandle g_rainMesh[kRainMeshes] = {};
 float g_rainLen = -1.0f;
 
@@ -589,7 +590,7 @@ remixapi_MeshHandle RainMesh(int m, float len) {
     std::vector<remixapi_HardcodedVertex> verts;
     std::vector<uint32_t> idx;
     verts.reserve(kRainDrops * 8);
-    const float w = 0.006f;   // ~2.4 cm
+    const float w = g_rainParticle ? 0.0025f : 0.006f;   // ~1 cm (a particle) or ~2.4 cm (water)
     for (int d = 0; d < kRainDrops; ++d) {
         const float x = Hash2(d, m * 7 + 1) * kRainBox, z = Hash2(d, m * 7 + 2) * kRainBox, y = Hash2(d, m * 7 + 3) * kRainH;
         const float l = len * (0.7f + 0.6f * Hash2(d, m * 7 + 4));
@@ -632,8 +633,28 @@ void DrawRemixRain(float ex, float ey, float ez, float viewMix) {
     if (GetTickCount() - dropRead >= 1000) {
         dropRead = GetTickCount();
         const int t = GetPrivateProfileIntA("weather", "remix_drop_trans", 97, g_ini), i = GetPrivateProfileIntA("weather", "remix_drop_ior", 133, g_ini);
+        const int pm = GetPrivateProfileIntA("weather", "remix_rain_particle", 0, g_ini);   // 1: particle drops (pr1: not seen with RR on either)
+        const int pa = GetPrivateProfileIntA("weather", "remix_rain_alpha", 45, g_ini);
+        if (pm != g_rainParticle || pa != g_rainAlpha) { g_rainParticle = pm; g_rainAlpha = pa; g_rainMat = nullptr; for (auto& m : g_rainMesh) m = nullptr; g_rainLen = -1.0f;
+            Log("remix rain: %s drops, alpha %d%%", pm ? "particle (opaque, blended)" : "translucent water", pa); }
         if (t != dropTrans || i != dropIor) { dropTrans = t; dropIor = i; g_rainMat = nullptr; for (auto& m : g_rainMesh) m = nullptr; g_rainLen = -1.0f;
             Log("remix rain: drop material transmittance %d%% ior %.2f", t, i / 100.0f); }
+    }
+    if (!g_rainMat && g_rainParticle) {
+        remixapi_MaterialInfoOpaqueEXT op = {};
+        op.sType = REMIXAPI_STRUCT_TYPE_MATERIAL_INFO_OPAQUE_EXT;
+        op.albedoConstant = {0.85f, 0.88f, 0.92f};
+        op.opacityConstant = 1.0f;
+        op.roughnessConstant = 0.15f;
+        op.metallicConstant = 0.0f;
+        op.useDrawCallAlphaState = 1;
+        remixapi_MaterialInfo info = {};
+        info.sType = REMIXAPI_STRUCT_TYPE_MATERIAL_INFO; info.pNext = &op; info.hash = 0x5241494E50415254ull;
+        info.emissiveColorConstant = {0.0f, 0.0f, 0.0f};
+        info.filterMode = 1; info.wrapModeU = 2; info.wrapModeV = 2;
+        RemixApi()->CreateMaterial(&info, &g_rainMat);
+        Log("remix rain: particle drop material %s", g_rainMat ? "made" : "refused");
+        if (!g_rainMat) return;
     }
     if (!g_rainMat) {
         remixapi_MaterialInfoTranslucentEXT tr = {};
@@ -673,6 +694,21 @@ void DrawRemixRain(float ex, float ey, float ez, float viewMix) {
                     instance.sType = REMIXAPI_STRUCT_TYPE_INSTANCE_INFO;
                     instance.mesh = g_rainMesh[m];
                     instance.doubleSided = 1;
+                    remixapi_InstanceInfoBlendEXT b = {};
+                    if (g_rainParticle) {
+                        // A particle: Ray Reconstruction's separate particle buffer (rtx.rayreconstruction.particleBufferMode),
+                        // alpha-blended by the instance's texture factor.
+                        instance.categoryFlags = REMIXAPI_INSTANCE_CATEGORY_BIT_PARTICLE;
+                        b.sType = REMIXAPI_STRUCT_TYPE_INSTANCE_INFO_BLEND_EXT;
+                        b.alphaBlendEnabled = 1;
+                        b.srcColorBlendFactor = 6; b.dstColorBlendFactor = 7; b.colorBlendOp = 0;
+                        b.srcAlphaBlendFactor = 1; b.dstAlphaBlendFactor = 7; b.alphaBlendOp = 0;
+                        b.writeMask = 0xFFFFFFFFu;
+                        b.textureColorArg1Source = 1; b.textureColorArg2Source = 0; b.textureColorOperation = 3;
+                        b.textureAlphaArg1Source = 3; b.textureAlphaArg2Source = 0; b.textureAlphaOperation = 1;
+                        b.tFactor = (static_cast<uint32_t>((std::max)(0, (std::min)(100, g_rainAlpha)) * 255 / 100) << 24) | 0x00FFFFFFu;
+                        instance.pNext = &b;
+                    }
                     // x' = x + sx*y + ox, y' = y + oy, z' = z + sz*y + oz (the shear slants the fall downwind)
                     remixapi_Transform& T = instance.transform;
                     T.matrix[0][0] = 1; T.matrix[0][1] = -sx; T.matrix[0][2] = 0; T.matrix[0][3] = gx * kRainBox + sx * oy;
