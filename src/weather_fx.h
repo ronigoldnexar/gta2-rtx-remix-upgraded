@@ -35,6 +35,7 @@ struct WeatherState {
     float reflection = 1.0f;           // wet-road reflection strength
     bool streaks = true;
     bool wetRoads = true;
+    bool remixStreaks = false;         // WEATHER-V2 probe: draw the streaks on a Remix device too
     int drops = 1600;                  // streaks at full rain
     double seconds = 0.0;
 };

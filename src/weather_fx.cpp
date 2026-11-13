@@ -182,7 +182,7 @@ IDirect3DTexture9* WeatherFx::Puddles() {
 
 void WeatherFx::DrawRain(const WorldShading& shading) {
     const WeatherState& w = g_now;
-    if (!device_ || remix_ || !haveCamera_ || !w.active || !w.streaks || w.rain < 0.02f || !shading.fog || g_blend < 0.02f) return;
+    if (!device_ || (remix_ && !w.remixStreaks) || !haveCamera_ || !w.active || !w.streaks || w.rain < 0.02f || !shading.fog || g_blend < 0.02f) return;
     const int count = std::max(0, std::min(6000, static_cast<int>(static_cast<float>(w.drops) * w.rain)));
     if (count == 0) return;
 

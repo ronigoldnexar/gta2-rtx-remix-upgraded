@@ -204,6 +204,24 @@ bool RemixApiInit() {
         }
     }
 
+    // WEATHER-V2: the fork's game-value store (remixapi_SetGameValue / GetGameValue), which
+    // the runtime's weather blender reads (__weather.target, __weather.blend_seconds). In the
+    // Remix Plus 1.5+ header (dll/deps/bridge_api/remix/remix_c.h) they are slots 36 and 40;
+    // taken only when that layout matched and both slots are filled. The filled slots past
+    // the probed range are logged so a different bridge shows up in the log, not as a crash.
+    {
+        char seen[256] = "";
+        size_t at = 0;
+        for (int i = kProbedSlots; i < 41 + 64 && at + 6 < sizeof(seen); ++i) {
+            if (slots[i]) at += snprintf(seen + at, sizeof(seen) - at, " %d", i);
+        }
+        Log("remix: table slots filled past %d:%s", kProbedSlots - 1, seen[0] ? seen : " none");
+        if (layout->atmosphere && layout->createMaterial == 1 && slots[36] && slots[40]) {
+            mapped.SetGameValue = reinterpret_cast<PFN_remixapi_SetGameValue>(slots[36]);
+            mapped.GetGameValue = reinterpret_cast<PFN_remixapi_GetGameValue>(slots[40]);
+        }
+    }
+
     g_interface = mapped;
     g_available = true;
     g_atmosphere = layout->atmosphere;
@@ -310,5 +328,22 @@ bool RemixSetConfig(const char* key, const char* value) {
     if (!g_available || !g_interface.SetConfigVariable || !key || !value) return false;
     return g_interface.SetConfigVariable(key, value) == REMIXAPI_ERROR_CODE_SUCCESS;
 }
+
+bool RemixSetGameValue(const char* key, const char* value) {
+    if (!g_available || !g_interface.SetGameValue || !key || !*key || !value) return false;
+    return g_interface.SetGameValue(key, value) == REMIXAPI_ERROR_CODE_SUCCESS;
+}
+
+bool RemixGetGameValue(const char* key, char* out, unsigned outSize) {
+    if (!out || outSize == 0) return false;
+    out[0] = 0;
+    if (!g_available || !g_interface.GetGameValue || !key || !*key) return false;
+    uint32_t actual = 0;
+    if (g_interface.GetGameValue(key, out, outSize, &actual) != REMIXAPI_ERROR_CODE_SUCCESS) return false;
+    if (actual == 0 || actual > outSize) { out[0] = 0; return false; }
+    return true;
+}
+
+bool RemixHasGameValues() { return g_available && g_interface.SetGameValue != nullptr; }
 
 }  // namespace gta2dx9

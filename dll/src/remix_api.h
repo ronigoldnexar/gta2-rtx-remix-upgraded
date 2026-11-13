@@ -67,6 +67,13 @@ const char* RemixApiStatusText();
 // than a guarantee.
 bool RemixSetConfig(const char* key, const char* value);
 
+// The fork's game-value store (remixapi_SetGameValue / GetGameValue): a string map the
+// runtime's graph components and its weather blender read by name (__weather.target is a
+// preset name, __weather.blend_seconds the blend). False when the bridge has no such entry.
+bool RemixSetGameValue(const char* key, const char* value);
+bool RemixGetGameValue(const char* key, char* out, unsigned outSize);
+bool RemixHasGameValues();
+
 // How many light samples Remix's direct lighting (RTXDI) takes per pixel: candidate
 // lights drawn, spatial neighbours reused where the picture is steady, and where
 // something has just uncovered. Remix's own defaults (4, 1, 3) are for a game with a

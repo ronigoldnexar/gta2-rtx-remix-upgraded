@@ -1639,6 +1639,39 @@ void LightsReconcile() {
                 Log("devtools: remix config %s = %s (%s)", item, eq + 1, ok ? "set" : "refused");
             }
         }
+        // [devtools] remix_game_value=key=value|key=value: the runtime's game-value store
+        // (WEATHER-V2 phase 0: __weather.target / __weather.blend_seconds drive its weather
+        // blender). Pushed when the line changes; remix_game_value_log=key|key logs the
+        // values read back once a second.
+        static char lastGame[512] = "";
+        char game[512] = "";
+        GetPrivateProfileStringA("devtools", "remix_game_value", "", game, sizeof(game), ini);
+        if (strcmp(game, lastGame) != 0) {
+            strcpy(lastGame, game);
+            char work[512];
+            strcpy(work, game);
+            for (char* item = strtok(work, "|"); item; item = strtok(nullptr, "|")) {
+                char* eq = strchr(item, '=');
+                if (!eq) continue;
+                *eq = 0;
+                const bool ok = RemixSetGameValue(item, eq + 1);
+                Log("devtools: remix game value %s = %s (%s)", item, eq + 1,
+                    ok ? "set" : (RemixHasGameValues() ? "refused" : "no game-value entry"));
+            }
+        }
+        char watch[256] = "";
+        GetPrivateProfileStringA("devtools", "remix_game_value_log", "", watch, sizeof(watch), ini);
+        if (watch[0]) {
+            char work[256], line[512] = "";
+            strcpy(work, watch);
+            size_t at = 0;
+            for (char* item = strtok(work, "|"); item && at + 8 < sizeof(line); item = strtok(nullptr, "|")) {
+                char value[96];
+                const bool ok = RemixGetGameValue(item, value, sizeof(value));
+                at += snprintf(line + at, sizeof(line) - at, " %s=%s", item, ok ? value : "(none)");
+            }
+            Log("devtools: remix game values%s", line);
+        }
     }
     RefreshClassDaylight();
 

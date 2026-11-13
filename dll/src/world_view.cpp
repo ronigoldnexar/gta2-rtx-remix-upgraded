@@ -36,6 +36,7 @@
 #include "compat.h"
 #include "game_save.h"
 #include "eye_collision.h"
+#include "remix_wet.h"
 #include "live_geometry.h"
 #include "light_bench.h"
 #include "log.h"
@@ -4183,6 +4184,12 @@ void WorldView::RenderFrame() {
         // Sprites and the captured block shapes are real world geometry, so they
         // are depth tested against the static mesh rather than painted over it.
         live_.Draw(renderer_.Device(), camera_, renderer_.Width(), renderer_.Height());
+        // WEATHER-V2: the wet ground under Remix (API instances; nothing on the plain renderer
+        // or in the classic view, the layer's alpha follows the street mix).
+        if (renderer_.IsRemixDevice() && worldUploaded_ && !map_.Empty()) {
+            const auto eye = camera_.Position();
+            RemixWetFrame(map_, eye.x, eye.y, eye.z, g_presentStreet ? g_presentMix : 0.0f);
+        }
         renderer_.EndWorldShading();
         // LIGHTING-V1: the plain classic view takes the hour too (the street views and the Remix classic view already
         // do): graded here, after the world and its sprites and before the 2D layer, so the HUD stays as drawn.
