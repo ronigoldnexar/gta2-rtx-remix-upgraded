@@ -204,14 +204,23 @@ void UpdateDayLook(float elevation) {
     // auto-exposure off and a fixed exposure (remix_night_fixed_exposure_tenths, 0 = the old floating meter), pushed
     // as rtx.tonemap.exposureBias = log2(exposure); through twilight and by day the meter is back on with the cap.
     if (s.nightFixedExposure > 0.0f && RemixApiAvailable()) {
-        const bool hold = state == 0;
-        if (first || hold != g_nightHold) {
-            RemixSetConfig("rtx.autoExposure.enabled", hold ? "False" : "True");
-            PushFloat("rtx.tonemap.exposureBias", hold ? std::log2(s.nightFixedExposure) : 0.0f);
-            Log("time of day: night exposure %s (fixed x%.2f = bias %.2f EV, auto-exposure %s)", hold ? "held" : "released",
-                s.nightFixedExposure, std::log2(s.nightFixedExposure), hold ? "off" : "on");
-            g_nightHold = hold;
+        // LIGHTING-V1: the night is pinned to the cap without switching the meter off. NIGHT-10's hold turned auto-
+        // exposure off at full night and back on at dawn, and Remix restarts its meter on that switch: in the gate A
+        // time-lapse the dawn frame fell from luma 58 to 33 at 04:50 and climbed back over 5 s. Now the meter always
+        // runs and its target (rtx.autoExposure.targetAdaptedYf) rises toward night: at full night it asks for far
+        // more than the cap in every view, so the exposure sits at the cap (remix_night_max_exposure_tenths) whatever
+        // the view shows - the same view-independence as the hold, with no switch and no restart. Day: the play
+        // look's target (remix_day_target_yf_milli, 130).
+        const float pin = 1.0f - t;
+        const float target = s.dayTargetYf + (s.nightTargetYf - s.dayTargetYf) * pin;
+        if (first) {
+            RemixSetConfig("rtx.autoExposure.enabled", "True");
+            PushFloat("rtx.tonemap.exposureBias", 0.0f);
+            Log("time of day: night exposure pinned to the cap by the meter's target (day %.3f, night %.3f), meter always on",
+                s.dayTargetYf, s.nightTargetYf);
         }
+        PushFloat("rtx.autoExposure.targetAdaptedYf", target);
+        g_nightHold = state == 0;
     }
     if (first || state != g_dayState || std::fabs(t - g_loggedDayT) >= 0.25f) {
         Log("time of day: %s look (sun %.1f deg, day %.2f): exposure cap %.2f, sky fill %.2f%s",

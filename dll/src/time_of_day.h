@@ -89,11 +89,14 @@ struct TimeOfDaySettings {
     // LIGHTING-V1: the night look (and the hold) once the sun is below nightLookBelowDeg; through the twilight the cap
     // rises to twilightMaxExposure with the sun at twilightPeakDeg (the blue hour), 0 = a straight night-day ramp.
     float nightLookBelowDeg = -12.0f;
+    // The meter's target by day and at full night (see UpdateDayLook: the night pinned at the cap, no meter switch).
+    float dayTargetYf = 0.13f;
+    float nightTargetYf = 0.60f;
     float twilightMaxExposure = 5.0f;
     float twilightPeakDeg = -4.0f;
     // The night sky's airglow (rtx.atmosphere.nightSkyBrightness) at night and at the blue hour; 0 leaves rtx.conf's.
     float nightAirglow = 0.008f;
-    float twilightAirglow = 0.08f;
+    float twilightAirglow = 0.14f;
     float daySkyFill = 3.0f;
     float nightSkyFill = 1.0f;
 

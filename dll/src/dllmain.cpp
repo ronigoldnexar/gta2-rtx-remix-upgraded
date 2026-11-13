@@ -584,8 +584,10 @@ void LoadConfig() {
         GetPrivateProfileIntA("timeofday", "remix_night_max_exposure_tenths", 35, ini) / 10.0f;
         tod.nightFixedExposure = GetPrivateProfileIntA("timeofday", "remix_night_fixed_exposure_tenths", 35, ini) / 10.0f;
     tod.twilightMaxExposure = GetPrivateProfileIntA("timeofday", "remix_twilight_max_exposure_tenths", 50, ini) / 10.0f;
+    tod.dayTargetYf = IniIntRange("timeofday", "remix_day_target_yf_milli", 130, 10, 900, ini) / 1000.0f;
+    tod.nightTargetYf = IniIntRange("timeofday", "remix_night_target_yf_milli", 600, 10, 2000, ini) / 1000.0f;
     tod.nightAirglow = GetPrivateProfileIntA("timeofday", "remix_night_airglow_milli", 8, ini) / 1000.0f;
-    tod.twilightAirglow = GetPrivateProfileIntA("timeofday", "remix_twilight_airglow_milli", 80, ini) / 1000.0f;
+    tod.twilightAirglow = GetPrivateProfileIntA("timeofday", "remix_twilight_airglow_milli", 140, ini) / 1000.0f;
     tod.nightLookBelowDeg = IniIntRange("timeofday", "remix_night_look_below_tenths", -120, -180, -10, ini) / 10.0f;
     tod.daySkyFill = GetPrivateProfileIntA("timeofday", "remix_day_sky_fill_tenths", 30, ini) / 10.0f;
     tod.nightSkyFill =
