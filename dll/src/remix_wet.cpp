@@ -493,15 +493,17 @@ float Bias(const CellBias& b, float fx, float fz) {
     if (!b.road) return 0.0f;
     auto band = [](float d, float w) { const float t = d / w; return t >= 1.0f ? 0.0f : (1.0f - t) * (1.0f - t); };
     float g = 0.0f;
-    g = (std::max)(g, b.gutter[0] * band(fx, 0.22f));
-    g = (std::max)(g, b.gutter[1] * band(1.0f - fx, 0.22f));
-    g = (std::max)(g, b.gutter[2] * band(fz, 0.22f));
-    g = (std::max)(g, b.gutter[3] * band(1.0f - fz, 0.22f));
+    g = (std::max)(g, b.gutter[0] * band(fx, 0.33f));
+    g = (std::max)(g, b.gutter[1] * band(1.0f - fx, 0.33f));
+    g = (std::max)(g, b.gutter[2] * band(fz, 0.33f));
+    g = (std::max)(g, b.gutter[3] * band(1.0f - fz, 0.33f));
     float r = 0.0f;
     auto rut = [](float t) { const float a = (t - 0.28f) / 0.06f, c = (t - 0.72f) / 0.06f; return std::exp(-a * a) + std::exp(-c * c); };
     if (b.rutsAlongZ) r = rut(fx);
     if (b.rutsAlongX) r = rut(fz);
-    return 0.30f * g + 0.12f * r + (b.junction ? 0.04f : 0.0f);
+    // Gate-1 review: gutter band 1.5x wider (0.22 -> 0.33 block); ruts 0.12 -> 0.15 so, as the threshold drops in
+    // heavy rain, rut puddles join into longer runs along the lane.
+    return 0.30f * g + 0.15f * r + (b.junction ? 0.04f : 0.0f);
 }
 
 bool OpenGroundLid(const gta2::Map& map, int cx, int cz, float* y) {
