@@ -626,13 +626,23 @@ remixapi_MeshHandle RainMesh(int m, float len) {
 void DrawRemixRain(float ex, float ey, float ez, float viewMix) {
     const gta2::WeatherState& w = gta2::WeatherNow();
     if (!w.active || !w.remixRainApi || w.rain < 0.03f || viewMix < 0.99f) return;
+    // [weather] remix_drop_trans (percent, 97) / remix_drop_ior (x100, 133): the drop material, re-read once a second.
+    static int dropTrans = 97, dropIor = 133;
+    static DWORD dropRead = 0;
+    if (GetTickCount() - dropRead >= 1000) {
+        dropRead = GetTickCount();
+        const int t = GetPrivateProfileIntA("weather", "remix_drop_trans", 97, g_ini), i = GetPrivateProfileIntA("weather", "remix_drop_ior", 133, g_ini);
+        if (t != dropTrans || i != dropIor) { dropTrans = t; dropIor = i; g_rainMat = nullptr; for (auto& m : g_rainMesh) m = nullptr; g_rainLen = -1.0f;
+            Log("remix rain: drop material transmittance %d%% ior %.2f", t, i / 100.0f); }
+    }
     if (!g_rainMat) {
         remixapi_MaterialInfoTranslucentEXT tr = {};
         tr.sType = REMIXAPI_STRUCT_TYPE_MATERIAL_INFO_TRANSLUCENT_EXT;
-        tr.refractiveIndex = 1.33f; tr.transmittanceColor = {0.97f, 0.98f, 0.99f}; tr.transmittanceMeasurementDistance = 1.0f;
+        const float tc = dropTrans / 100.0f;
+        tr.refractiveIndex = dropIor / 100.0f; tr.transmittanceColor = {tc, tc, tc}; tr.transmittanceMeasurementDistance = 1.0f;
         tr.thinWallThickness_hasvalue = 1; tr.thinWallThickness_value = 0.05f;
         remixapi_MaterialInfo info = {};
-        info.sType = REMIXAPI_STRUCT_TYPE_MATERIAL_INFO; info.pNext = &tr; info.hash = 0x5241494E4D415401ull;
+        info.sType = REMIXAPI_STRUCT_TYPE_MATERIAL_INFO; info.pNext = &tr; info.hash = 0x5241494E4D415401ull ^ (static_cast<uint64_t>(dropTrans) << 16) ^ static_cast<uint64_t>(dropIor);
         RemixApi()->CreateMaterial(&info, &g_rainMat);
         Log("remix rain: drop material %s", g_rainMat ? "made" : "refused");
         if (!g_rainMat) return;
