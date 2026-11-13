@@ -82,11 +82,15 @@ private:
 public:
     // WEATHER-V2: rain drops on the lens in the first-person views, drawn into the UI layer before the HUD
     // (both renderers: screen space, never path traced). weight: the first-person view's share (0 none).
-    void DrawLensDrops(int width, int height, float weight);
+    // scene: the frame under the UI (plain renderer: the drops refract it), or null (Remix: a shaded drop).
+    void DrawLensDrops(int width, int height, float weight, IDirect3DSurface9* scene = nullptr);
 private:
     struct LensDrop { float x, y, r, born, life, slide, vy; };
     std::vector<LensDrop> lensDrops_;
     IDirect3DTexture9* dropTex_ = nullptr;
+    IDirect3DTexture9* dropMask_ = nullptr;
+    IDirect3DTexture9* sceneCopy_ = nullptr;
+    int sceneW_ = 0, sceneH_ = 0;
     double lensClock_ = -1.0;
     float lensSpawn_ = 0.0f;
     uint32_t lensSeed_ = 0x51ED270Bu;

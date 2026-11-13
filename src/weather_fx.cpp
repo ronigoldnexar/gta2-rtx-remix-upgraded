@@ -122,6 +122,8 @@ void WeatherFx::Init(IDirect3DDevice9* device, bool remix) {
 
 void WeatherFx::Release() {
     if (dropTex_) { dropTex_->Release(); dropTex_ = nullptr; }
+    if (dropMask_) { dropMask_->Release(); dropMask_ = nullptr; }
+    if (sceneCopy_) { sceneCopy_->Release(); sceneCopy_ = nullptr; }
     for (auto& t : remixRain_) { if (t) { t->Release(); t = nullptr; } }
     SafeRelease(puddles_);
     SafeRelease(saved_);
@@ -371,7 +373,7 @@ void WeatherFx::DrawRainRemix(const WeatherState& w) {
 }
 
 
-void WeatherFx::DrawLensDrops(int width, int height, float weight) {
+void WeatherFx::DrawLensDrops(int width, int height, float weight, IDirect3DSurface9* scene) {
     const WeatherState& w = g_now;
     if (!device_ || width <= 0 || height <= 0) return;
     const double now = w.seconds;
@@ -379,15 +381,16 @@ void WeatherFx::DrawLensDrops(int width, int height, float weight) {
     lensClock_ = now;
     auto rnd = [this]() { lensSeed_ ^= lensSeed_ << 13; lensSeed_ ^= lensSeed_ >> 17; lensSeed_ ^= lensSeed_ << 5; return (lensSeed_ & 0xFFFFFF) / 16777215.0f; };
     // New drops while it rains and the view is first person; old ones run their course either way.
-    const float rate = (w.active && w.rain > 0.05f && weight > 0.5f) ? 9.0f * w.rain : 0.0f;
+    const float rate = (w.active && w.rain > 0.05f && weight > 0.5f) ? 3.0f * w.rain : 0.0f;
     lensSpawn_ += rate * dt;
-    while (lensSpawn_ >= 1.0f && lensDrops_.size() < 90) {
+    while (lensSpawn_ >= 1.0f && lensDrops_.size() < 28) {
         lensSpawn_ -= 1.0f;
         LensDrop d;
-        d.x = rnd(); d.y = rnd() * 0.85f;
-        d.r = 0.006f + 0.016f * rnd() * rnd();                 // of the screen height: mostly small, a few large
-        d.born = static_cast<float>(now); d.life = 2.5f + 3.5f * rnd();
-        d.slide = d.r > 0.014f && rnd() < 0.5f ? 1.0f : 0.0f;  // the large ones may run
+        // Mostly at the edges: a spot in the middle of the view is taken one time in six.
+        do { d.x = rnd(); d.y = rnd() * 0.9f; } while (std::fabs(d.x - 0.5f) < 0.26f && std::fabs(d.y - 0.45f) < 0.28f && rnd() < 0.83f);
+        d.r = 0.016f + 0.026f * rnd() * rnd();
+        d.born = static_cast<float>(now); d.life = 3.0f + 4.0f * rnd();
+        d.slide = d.r > 0.026f && rnd() < 0.6f ? 1.0f : 0.0f;
         d.vy = 0.0f;
         lensDrops_.push_back(d);
     }
@@ -402,30 +405,54 @@ void WeatherFx::DrawLensDrops(int width, int height, float weight) {
     if (lensDrops_.empty() || weight < 0.01f) return;
     if (!dropTex_) {
         const int N = 64;
-        if (FAILED(device_->CreateTexture(N, N, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &dropTex_, nullptr))) { dropTex_ = nullptr; return; }
-        D3DLOCKED_RECT lr;
-        if (SUCCEEDED(dropTex_->LockRect(0, &lr, nullptr, 0))) {
+        if (FAILED(device_->CreateTexture(N, N, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &dropTex_, nullptr)) ||
+            FAILED(device_->CreateTexture(N, N, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &dropMask_, nullptr))) return;
+        D3DLOCKED_RECT lr, lm;
+        if (SUCCEEDED(dropTex_->LockRect(0, &lr, nullptr, 0)) && SUCCEEDED(dropMask_->LockRect(0, &lm, nullptr, 0))) {
             for (int y = 0; y < N; ++y) {
                 uint32_t* row = reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(lr.pBits) + y * lr.Pitch);
+                uint32_t* mrow = reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(lm.pBits) + y * lm.Pitch);
                 for (int x = 0; x < N; ++x) {
                     const float u = (x + 0.5f) / N * 2.0f - 1.0f, v = (y + 0.5f) / N * 2.0f - 1.0f;
                     const float r = std::sqrt(u * u + v * v);
-                    float a = 0.0f, l = 0.0f;
+                    float a = 0.0f, l = 0.0f, m = 0.0f, ml = 1.0f;
                     if (r < 1.0f) {
-                        const float rim = Clamp01((r - 0.70f) / 0.30f) * Clamp01((1.0f - r) / 0.08f);
-                        const float spec = std::exp(-((u + 0.35f) * (u + 0.35f) + (v + 0.40f) * (v + 0.40f)) / 0.02f);   // highlight upper-left
-                        const float shade = Clamp01(0.5f + 0.5f * (u * 0.4f + v * 0.6f));                                 // lower-right darker
-                        a = 0.10f + 0.30f * rim + 0.55f * spec;
-                        l = 0.55f + 0.45f * spec - 0.25f * shade * (1.0f - spec);
+                        const float edge = Clamp01((1.0f - r) / 0.10f);
+                        const float rim = Clamp01((r - 0.72f) / 0.20f) * edge;
+                        const float spec = std::exp(-((u + 0.32f) * (u + 0.32f) + (v + 0.38f) * (v + 0.38f)) / 0.015f);
+                        // Shaded drop (Remix): the sky inverted in it, lighter below, a dark rim, the highlight.
+                        const float below = Clamp01(0.5f + 0.6f * v);
+                        a = edge * (0.36f + 0.40f * rim) + 0.7f * spec;
+                        l = (0.35f + 0.45f * below) * (1.0f - 0.55f * rim) + 0.6f * spec;
+                        // Mask (plain refraction): the drop's body, its dark rim and the highlight in the colour.
+                        m = edge * 0.95f;
+                        ml = (1.0f - 0.45f * rim) + 1.2f * spec;
                     }
-                    const int A = static_cast<int>(Clamp01(a) * 255.0f + 0.5f), L = static_cast<int>(Clamp01(l) * 255.0f + 0.5f);
-                    row[x] = (static_cast<uint32_t>(A) << 24) | (static_cast<uint32_t>(L) << 16) | (static_cast<uint32_t>(L) << 8) | static_cast<uint32_t>(std::min(255, L + 8));
+                    auto px = [](float al, float lu) {
+                        const int A = static_cast<int>(Clamp01(al) * 255.0f + 0.5f), L = static_cast<int>(Clamp01(lu * 0.5f) * 255.0f + 0.5f);
+                        return (static_cast<uint32_t>(A) << 24) | (static_cast<uint32_t>(L) << 16) | (static_cast<uint32_t>(L) << 8) | static_cast<uint32_t>(L);
+                    };
+                    row[x] = px(a, l * 2.0f);
+                    mrow[x] = px(m, ml);   // colour stored halved: modulate-2x restores it
                 }
             }
             dropTex_->UnlockRect(0);
+            dropMask_->UnlockRect(0);
         }
     }
-    struct V { float x, y, z, rhw; DWORD c; float u, v; };
+    // Plain: the frame under the UI, at half size (a drop sees it out of focus).
+    const bool refract = scene != nullptr;
+    if (refract && (!sceneCopy_ || sceneW_ != width / 2 || sceneH_ != height / 2)) {
+        if (sceneCopy_) { sceneCopy_->Release(); sceneCopy_ = nullptr; }
+        sceneW_ = width / 2; sceneH_ = height / 2;
+        if (FAILED(device_->CreateTexture(sceneW_, sceneH_, 1, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &sceneCopy_, nullptr))) sceneCopy_ = nullptr;
+    }
+    if (refract && sceneCopy_) {
+        IDirect3DSurface9* dst = nullptr;
+        if (SUCCEEDED(sceneCopy_->GetSurfaceLevel(0, &dst))) { device_->StretchRect(scene, nullptr, dst, nullptr, D3DTEXF_LINEAR); dst->Release(); }
+    }
+    const bool useRefract = refract && sceneCopy_;
+    struct V { float x, y, z, rhw; DWORD c; float u, v, u2, v2; };
     std::vector<V> v;
     v.reserve(lensDrops_.size() * 6);
     const float H = static_cast<float>(height), Wd = static_cast<float>(width);
@@ -436,7 +463,13 @@ void WeatherFx::DrawLensDrops(int width, int height, float weight) {
         const float rx = d.r * H, ry = d.r * H * (1.0f + 0.6f * std::min(1.0f, d.vy * 6.0f));   // a running drop stretches
         const float cx = d.x * Wd, cy = d.y * H;
         const DWORD c = (static_cast<DWORD>(fade * 255.0f + 0.5f) << 24) | 0x00FFFFFFu;
-        const V q[4] = {{cx - rx, cy - ry, 0, 1, c, 0, 0}, {cx + rx, cy - ry, 0, 1, c, 1, 0}, {cx - rx, cy + ry, 0, 1, c, 0, 1}, {cx + rx, cy + ry, 0, 1, c, 1, 1}};
+        // Refraction: the drop shows its surroundings upside down and a little magnified (stage 0, the scene),
+        // cut out by the mask (stage 1). The shaded drop uses the drop texture in stage 0 alone.
+        const float k = 1.8f, su0 = (cx + rx * k) / Wd, su1 = (cx - rx * k) / Wd, sv0 = (cy + ry * k) / H, sv1 = (cy - ry * k) / H;
+        const V q[4] = {{cx - rx, cy - ry, 0, 1, c, useRefract ? su0 : 0, useRefract ? sv0 : 0, 0, 0},
+                        {cx + rx, cy - ry, 0, 1, c, useRefract ? su1 : 1, useRefract ? sv0 : 0, 1, 0},
+                        {cx - rx, cy + ry, 0, 1, c, useRefract ? su0 : 0, useRefract ? sv1 : 1, 0, 1},
+                        {cx + rx, cy + ry, 0, 1, c, useRefract ? su1 : 1, useRefract ? sv1 : 1, 1, 1}};
         v.push_back(q[0]); v.push_back(q[1]); v.push_back(q[2]); v.push_back(q[2]); v.push_back(q[1]); v.push_back(q[3]);
     }
     if (v.empty()) return;
@@ -444,7 +477,7 @@ void WeatherFx::DrawLensDrops(int width, int height, float weight) {
     if (saved_) saved_->Capture();
     device_->SetVertexShader(nullptr);
     device_->SetPixelShader(nullptr);
-    device_->SetFVF(D3DFVF_XYZRHW | D3DFVF_DIFFUSE | D3DFVF_TEX1);
+    device_->SetFVF(D3DFVF_XYZRHW | D3DFVF_DIFFUSE | D3DFVF_TEX2);
     device_->SetRenderState(D3DRS_LIGHTING, FALSE);
     device_->SetRenderState(D3DRS_ZENABLE, D3DZB_FALSE);
     device_->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
@@ -454,20 +487,43 @@ void WeatherFx::DrawLensDrops(int width, int height, float weight) {
     device_->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
     device_->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
     device_->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
-    device_->SetTexture(0, dropTex_);
-    device_->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
-    device_->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
-    device_->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
-    device_->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
-    device_->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
-    device_->SetTextureStageState(0, D3DTSS_ALPHAARG2, D3DTA_DIFFUSE);
-    device_->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
-    device_->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
-    device_->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
-    device_->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
-    device_->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+    for (DWORD st = 0; st < 2; ++st) {
+        device_->SetSamplerState(st, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
+        device_->SetSamplerState(st, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
+        device_->SetSamplerState(st, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+        device_->SetSamplerState(st, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+        device_->SetSamplerState(st, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+    }
+    if (useRefract) {
+        device_->SetTexture(0, sceneCopy_);
+        device_->SetTextureStageState(0, D3DTSS_TEXCOORDINDEX, 0);
+        device_->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+        device_->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+        device_->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+        device_->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_DIFFUSE);
+        device_->SetTexture(1, dropMask_);
+        device_->SetTextureStageState(1, D3DTSS_TEXCOORDINDEX, 1);
+        device_->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_MODULATE2X);
+        device_->SetTextureStageState(1, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+        device_->SetTextureStageState(1, D3DTSS_COLORARG2, D3DTA_CURRENT);
+        device_->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
+        device_->SetTextureStageState(1, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+        device_->SetTextureStageState(1, D3DTSS_ALPHAARG2, D3DTA_CURRENT);
+        device_->SetTextureStageState(2, D3DTSS_COLOROP, D3DTOP_DISABLE);
+    } else {
+        device_->SetTexture(0, dropTex_);
+        device_->SetTextureStageState(0, D3DTSS_TEXCOORDINDEX, 0);
+        device_->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
+        device_->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+        device_->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
+        device_->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
+        device_->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+        device_->SetTextureStageState(0, D3DTSS_ALPHAARG2, D3DTA_DIFFUSE);
+        device_->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+    }
     device_->DrawPrimitiveUP(D3DPT_TRIANGLELIST, static_cast<UINT>(v.size() / 3), v.data(), sizeof(V));
     device_->SetTexture(0, nullptr);
+    device_->SetTexture(1, nullptr);
     if (saved_) saved_->Apply();
 }
 
