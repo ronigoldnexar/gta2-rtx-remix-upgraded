@@ -2415,6 +2415,7 @@ void Renderer::SetRemixWeatherFrame(const Camera& camera, float blend) {
 
 void Renderer::EndWorldShading() {
     if (!device_) return;
+    weather_.SetLights(post_.Active() ? &post_.FrameLights() : nullptr);
     weather_.DrawRain(shading_);
     if (post_.Active()) {
         post_.SetPuddles(WeatherNow().wetRoads && WeatherNow().wet > 0.01f ? weather_.Puddles() : nullptr);

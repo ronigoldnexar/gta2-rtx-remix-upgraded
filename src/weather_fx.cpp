@@ -1,5 +1,6 @@
 // See weather_fx.h and docs/weather.md.
 #include "weather_fx.h"
+#include "post_fx.h"
 
 #include <algorithm>
 #include <cmath>
@@ -207,6 +208,19 @@ void WeatherFx::DrawRain(const WorldShading& shading) {
     const Vec3 tint = Vec3{0.80f, 0.84f, 0.90f} * (light * 1.25f + 0.08f);
     auto wrap = [](float v, float L) { return v - L * std::floor(v / L + 0.5f); };
 
+    // The night lights within the rain box's reach (at most 16, nearest first).
+    std::vector<const VisualLight*> nearL;
+    if (lights_) {
+        std::vector<std::pair<float, const VisualLight*>> c;
+        for (const VisualLight& L : *lights_) {
+            if (L.intensity <= 0.01f) continue;
+            const float dx = L.pos[0] - eye_.x, dy = L.pos[1] - eye_.y, dz = L.pos[2] - eye_.z;
+            const float d = std::sqrt(dx * dx + dy * dy + dz * dz);
+            if (d < R + L.radius) c.push_back({d, &L});
+        }
+        std::sort(c.begin(), c.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+        for (size_t i = 0; i < c.size() && i < 16; ++i) nearL.push_back(c[i].second);
+    }
     verts_.clear();
     verts_.reserve(static_cast<size_t>(count) * 6);
     for (int i = 0; i < count; ++i) {
@@ -228,9 +242,28 @@ void WeatherFx::DrawRain(const WorldShading& shading) {
         const float sl = std::sqrt(Dot(side, side));
         if (sl < 1e-4f) continue;
         side = side * (std::max(0.009f, dist * 0.0030f) / sl);
-        const float a = (0.30f + 0.25f * w.rain) * fade * g_blend;
-        const DWORD cBottom = D3DCOLOR_ARGB(static_cast<int>(a * 255.0f), static_cast<int>(std::min(1.0f, tint.x) * 255.0f),
-                                            static_cast<int>(std::min(1.0f, tint.y) * 255.0f), static_cast<int>(std::min(1.0f, tint.z) * 255.0f));
+        float a = (0.30f + 0.25f * w.rain) * fade * g_blend;
+        // Light caught from the nearest night lights (lamps, head lamps), by distance and the beam's cone.
+        Vec3 lit{0.0f, 0.0f, 0.0f};
+        if (nearL.size()) {
+            for (const VisualLight* L : nearL) {
+                const Vec3 d{p.x - L->pos[0], p.y - L->pos[1], p.z - L->pos[2]};
+                const float dd = std::sqrt(Dot(d, d));
+                const float r = std::max(0.5f, L->radius);
+                if (dd > r) continue;
+                float k = (1.0f - dd / r); k *= k;
+                if (L->spot && dd > 1e-3f) {
+                    const float c = (d.x * L->dir[0] + d.y * L->dir[1] + d.z * L->dir[2]) / dd;
+                    const float c0 = std::cos(L->coneDeg * 0.0174533f);
+                    k *= Clamp01((c - c0) / std::max(0.05f, 1.0f - c0) * 2.0f);
+                }
+                lit = lit + Vec3{L->rgb[0], L->rgb[1], L->rgb[2]} * (k * L->intensity * 1.6f);
+            }
+        }
+        const Vec3 col{std::min(1.0f, tint.x + lit.x), std::min(1.0f, tint.y + lit.y), std::min(1.0f, tint.z + lit.z)};
+        a = std::min(0.85f, a * (1.0f + 1.5f * std::min(1.0f, (lit.x + lit.y + lit.z) / 3.0f)));
+        const DWORD cBottom = D3DCOLOR_ARGB(static_cast<int>(a * 255.0f), static_cast<int>(col.x * 255.0f),
+                                            static_cast<int>(col.y * 255.0f), static_cast<int>(col.z * 255.0f));
         const DWORD cTop = cBottom & 0x00FFFFFFu;   // the tail fades out
         const RainVertex v0{p.x - side.x, p.y - side.y, p.z - side.z, cBottom};
         const RainVertex v1{p.x + side.x, p.y + side.y, p.z + side.z, cBottom};

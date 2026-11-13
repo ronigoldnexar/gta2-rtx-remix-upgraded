@@ -283,6 +283,9 @@ private:
     Cascade cascades_[3];
     int cascadeCount_ = 0;
     std::vector<VisualLight> lights_;
+public:
+    const std::vector<VisualLight>& FrameLights() const { return lights_; }
+private:
     // FIX-WORLD-22: last frame's lights in view (position, weight, kept), to ease a light in and out of the budget.
     struct LightTrack { float pos[3]; float w; bool fixed; bool kept; };
     std::vector<LightTrack> lightTrack_, lightTrackNext_;

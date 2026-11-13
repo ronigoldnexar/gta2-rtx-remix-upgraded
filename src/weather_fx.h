@@ -20,6 +20,7 @@
 namespace gta2 {
 
 struct WorldShading;   // renderer.h
+struct VisualLight;    // post_fx.h
 struct SkyColours;     // sky.h
 struct SkySettings;    // sky.h
 
@@ -65,6 +66,8 @@ public:
     void Init(IDirect3DDevice9* device, bool remix);
     void Release();
     void SetCamera(const Mat4& view, const Mat4& proj, const Vec3& eye);
+    // WEATHER-V2: the frame's night lights (plain renderer): streaks near them catch their light.
+    void SetLights(const std::vector<VisualLight>* lights) { lights_ = lights; }
     // Under Remix the sky pass (which sets the camera) and the shading weight do not run: the
     // world view hands both over here once a frame.
     void SetRemixFrame(const Mat4& view, const Mat4& proj, const Vec3& eye, float blend);
@@ -103,6 +106,7 @@ private:
     IDirect3DTexture9* puddles_ = nullptr;
     IDirect3DStateBlock9* saved_ = nullptr;
     bool remix_ = false;
+    const std::vector<VisualLight>* lights_ = nullptr;
     bool haveCamera_ = false;
     Mat4 view_, proj_;
     Vec3 eye_;
