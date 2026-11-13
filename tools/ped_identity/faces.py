@@ -42,8 +42,8 @@ CAP_COLOURS = {'cap': [(40, 52, 88), (52, 54, 60), (84, 90, 58), (100, 34, 44), 
                'beanie': [(52, 54, 60), (38, 46, 70), (46, 72, 56), (96, 36, 44), (176, 166, 146)],
                'flatcap': [(92, 88, 82), (88, 70, 54), (60, 62, 66), (70, 76, 64), (110, 100, 86)]}
 # auburn: a muted copper-brown, a chestnut with a little red (the first, 124,58,30, read as dyed orange)
-HEAD_PX = 256   # the hair-colour head maps' size (the avatars' own are 512)
-NATURAL = 1     # natural hair colours per avatar (2 left the largest free block under 1.2 GB in most runs), plus greying
+HEAD_PX = 512   # the hair-colour head maps, as the avatars own
+NATURAL = 2     # natural hair colours per avatar, plus greying (with the top-down allocator: 5 of 5 runs >= 1.37 GB)
 HAIR = {'black': (26, 22, 20), 'dark brown': (58, 40, 28), 'light brown': (112, 80, 52), 'auburn': (96, 60, 42),
         'blonde': (186, 150, 92)}
 

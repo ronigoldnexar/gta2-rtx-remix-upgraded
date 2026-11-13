@@ -396,7 +396,7 @@ change.
 | at 1 min: private / free / largest free block | 997 / 2022 / 1433 MB | 1127 / 1900 / 622 MB | 1011 / 2027 / 1542 MB |
 | warm-up to "cars ready" | 5.5 s | 5.8 s | 5.9 s |
 
-## Faces (PEDS-FACES, 13 Nov 2026; branch peds-faces, not shipped)
+## Faces (PEDS-FACES, 13 Nov 2026)
 
 - **Accessories.** `tools/ped_identity/faces.py` builds, for each civilian avatar, rigid models `<avatar>~<kind>` in
   its head-bone space, fitted to its own head (the head mesh and the hair cards): eyewear (`glasses` thin metal,
@@ -425,3 +425,12 @@ change.
 - **Head swap (test only, `headswap.py`, `headswap_test.jpg`).** B's head mesh and hair cards re-bound to A's
   skeleton (per joint: A's bind matrix x B's inverse bind) sit on A's neck: 5 of 6 pairs clean (collars, hoods); the
   scoop neckline (female_08 <- female_adult_04) shows a gap at the nape. Seam medians 4.5-10 mm.
+
+### What shipped, in two steps (13 Nov 2026)
+
+- **8d516da3** (its commit message says "not shipped": it was written before the decision; it is the build staged
+  that day): the accessories that passed the review (glasses, dark-frame glasses, cap, flat cap, beanie, stubble),
+  no hair-colour maps. The moustache, goatee, beard and sunglasses are held for a redo (`faces.py FACIAL_ALL`,
+  `EYE_ALL`).
+- **This commit**: the hair colours (two natural colours where plausible, the copper-brown "auburn", no blonde,
+  plus greying; head maps 512 px), with the top-down allocator below that made room for them.

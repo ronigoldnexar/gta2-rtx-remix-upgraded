@@ -2133,3 +2133,33 @@ The SHOULD of 14p3 (p99 under ~45 ms) is **not met on this host**: p99 is ~160 m
 (85 hitch lines) and the load, not by submission. After the first 90 s of third person, p99 is 86 (off) vs 128 ms (on) and over 50 ms is 11.6 % vs
 5.7 %. Each half has under 900 frames, so p99 rests on fewer than ten frames. Untested: Remix (the cull is off there by code,
 `!remixDevice_`; no Remix run made), night, rain.
+
+## The big free block cut by a texel buffer (13 Nov 2026, MEM-FRAG)
+
+**Seen.** The `mem: minute` line's largest free block at one minute varied run to run on the same build: round 3
+(7681a64a) 1000-1619 MB, with the PEDS-FACES hair maps 572-1545 MB (8 of 9 runs under 1.2 GB). Total free space
+barely moved (1.96-2.03 GB): the space was cut, not used up.
+
+**Found** (`GTA2DX9_VA_WATCH=1`, `mem_stats.cpp VaWatchTick`: every second for three minutes, whenever the largest free
+block shrinks by more than 32 MB, every region inside its old range is logged). 13-18 s into the level, a 1.06 MB
+private commit (a 512x512 texel buffer through the DLL's `operator new`: Wine serves a heap block that big with a
+mapping of its own, anywhere) sits in the middle of the 2 GB block above 0x80000000; the block becomes 836-1385 MB.
+Some are freed later and the block comes back (one run: 836 MB at 13 s, 1590 MB at 32 s): the minute line catches
+whatever is alive then. More texture loads (the hair maps) made it likelier.
+
+**Fix.** `CountedAlloc`: blocks of 256 KB and more come from `VirtualAlloc(MEM_TOP_DOWN)` (freed with
+`VirtualFree`), so they stack at the top of the address space instead of cutting the block's middle
+(`GTA2DX9_BIG_ALLOC_TOPDOWN=0`: the CRT heap as before). Nothing needs a contiguous 1.2 GB; the gate keeps room for
+the large allocations that do come (vertex buffers, D3D textures).
+
+**Numbers** (the pedsvar2 scenario, largest free block at one minute, 0 FAULT in every run):
+
+| build | before | after (5 runs) |
+|---|---|---|
+| round 3 (7681a64a) | 1207, 1386, 1619, 1506, 1590, 1000, 1535, 1592 | 1515, 1561, 1499, 1529, 1486 |
+| + accessories + 1 colour/grey 256 px | 621, 985, 816 | 1464, 1405, 1602, 1393, 1409 |
+| + accessories + 2 colours/grey 512 px (shipped) | 574, 611, 1537 (without the fix) | 1385, 1560, 1416, 1604, 1370 |
+
+What still lands in the block: one 16 MB region (part committed, part reserved) 13-35 s in, leaving 1.37-1.6 GB.
+Pre-growing the CRT heap at load (20 MB in small blocks, freed) did not move it (it was in the five runs of the last
+row, then taken out): it is not the DLL's CRT heap. Left for later.
