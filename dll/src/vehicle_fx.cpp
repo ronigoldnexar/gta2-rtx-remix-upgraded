@@ -1675,10 +1675,14 @@ void VehicleFxDraw(IDirect3DDevice9* device, const gta2::Vec3& eye, uint32_t fra
                     for (int i = 0; i <= kCols; ++i) {
                         const float u = static_cast<float>(i) / kCols;
                         gta2::Vec3 q = Point(w, (2.0f * u - 1.0f) * half, 0.012f, nose + reach * v);
-                        float gy = 0.0f, f = 1.0f;
+                        // LIGHTING-V1 (gate B: nose to a wall, the pale pavement at the wall's foot read near-white): the pool is
+                        // held to 55 % at the bumper and reaches its full strength 0.35 of its reach out, where the beam
+                        // has spread; the plain spot light adds the near-field brightness on top of it.
+                        float gy = 0.0f, f = 0.55f + 0.45f * Smooth(v / 0.35f);
                         if (g_ground && g_ground->Ready() && g_ground->SurfaceAt(q.x, q.z, level + GroundSampler::kCeilingHeadroom, &gy)) {
-                            f = 1.0f - Smooth((std::fabs(gy - level) - 0.25f) / 0.15f);
-                            if (f > 0.0f) q.y = gy + 0.015f;
+                            const float onLid = 1.0f - Smooth((std::fabs(gy - level) - 0.25f) / 0.15f);
+                            f *= onLid;
+                            if (onLid > 0.0f) q.y = gy + 0.015f;
                         }
                         gp[j][i] = q; fade[j][i] = f;
                     }

@@ -49,7 +49,7 @@ if [ "$ARCH" = win64 ]; then (unset DISPLAY; wineboot -i >/dev/null 2>&1; winese
 G=/tmp/wp/drive_c/Games/GTA2; mkdir -p "$G"
 cp -r /game/. "$G"/; mkdir -p "$G/player"
 cp -r /release/. "$G"/
-cp /stage/*.dll /stage/gta2dx9.ini "$G"/; rm -rf "$G/gta2dx9_models"; cp -r /stage/gta2dx9_models "$G"/
+cp /stage/*.dll /stage/gta2dx9.ini $(ls /stage/gta2dx9_effects.ini 2>/dev/null) "$G"/; rm -rf "$G/gta2dx9_models"; cp -r /stage/gta2dx9_models "$G"/
 rm -rf "$G/gta2dx9_textures_hd"; [ -d /stage/gta2dx9_textures_hd ] && cp -r /stage/gta2dx9_textures_hd "$G"/
 [ "${LAA:-1}" = 1 ] && sh /work/laa.sh "$G/gta2.exe"
 if [ "${PLAY_DEVTOOLS:-0}" = 1 ]; then sed -i 's/^warp_key=.*/warp_key=F9/; s/^scene_key=.*/scene_key=F11/' "$G/gta2dx9.ini"; fi

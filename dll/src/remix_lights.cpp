@@ -42,6 +42,7 @@ int g_probeMask = 0;              // [devtools] remix_lights_probe (see GameClas
 int g_trafficLiftMilli = 650;     // [devtools] remix_traffic_lift_milli (FIX-REMIX-NIGHT-5; default 650 since FIX-REMIX-NIGHT-6, frn6_p6)
 int g_lowBounceWarm = 1;          // [devtools] remix_low_bounce_warm (FIX-REMIX-NIGHT-5)
 int g_wideNeonTenths = -1;       // [devtools] remix_wide_neon_tenths (-1 = the setting wideNeonRadius, 0 = off)
+int g_carLampVolPct = 0;         // LIGHTING-V1 [devtools] remix_car_lamp_volumetric_pct: car lamps' share of the volumetrics
 int g_poolGainPct = -1;          // LIGHTING-V1 [devtools] remix_pool_gain_pct: the lamp pools' strength, % of kLampPoolGain (-1 = kPoolGainDefaultPct)
 int g_poolCone = -1;             // [devtools] remix_pool_cone: PoolConeDegrees, live (-1 = the setting, 0 = sphere)
 int g_nightFillMilli = -1;       // [devtools] remix_night_fill_milli: NightSkyFill x1000, live (-1 = the setting)
@@ -521,6 +522,13 @@ void Apply(RemixTrackedLight& t) {
     sphere.position = ToRemix(pos);
     sphere.radius = emitter;
     sphere.volumetricRadianceScale = 1.0f;
+    // LIGHTING-V1 (gate C, the vehicles pilot: at night every car's head lamps bloomed into large soft white glows round
+    // the lamp, and white glows showed at the rear of cars): a car lamp's light is a tiny, very bright bulb, and its
+    // in-scattering in Remix's volumetric medium drew a wide halo round it wherever it pointed (the lens reads lit from
+    // its own emissive material). A car's lights (head, brake, its other lamps) put nothing into the volumetrics now;
+    // they light the road, walls and people as before. [devtools] remix_car_lamp_volumetric_pct (default 0) for an A/B.
+    if (t.def.source == kLightSourceHeadlight || t.def.source == kLightSourceBrake || t.def.source == kLightSourceCarLamp)
+        sphere.volumetricRadianceScale = static_cast<float>(g_carLampVolPct) / 100.0f;
     // A headlight is a cone, not a bare bulb. Remix calls that shaping, and it
     // is the one thing here the game's own light model had no way to express.
     if (TrafficShaped(t)) {
@@ -1502,6 +1510,8 @@ void LightsReconcile() {
             if (mask != g_probeMask) { g_probeMask = mask; Log("devtools: remix lights probe mask %d", mask); }
             const int cone = GetPrivateProfileIntA("devtools", "remix_pool_cone", -1, ini);
             if (cone != g_poolCone) { g_poolCone = cone; Log("devtools: lamp pools in a %d deg cone", cone); }
+            const int volPct = GetPrivateProfileIntA("devtools", "remix_car_lamp_volumetric_pct", 0, ini);
+            if (volPct != g_carLampVolPct) { g_carLampVolPct = volPct; for (RemixTrackedLight& t : g_tracked) t.dirty = true; Log("devtools: car lamps' volumetrics %d%%", volPct); }
             const int gainPct = GetPrivateProfileIntA("devtools", "remix_pool_gain_pct", -1, ini);
             if (gainPct != g_poolGainPct) { g_poolGainPct = gainPct; g_reliftPending = true; Log("devtools: lamp pools at %d%% (-1: %d%%)", gainPct, kPoolGainDefaultPct); }
             const int fill = GetPrivateProfileIntA("devtools", "remix_night_fill_milli", -1, ini);

@@ -17,7 +17,7 @@ same name is replaced), entries in sorted order, and its listing is checked
 against the source tree afterwards. Layout (paths inside the zip):
 
   gta2dx9-x86-linux-built.zip  gta2dx9-linux-built/{BUILD.txt, gta2dx9.dll, gta2dx9.map, d3ddll.dll, gta2dx9_vid.dll,
-                               Dmavideo.dll, DMAGlide.dll, gta2dx9.ini, install.reg, uninstall.reg}
+                               Dmavideo.dll, DMAGlide.dll, gta2dx9.ini, gta2dx9_effects.ini, install.reg, uninstall.reg}
                                from stage/, plus gta2dx9-linux-built/linux/... (the committed linux/
                                tree at HEAD, read from git, so local edits never ship)
   gta2dx9_models_people.zip    assets/models/human_*, acc_*   (41 Rocketbox avatars, MIT, re-imported; accessory maps)
@@ -36,7 +36,7 @@ STAGE = "stage"
 REV = "HEAD"
 
 STAGE_FILES = ["gta2dx9.dll", "gta2dx9.map", "d3ddll.dll", "gta2dx9_vid.dll", "Dmavideo.dll", "DMAGlide.dll",
-               "gta2dx9.ini", "install.reg", "uninstall.reg"]
+               "gta2dx9.ini", "gta2dx9_effects.ini", "install.reg", "uninstall.reg"]
 
 
 def entries(name):

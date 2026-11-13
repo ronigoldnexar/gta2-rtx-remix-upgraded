@@ -65,7 +65,7 @@ stage: dll/build/gta2dx9.dll vid/build/gta2dx9_vid.dll
 	cp vid/build/gta2dx9_vid.dll stage/gta2dx9_vid.dll
 	cp vid/build/gta2dx9_vid.dll stage/Dmavideo.dll
 	cp vid/build/gta2dx9_vid.dll stage/DMAGlide.dll
-	cp package/gta2dx9.ini package/install.reg package/uninstall.reg stage/
+	cp package/gta2dx9.ini package/gta2dx9_effects.ini package/install.reg package/uninstall.reg stage/
 	rm -rf stage/gta2dx9_models && cp -r assets/models stage/gta2dx9_models
 	# High-resolution tiles, when they have been generated (tools/upscale_textures.py; not in git, 400 MB).
 	rm -rf stage/gta2dx9_textures_hd; if [ -d assets/textures_hd ]; then cp -r assets/textures_hd stage/gta2dx9_textures_hd; fi

@@ -3924,6 +3924,13 @@ void DrawLamps(IDirect3DDevice9* device, const CarBodyUse& use, const gta2::Mat4
     }
     const float reverse = useFeel ? feel->reverse : 0.0f;
     if (lit && useFeel) VehicleFxQueueHeadlamps(carToWorld, length, width);
+    // LIGHTING-V1 (gate C, the vehicles pilot: white glows at night round the head lamps and at the rear of cars under
+    // Remix): Remix drops these quads' vertex colour and takes an additive draw as emissive (REMIX-3, as with the
+    // beacons), so every lamp quad - the red tail and brake ones included - drew a white blob (lt_c5_rmx: white pairs
+    // under the van's, the cop car's and the ambulance's bumpers). Under Remix a car's lamps are its lens material (lit
+    // at night, see rtx.emissiveIntensity in time_of_day.cpp) and its real lights (beams, brake lights from the game's
+    // brake bit in synthetic_lights.cpp); the quads are the plain renderer's.
+    if (RemixApiAvailable()) return;
     if (!lit && brake < 0.05f && reverse < 0.05f) return;
     IDirect3DTexture9* glow = GlowTexture(device);
     if (!glow) return;
