@@ -302,7 +302,7 @@ change.
   matches the classic sprite's shirt colour; `tools/identity_parity.py` checks the player and cars only, so no check
   changes. `[crowd] variety=0` (or `GTA2DX9_CROWD=0`) restores the sprite colours (with no build or shade variety).
 - **Unzoned avatars.** `business_female_01` (a black suit, white blouse) keeps her own look: no everyday tint on a
-  `business_*` avatar. She is in at most 4 civilian pools (`SUIT_POOLS`; another woman takes her place in the
+  `business_*` avatar. She is in at most 4 civilian pools (`CAPPED_POOLS`; another woman takes her place in the
   rest) and not in the plain list.
 - **Palette polish (review):** no mustard tops (loud on the hoodies and jackets); men get a muted camel (150,122,82)
   in its place.
@@ -324,12 +324,14 @@ change.
   (`f015_glasses`) is mapped to `f015_glasses_opacity_color.tga` by hand; the generator's fuzzy match misses it.
   The new avatars' files are not in git (AGENTS.md: avatars ship as release archives).
 - **Pools.** 16 avatars per civilian type: 8 women and 8 men, a mix of its own per remap
-  (`make_ped_manifest.py civilian_pools`); `business_female_01` stays in at most 4.
+  (`make_ped_manifest.py civilian_pools`). `CAPPED_POOLS`: `business_female_01` in at most 4 pools, and (the owner:
+  too many covered figures) `female_adult_06` and `female_adult_10` in 3 each, at most one capped avatar per pool,
+  other women filling in: together about 1 in 80 civilians (1 in 16 within 3 of 31 pools each), not in the plain list.
 - **Unzoned civilians.** No civilian type's avatar without zones gets the old everyday tint any more
   (`CrowdVariety`: `!PedRemapIsCivilian(remap)`); the special untyped remaps (Hulks, naked, 53+) keep it as before.
 - **Near-future sets.** A third of the dressed civilians (about a quarter of the street) wear a coordinated
-  retro-futuristic pair: signal orange / graphite, electric teal / charcoal, silver-grey / deep violet,
-  ochre / slate, bone white / oxblood, mint / gunmetal. An avatar whose top and bottom read as one set (a
+  retro-futuristic pair: signal orange / graphite, electric teal (40,128,134; half the others' weight) / charcoal,
+  silver-grey / deep violet (46,38,66), burnt ochre (150,100,48) / slate, bone white / oxblood, mint / gunmetal. An avatar whose top and bottom read as one set (a
   tracksuit, a hoodie and joggers: `JumpsuitAvatar`, `JUMPSUIT_AVATARS`) wears a one-colour muted coverall
   (graphite, gunmetal blue, olive drab, silver, oxblood) half of those times. Never on formal wear. Same hash
   stream: `outfit_parity.py` checks four kinds (men, women, formal, coverall-capable), 80 000 cases.

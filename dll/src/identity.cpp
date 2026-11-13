@@ -101,8 +101,10 @@ float Distance(const Garment& a, const Garment& b) {
 // an avatar whose top and bottom read as one garment set (a tracksuit, a hoodie and joggers: JumpsuitAvatar) wears,
 // half the time, a one-colour coverall instead. Never on formal wear. Each set passes the guardrails above except
 // that a coverall's top and bottom match on purpose (both muted).
-constexpr Garment kRetroTops[] = {{226, 104, 40}, {24, 160, 164}, {178, 182, 188}, {170, 120, 50}, {226, 220, 202}, {150, 196, 176}};
+constexpr Garment kRetroTops[] = {{226, 104, 40}, {40, 128, 134}, {178, 182, 188}, {150, 100, 48}, {226, 220, 202}, {150, 196, 176}};
 constexpr Garment kRetroBottoms[] = {{50, 52, 58}, {62, 64, 68}, {46, 38, 66}, {70, 86, 108}, {92, 28, 34}, {54, 62, 74}};
+// The sets' weights: two slots each, one for the electric teal (the loudest; half as common as the others).
+constexpr uint8_t kRetroSlots[] = {0, 0, 1, 2, 2, 3, 3, 4, 4, 5, 5};
 constexpr Garment kCoveralls[] = {{62, 64, 70}, {58, 72, 92}, {86, 90, 58}, {168, 172, 178}, {92, 28, 34}};
 
 bool JumpsuitAvatar(const std::string& name) {
@@ -119,7 +121,7 @@ bool CivilianOutfit(uint32_t seed, bool female, bool formal, bool jumpsuit, Garm
         if (jumpsuit && ((h >> 23) & 1)) {
             *top = *bottom = kCoveralls[(h >> 24) % std::size(kCoveralls)];
         } else {
-            const uint32_t k = (h >> 24) % std::size(kRetroTops);
+            const uint32_t k = kRetroSlots[(h >> 24) % std::size(kRetroSlots)];
             *top = kRetroTops[k]; *bottom = kRetroBottoms[k];
         }
         return true;

@@ -183,7 +183,7 @@ typed = {r for t in types for r in t["remaps"]}
 # PEDS-VARIETY (12 Nov 2026): each civilian type deals from sixteen avatars (PEDS-VARIETY-2: eight women, eight men;
 # was nine or ten with four women), a mix of its own (seeded by the remap) instead of three or four picked by the sprite's sleeve length.
 # The DLL dresses them (identity.cpp CrowdVariety: a curated outfit three in four, else the avatar's own colours).
-import random
+import random, collections
 CIV_WOMEN = ["human_female_01", "human_female_03", "human_female_05", "human_female_08", "human_female_adult_02",
              "human_female_adult_04", "human_female_adult_12", "human_female_adult_13", "human_female_adult_17",
              "human_business_female_01",
@@ -200,21 +200,26 @@ CIV_MEN = ["human_male_01", "human_male_04", "human_male_07", "human_male_10", "
            "human_male_adult_05", "human_male_adult_06", "human_male_adult_08", "human_male_adult_09", "human_male_adult_12",
            "human_male_adult_16", "human_male_adult_18", "human_male_adult_20", "human_business_male_04",
            "human_business_male_06", "human_business_male_07"]
-SUIT_POOLS = 4   # human_business_female_01 (a black suit, never recoloured) is in at most this many civilian pools
+# Avatars dealt in only a few civilian pools (a fixed look that would read as cloned, or as too common, if every
+# type had it): the black suit, and (the owner, PEDS-VARIETY-2) the two women in religious dress, together about
+# 1 in 80 civilians (3 pools each of 31, 1 in 16 within a pool).
+CAPPED_POOLS = {"human_business_female_01": 4, "human_female_adult_06": 3, "human_female_adult_10": 3}
 def civilian_pools(remaps, have, hero):
-    """remap -> nine or ten avatars, four of them women, a mix of its own (seeded by the remap)."""
-    pools, suits = {}, 0
+    """remap -> sixteen avatars, eight of them women, a mix of its own (seeded by the remap)."""
+    pools, used = {}, collections.Counter()
     for remap in remaps:
         rng = random.Random(7919 + remap)
         w = [x for x in CIV_WOMEN if x in have and x != hero]
         m_ = [x for x in CIV_MEN if x in have and x != hero]
         women = rng.sample(w, min(8, len(w)))   # PEDS-VARIETY-2: 8 women and 8 men per type
-        if "human_business_female_01" in women:
-            if suits >= SUIT_POOLS:
-                spare = [x for x in w if x not in women and x != "human_business_female_01"]
-                women[women.index("human_business_female_01")] = rng.choice(spare)
+        capped_here = 0   # and at most one of them in a pool
+        for i, x in enumerate(women):
+            if x not in CAPPED_POOLS: continue
+            if used[x] >= CAPPED_POOLS[x] or capped_here:
+                spare = [y for y in w if y not in women and y not in CAPPED_POOLS]
+                women[i] = rng.choice(spare)
             else:
-                suits += 1
+                used[x] += 1; capped_here = 1
         pool = women + rng.sample(m_, min(8, len(m_)))
         rng.shuffle(pool)
         pools[remap] = pool
@@ -224,7 +229,7 @@ civ_remaps = [r for r in range(53) if r not in typed]
 pools = civilian_pools(civ_remaps, have, names.get(HERO))
 for r in civ_remaps:
     types.append({"name": f"civilian_{r}", "remaps": [r], "models": pools[r], "tint": 1})
-civ = [x for x in CIV_WOMEN + CIV_MEN if x in have and x != names.get(HERO) and x != "human_business_female_01"]
+civ = [x for x in CIV_WOMEN + CIV_MEN if x in have and x != names.get(HERO) and x not in CAPPED_POOLS]
 outfit_rows = []
 for r in range(54):
     o = outfits.get(str(r))

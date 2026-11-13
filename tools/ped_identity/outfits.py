@@ -28,9 +28,10 @@ def mix(seed):
     return seed ^ (seed >> 16)
 
 # PEDS-VARIETY-2: near-future sets (identity.cpp kRetroTops / kRetroBottoms / kCoveralls, same order)
-RETRO = [('signal orange', (226, 104, 40), 'graphite', (50, 52, 58)), ('electric teal', (24, 160, 164), 'charcoal', (62, 64, 68)),
-         ('silver-grey', (178, 182, 188), 'deep violet', (46, 38, 66)), ('ochre', (170, 120, 50), 'slate', (70, 86, 108)),
+RETRO = [('signal orange', (226, 104, 40), 'graphite', (50, 52, 58)), ('electric teal', (40, 128, 134), 'charcoal', (62, 64, 68)),
+         ('silver-grey', (178, 182, 188), 'deep violet', (46, 38, 66)), ('ochre', (150, 100, 48), 'slate', (70, 86, 108)),
          ('bone white', (226, 220, 202), 'oxblood', (92, 28, 34)), ('mint', (150, 196, 176), 'gunmetal', (54, 62, 74))]
+RETRO_SLOTS = [0, 0, 1, 2, 2, 3, 3, 4, 4, 5, 5]   # electric teal at half the others' weight
 COVERALLS = [('graphite', (62, 64, 70)), ('gunmetal blue', (58, 72, 92)), ('olive drab', (86, 90, 58)), ('silver', (168, 172, 178)),
              ('oxblood', (92, 28, 34))]
 JUMPSUIT_AVATARS = {'human_male_10', 'human_male_04', 'human_male_adult_18', 'human_male_adult_20', 'human_female_adult_12',
@@ -47,7 +48,7 @@ def outfit(seed, female, formal=False, jumpsuit=False):
         if jumpsuit and (h >> 23) & 1:
             n, c = COVERALLS[(h >> 24) % len(COVERALLS)]
             return ('coverall ' + n, c), ('coverall', c)
-        t, tc, b, bc = RETRO[(h >> 24) % len(RETRO)]
+        t, tc, b, bc = RETRO[RETRO_SLOTS[(h >> 24) % len(RETRO_SLOTS)]]
         return ('retro ' + t, tc), (b, bc)
     tops = list((TOPS_FORMAL if formal else TOPS_F if female else TOPS_M).items())
     bots = list((BOTTOMS_FORMAL if formal else BOTTOMS_F if female else BOTTOMS).items())
