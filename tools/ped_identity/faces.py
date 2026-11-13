@@ -33,13 +33,18 @@ DARK = {'human_male_adult_12', 'human_male_04', 'human_male_adult_18', 'human_fe
 NO_GREY = {'human_female_adult_12'}                                     # the mask reads her fringe band as hair: a white band
 UPDO = {'human_female_adult_02', 'human_female_adult_07', 'human_female_adult_11', 'human_female_adult_17',
         'human_female_01', 'human_female_adult_09'}                 # a bun or a high ponytail: no headwear
-FACIAL = ['stubble', 'moustache', 'goatee', 'beard']
-EYE = ['glasses', 'glasses_dark', 'sunglasses']
+# (shipped: stubble; the moustache, goatee and beard and the sunglasses are being redone: FACIAL_ALL / EYE_ALL)
+FACIAL_ALL = ['stubble', 'moustache', 'goatee', 'beard']; EYE_ALL = ['glasses', 'glasses_dark', 'sunglasses']
+FACIAL = ['stubble']
+EYE = ['glasses', 'glasses_dark']
 HEAD_M = ['cap', 'flatcap', 'beanie']; HEAD_F = ['cap', 'beanie']
 CAP_COLOURS = {'cap': [(40, 52, 88), (52, 54, 60), (84, 90, 58), (100, 34, 44), (150, 130, 100)],
                'beanie': [(52, 54, 60), (38, 46, 70), (46, 72, 56), (96, 36, 44), (176, 166, 146)],
                'flatcap': [(92, 88, 82), (88, 70, 54), (60, 62, 66), (70, 76, 64), (110, 100, 86)]}
-HAIR = {'black': (26, 22, 20), 'dark brown': (58, 40, 28), 'light brown': (112, 80, 52), 'auburn': (124, 58, 30),
+# auburn: a muted copper-brown, a chestnut with a little red (the first, 124,58,30, read as dyed orange)
+HEAD_PX = 256   # the hair-colour head maps' size (the avatars' own are 512)
+NATURAL = 1     # natural hair colours per avatar (2 left the largest free block under 1.2 GB in most runs), plus greying
+HAIR = {'black': (26, 22, 20), 'dark brown': (58, 40, 28), 'light brown': (112, 80, 52), 'auburn': (96, 60, 42),
         'blonde': (186, 150, 92)}
 
 # ---------------------------------------------------------------- GMSH writing (rigid: one node per mesh)
@@ -276,7 +281,7 @@ def facial(h, kind, name):
     return [((P, N0, UV, F), tex)]
 
 # ---------------------------------------------------------------- textures
-def hair_mask(a):
+def hair_mask(a, foot=0.95):
     """recolor_hair.py hair_mask (the head map's hair, above the face; the face, ears and neck keep their skin)."""
     h, w, _ = a.shape
     f = a[int(0.22 * h):int(0.42 * h), int(0.40 * w):int(0.60 * w)].reshape(-1, 3)
@@ -284,8 +289,9 @@ def hair_mask(a):
     d = np.sqrt(((a - skin) ** 2).sum(axis=2)); lum = a.mean(axis=2)
     m = (d > 38) | (lum < skin.mean() * 0.62)
     yy, xx = np.mgrid[0:h, 0:w]
-    # (PEDS-FACES: down to the map's foot, not its upper half: long hair is painted below; the skin test keeps the neck)
-    m &= (yy < 0.95 * h) & ~(((xx - 0.5 * w) / (0.19 * w)) ** 2 + ((yy - 0.36 * h) / (0.22 * h)) ** 2 < 1.0)
+    # (PEDS-FACES: for women down to the map's foot (long hair is painted below; the skin test keeps the neck); for men
+    # the upper half, as recolor_hair.py: lower down are the painted jaw and stubble, which must not turn grey)
+    m &= (yy < foot * h) & ~(((xx - 0.5 * w) / (0.19 * w)) ** 2 + ((yy - 0.36 * h) / (0.22 * h)) ** 2 < 1.0)
     img = Image.fromarray((m * 255).astype(np.uint8)).filter(ImageFilter.MedianFilter(5)).filter(ImageFilter.GaussianBlur(3))
     return np.asarray(img).astype(np.float32) / 255.0, skin
 
@@ -347,16 +353,17 @@ def build(M, out, name, male, report):
         for k in FACIAL: put(k, facial(h, k, name))
     # hair colour: the own colour, the variants, the facial hair textures in each
     a = read_tga(M + h['head_tex']).astype(np.float32)
-    m, skin = hair_mask(a[..., :3])
-    own = (a[..., :3] * m[..., None]).sum((0, 1)) / max(m.sum(), 1)
+    m, skin = hair_mask(a[..., :3], 0.50 if male else 0.95)
+    mu, _ = hair_mask(a[..., :3], 0.50)                                         # the crown's hair: the colour class
+    own = (a[..., :3] * mu[..., None]).sum((0, 1)) / max(mu.sum(), 1)
     dark_skin = skin.mean() < 120 or name in DARK
-    pool = ['black', 'dark brown'] if dark_skin else ['black', 'dark brown', 'light brown', 'auburn'] + (['blonde'] if own.mean() > 70 else [])
+    pool = ['black', 'dark brown'] if dark_skin else ['black', 'dark brown', 'light brown', 'auburn']   # (blonde: not in the reviewed set)
     # (blonde only over hair that is not dark already: a dark map turned blonde reads as dyed)
     rng = np.random.default_rng(sum(name.encode()))
-    if own.mean() > 90: pool = [c for c in pool if c in ('auburn', 'blonde', 'light brown')]   # light hair: the mask misses
+    if own.mean() > 90: pool = [c for c in pool if c in ('auburn', 'light brown')]   # light hair: the mask misses
     # strands close to the skin's colour, so a dark variant would streak; only near shades
     far = [c for c in pool if np.linalg.norm(np.array(HAIR[c]) - own) > 55]
-    picks = [] if name in BALD else (list(rng.choice(far, size=min(2, len(far)), replace=False)) if far else [])
+    picks = [] if name in BALD else (list(rng.choice(far, size=min(NATURAL, len(far)), replace=False)) if far else [])
     cards = read_tga(M + h['op_tex']) if h['op_tex'] else None
     facial_rgb = lambda c: tuple(int(x * 0.85) for x in c)
     write_tga(strands(facial_rgb(own)), os.path.join(out, f'{name}~hair.tga'))
@@ -369,7 +376,8 @@ def build(M, out, name, male, report):
             ha = grey_head(a[..., :3], m, own, i); col = (150, 148, 144)
         else:
             ha = recolour_head(a[..., :3], m, HAIR[c]); col = HAIR[c]
-        write_tga(np.dstack([ha, a[..., 3:]]).clip(0, 255).astype(np.uint8), os.path.join(out, h['head_tex'][:-4] + tag + '.tga'))
+        # 256 px (the review's memory gate: the 512 px variants left the largest free block under 1.2 GB in 2 of 3 runs)
+        write_tga(small(np.dstack([ha, a[..., 3:]]).clip(0, 255), HEAD_PX), os.path.join(out, h['head_tex'][:-4] + tag + '.tga'))
         if cards is not None:
             write_tga(small(recolour_cards(cards, col), 256), os.path.join(out, h['op_tex'][:-4] + tag + '.tga'))
         write_tga(strands(facial_rgb(col)), os.path.join(out, f'{name}~hair{tag}.tga'))
