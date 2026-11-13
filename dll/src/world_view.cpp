@@ -1676,7 +1676,14 @@ bool WorldView::EnsureWorldLoaded() {
     // WEATHER-V2 C: the road/pavement lid tiles and, on a Remix device, every wet variant of their
     // textures, made here at level load: creating them in the middle of a frame (p1h) hung the game
     // thread on a heap lock. Off the plain renderer nothing is made.
-    if (renderer_.IsRemixDevice() && !map_.Empty()) {
+    // Only with [weather] on at level load (WEATHER-V2: ~58 MB of variants are not paid with the weather off);
+    // switched on later, the stepped materials start at the next level load.
+    const bool weatherOn = CarBodiesDevIni()[0] && GetPrivateProfileIntA("weather", "enabled", 0, CarBodiesDevIni()) != 0;
+    if (renderer_.IsRemixDevice() && !map_.Empty() && !weatherOn) {
+        renderer_.SetWetTiles(std::vector<uint8_t>());
+        Log("weather: off at level load: no wet variant textures (the stepped wet materials start at the next level load)");
+    }
+    if (renderer_.IsRemixDevice() && !map_.Empty() && weatherOn) {
         std::vector<uint8_t> tiles(1024, 0);
         int n = 0;
         for (int my = 0; my < gta2::kMapHeight; ++my) {

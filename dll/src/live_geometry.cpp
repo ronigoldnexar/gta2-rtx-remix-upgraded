@@ -7469,6 +7469,32 @@ void LiveGeometry::AddSprite(unsigned flags, const void* texture, const float* v
     lastObject_ = GameObjectBeingDrawn();
     lastSprite_ = sprites_.size();
     sprites_.push_back(placed);
+    {
+        // WEATHER-V2 lane-ghost hunt: [devtools] wx_sprite_log=1 logs every sprite that is neither a car nor a
+        // pedestrian (object base, flags, the game's corners in blocks), at most 40 lines a second.
+        static int sprLog = 0, sprBudget = 0;
+        static DWORD sprRead = 0;
+        if (GetTickCount() - sprRead >= 1000) {
+            sprRead = GetTickCount();
+            sprLog = CarBodiesDevIni()[0] ? GetPrivateProfileIntA("devtools", "wx_sprite_log", 0, CarBodiesDevIni()) : 0;
+            sprBudget = 150;
+        }
+        const uint8_t* object = static_cast<const uint8_t*>(GameObjectBeingDrawn());
+        const int32_t base = object ? *reinterpret_cast<const int32_t*>(object + game::kSpriteObjectBase) : -1;
+        if (sprLog && sprBudget > 0 && base != game::kSpriteBaseCar && base != game::kSpriteBasePed && base != 8) {
+            --sprBudget;
+            char line[400];
+            int used = snprintf(line, sizeof(line), "wx sprite: base %d obj %p decal %d lying %d hidden %d lamp %d corpse %d model %s corners",
+                                static_cast<int>(base), static_cast<const void*>(object), decal ? 1 : 0, lying ? 1 : 0, placed.hidden ? 1 : 0,
+                                placed.lamp ? 1 : 0, placed.corpse ? 1 : 0, placed.objectModel ? placed.objectModel->name.c_str() : "-");
+            for (int i = 0; i < corners && used > 0 && used < static_cast<int>(sizeof(line)) - 40; ++i) {
+                const float* world = reinterpret_cast<const float*>(
+                    game::kSpriteVertexArray + static_cast<uintptr_t>(i + game::kWorldShadowSlots) * game::kVertexStride);
+                used += snprintf(line + used, sizeof(line) - used, " (%.2f %.2f %.2f)", world[0], world[1], world[2]);
+            }
+            Log("%s", line);
+        }
+    }
     ++spriteQuads_;
     ++drops_.accepted;
 
