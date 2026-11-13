@@ -957,3 +957,50 @@ Still short of a shipping AAA frame:
   their torn island outlines and white "glass" are art. Per-car authoring (VEHICLE_PRIORITY) is the real fix.
 - Pale *body* panels that the resplit left in the rest half (the old 040's white rear panel) are untinted again,
   as they were before 2927aea.
+
+## CARS-V3: the Hunyuan3D 2.1 fleet in the game (13 Nov 2026, pilot)
+
+The owner-approved fleet (Hunyuan3D 2.1 from Qwen-Image-Edit front-right views of the sprites; finished shells in
+`/mnt/gta2/out/carhy/NNN.glb`, game scale) is one painted mesh per vehicle with its wheels, lamps and roof gear fused
+into the shell. `tools/hy_car/hy_convert.py` brings each shell up to what the renderer's car features use. The
+generated bodies are Output of Tencent Hunyuan3D 2.1 (licence and territory terms: `THIRD_PARTY_NOTICES.md`).
+
+    gen3d/venv/bin/python tools/hy_car/hy_convert.py <out dir> 0 12 51 68 7     # specs: tools/hy_car/specs.json
+    gen3d/venv/bin/python tools/hy_car/preview.py out.jpg /mnt/gta2/out/carhy <out>/src/cars/models_hy 012:012_cop_car:-z
+
+Per feature (what the game expects -> what the conversion does):
+
+| Feature | Renderer (where) | Conversion |
+|---|---|---|
+| Orientation | +z nose (`forward`) | specs.json `nose`: most shells came out with the nose at -z (0, 7, 12, 51 of the pilot); turned |
+| Wheels spin and steer | marker nodes `wheel_fl/fr/rl/rr`, BuildWheelSplit cuts the triangles in each disc | tyre circle fitted on a side render; fused tyre and hub cut out; a clean wheel (tyre, tread, a face textured with the shell's own wheel face made round, lug nuts); markers; a dark arch liner along the arch's outline and an inner wall. Only the wheel parts may go to a wheel (`_hubface_` models, car_bodies.cpp) |
+| Remap colours | `_paint` split, tint = live / own paint (identity.cpp) | livery models (car_bodies LiveryModel) keep one opaque shell; the others get the importer's paint split re-split by body hue and neutralised (car_paint_resplit.py) |
+| Glass and cabin | car_glass.cpp mask from the texture (shells) | nothing added: the runtime glass path (painted windows -> synthesized panes, cabin boxes, seat) |
+| Lamps | `lamp_head` / `lamp_tail` meshes: LensSpotsFor glows; Remix head lamps from the sprite deltas | lens domes on the shell's own lamps (end renders), both sides or none (then the renderer's own spot) |
+| Sirens | DrawBeacons: red -x, blue +x; Remix cap on the bar's top | cop car: generated blobs pressed into the roof, four domes from the sprite's siren deltas |
+| Roof sign | (none in the renderer) | taxis: a box at the sprite's sign, TAXI panel front and back, emissive under Remix |
+| Damage, doors, wrecks, turrets | dents, door split, wreck copy, turret split from any mesh | nothing needed |
+| Footprint, collision | the game's own; the body fitted to the sprite (aspect within 15 %) | shells already at the sprite's size |
+| LOD | sprite beyond 60 blocks; no mesh LOD | none (same as the fleet before) |
+
+Budget (the fleet before averaged 0.9 MB of mesh and 2.6 MB of textures a car, 76 cars): remapped cars 12 000 shell
+faces and a 512 px shell picture (paint + rest), liveries 20 000 faces and 1024 px. Pilot five: mesh 5.98 MB (old
+5.01), textures 19.2 MB (old 22.6), together 25.2 MB against 27.6.
+
+Probes (all from a private stage of this branch, `~/gta2-linux/stage_cars3`; old = the shipped `repo/stage`):
+`gamerun/cv3_own.sh` (the own car parked at wil 198.5,188.2, forced to each model, fixed regression-camera poses;
+sets: untinted, front wheels at 30 deg, damage 25000, two forced paints), `gamerun/cv3_drive.sh` (driving: third person
+stopped/driving/turning/braking, first person, the camera move through classic), both with `TOD_HHMM` for the plain
+renderer's clock (`[weather] enabled=1 time_of_day=1 hour_hhmm`: the plain renderer has no night without it);
+RTX Remix on the RTX PRO 6000 (`/gta2/cars3_remix.sh`, fm7_own poses at 13:00 and 22:30, the layer merged from
+`tools/hy_car/remix_prims.sh`, under `flock /gta2/remix.lock`).
+
+Findings that cost time: most generated shells face -z (Qwen3-VL on end renders was right on every car checked by
+eye; a top-view match against the sprite was not); a node named `wheel_*` is a wheel marker to the renderer (the
+first wheel parts were named so and the split found one wheel); with soft paint masks the plain renderer draws only
+the `_paint` picture (the rest half is skipped); a model forced by the devtools without a forced paint is drawn
+untinted (the livery path); `force_own_car_model` is first person only.
+
+Fleet dry run (all 68 converted offline, not imported): weak wheel fits to fix per car before the fleet ships:
+011 (bus: CARI axles far from the generated wheels; the axle search now widens with the length), 016 (brown tyres:
+specs `tyre_lum`/`tyre_sat`), 017 (rear axle), 031 (fender skirt hides the rear wheel), 036, 045.

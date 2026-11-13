@@ -373,7 +373,8 @@ def find_lamps(shell, view, kind, hw, height, prior_x=None):
     front = R["alpha"] & (R["depth"] < dmin + 0.30)   # a truck's lamps sit in the fenders well behind its bumper
     U = u0 + (np.arange(W) + 0.5) * res; Vv = v1 - (np.arange(H) + 0.5) * res
     uu, vv = np.meshgrid(U, Vv)
-    band = (vv > 0.06 * height) & (vv < 0.80 * height) & (np.abs(uu) > 0.12 * hw)
+    # head lamps sit at the fenders' height: not the bumper's chrome bullets or fog lamps (051 took a bumper bullet)
+    band = (vv > (0.18 if kind == 'head' else 0.06) * height) & (vv < 0.80 * height) & (np.abs(uu) > 0.12 * hw)
     if kind == 'head':
         m = front & band & (L > 0.45) & (S < 0.45)   # sealed beams are often cream (007)
     else:
@@ -470,7 +471,9 @@ def arch_parts(car_, wheel, side, angs, prof, hw):
     car_.part('underbody').add(P, Nn, np.array(Tc), Fc)
     car_.part('underbody').add(P, -Nn, np.array(Tc), Fc[:, ::-1])
     # inner wall: a fan from the axle's foot over the outline
-    C = np.array([[x_in, 0.004, zc]])
+    # fanned from the axle (not the road): nothing of the wall hangs below the axle, where it showed as dark spikes
+    # under a low car (007, 012) and is not needed (the well is open below)
+    C = np.array([[x_in, yc, zc]])
     W = np.concatenate([C, np.stack([np.full(n, x_in), pts[:, 1], pts[:, 0]], 1)])
     Fw = np.array([(0, i + 1, i + 2) for i in range(n - 1)])
     Nw = np.tile([[side * 1.0, 0, 0]], (len(W), 1))
@@ -577,6 +580,11 @@ def build(m, spec, src, log):
         return (-(xs.mean() + 0.5 - sw / 2) / 64 * kx, (ys.mean() + 0.5 - sh / 2) / 64 * kz,
                 (xs.max() - xs.min() + 1) / 64 * kx, (ys.max() - ys.min() + 1) / 64 * kz)
     for kind, dl, end in (('head', 6, 1), ('tail', 5, -1)):
+        if spec.get(kind + '_lamp'):
+            # specs "head_lamp"/"tail_lamp": [x, y, radius] where the search takes the wrong part (051's dark-eyed
+            # headlamps lose to its bumper's chrome bullets); mirrored to the other side
+            x, y, rr = spec[kind + '_lamp']
+            lamps[kind] = [(x, y, 0.0, rr), (-x, y, 0.0, rr)]
         found = lamps[kind]
         if len(found) == 1:
             # the car is symmetric: the other side's lamp mirrors the one found (a chrome bezel or a shadow hid it)
@@ -592,7 +600,7 @@ def build(m, spec, src, log):
             continue
         log(f'  {kind} lamps: {len(found)} found on the shell')
         for (x, y, z, rr) in found:
-            rr = float(np.clip(rr * 1.05, 0.010, 0.045))
+            rr = float(np.clip(rr * 1.05, 0.010, 0.032))
             zs = surface_z_at(shell, x, y, end)
             lamp_lens(kc, 'lamp_' + kind, x, y, (zs if zs is not None else z), rr, end)
         lamps[kind] = found
