@@ -89,6 +89,10 @@ wine regedit /S "$(winepath -w "$DEST/install.reg" 2>/dev/null || echo "C:\\Game
 # The intro movie goes through binkw32 on a DirectDraw surface the renderer
 # replaces; the renderer draws it itself and reads this as a hint only.
 wine reg add 'HKLM\SOFTWARE\DMA Design Ltd\GTA2\Screen' /v do_play_movie /t REG_DWORD /d 0 /f >/dev/null 2>&1 || true
+# Wine's emulated video memory: its default budget is spent at 2560x1440 by the frame's targets, the HD
+# tiles and the model textures (0 MB left), and the modern HUD and the city map are then refused their
+# buffers and textures and not drawn. 4096 MB leaves room (docs/citymap.md, "Drawing").
+wine reg add 'HKCU\Software\Wine\Direct3D' /v VideoMemorySize /t REG_SZ /d 4096 /f >/dev/null 2>&1 || true
 
 if [ "$DXVK" = 1 ]; then
     echo "== DXVK"

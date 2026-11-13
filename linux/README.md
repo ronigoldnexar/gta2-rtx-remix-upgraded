@@ -48,6 +48,10 @@ and Remix mods), puts this build's DLLs over that, writes the registry keys
 into the prefix. Your own game folder is never written to. `run.sh` starts the
 game in a Wine virtual desktop (`GTA2_DESKTOP=2560x1440 linux/run.sh` to change
 it, `GTA2_DESKTOP= linux/run.sh` for none); `--log` tails `gta2dx9.log`.
+`install.sh` also sets Wine's `HKCU\Software\Wine\Direct3D\VideoMemorySize` to 4096 MB: with Wine's
+default budget a 2560x1440 frame left 0 MB of texture memory, and the modern HUD and the city map were
+not drawn (docs/citymap.md, "Drawing"). An existing prefix: `wine reg add 'HKCU\Software\Wine\Direct3D'
+/v VideoMemorySize /t REG_SZ /d 4096 /f`.
 
 **Sound on a machine with no sound card** (containers, headless servers): give Wine a
 clocked null audio endpoint before starting the game, or it can crash seconds into a

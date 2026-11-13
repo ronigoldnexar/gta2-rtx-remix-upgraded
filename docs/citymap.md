@@ -27,6 +27,16 @@ Code: `dll/src/city_map.cpp` (input, route state, the map, the chevrons), `dll/s
 
 The waypoint clears itself 3.5 s after you arrive (within 2.5 blocks of it).
 
+The map opens as wide as the frame's map band (16:9 and 16:10 alike: no empty band at a side) and never
+scrolls past the level's edge on an axis where the level is wider than the band; zoomed out until the city
+is narrower than the band it is centred with even margins, the legend and scale bar inside its frame.
+
+The bridge case in game (bil flyover at 19,95, plain, out/cm_bridge_bil3): the route ran along the level-2 deck
+(lane at z 3.0 from x 43.5 to 6.5, then down its ramp to z 2.0), the car crossed at z 3.00 over the road at
+level 1 under it and came down 2.74, 2.42, 2.10 at x 15, 12, 10, and arrived. A start a few blocks from the
+route (here the lane running his way on the deck beside him) is shown as a dashed hop, not re-searched every
+half second (out/cm_bridge_bil5: one search).
+
 ## Decisions
 
 - **No pause.** GTA2 has no single-player pause the DLL could trigger: measured (`out/cm_pause1`,
@@ -73,9 +83,13 @@ of texture memory left** (the post-FX targets, the HD tiles and the model textur
 emulated budget), `CreateVertexBuffer` in D3DPOOL_DEFAULT fails with D3DERR_OUTOFVIDEOMEMORY and
 `imgui_impl_dx9` silently draws nothing. That also hides the **modern HUD** at 2560x1440 (hud3d's
 "render" time 0.002-0.004 ms in those runs, without any city-map code: tr_chase2/3), so it is not the
-map's alone. Even our textures cannot be paged in with 0 MB left; the prefix needs a larger budget:
-`[HKEY_CURRENT_USER\Software\Wine\Direct3D] "VideoMemorySize"="4096"` (measured: 2.8 GB left at
-1440, the map and the modern HUD both drawn, out/cm_probe1440v with an install.reg override).
+map's alone. Even our textures cannot be paged in with 0 MB left, so the prefix gets a larger budget: **`[HKEY_CURRENT_USER\Software\Wine\Direct3D]
+"VideoMemorySize"="4096"`** (approved 13 Nov; in `gamerun/install.reg`, which the scripted runs and the browser
+play page apply to their prefix, and in `linux/install.sh`). Measured with it: 2560x1440 2.8 GB left, the map and the
+modern HUD drawn (out/cm_probe1440v); 1280x720 and 1920x1080 / 1920x1200 plain and the L4 Remix run 0 FAULT with
+the HUD and the map drawn (cm_v720b, cm_v1080, cm_v1200, cm_v_rmx); the address-space gate (pedsvar2 at one
+minute, GTA2DX9_VA_WATCH=1, `citymap_work/memfrag_vram.sh`) held: largest free block 584-778 MB in 5 of 5 runs (777, 585, 641, 768, 670; gate 320 MB),
+0 FAULT.
 
 - **Nodes**: the lid of every block whose ground type is road, pavement or field, not water, not
   built over; its height at each edge from the slope tables (block z spans z..z+1, a flat lid is at

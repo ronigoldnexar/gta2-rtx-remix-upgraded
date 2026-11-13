@@ -310,6 +310,13 @@ void Reroute(const char* why) {
         start = g_level.NearestReaching(g_me.x, g_me.y, g_me.z, r.dist, &r.hop);
         if (start >= 0) { r.hopX = g_level.Nodes()[start].x + 0.5f; r.hopY = g_level.Nodes()[start].y + 0.5f; }
     }
+    if (start >= 0 && r.hop <= 0) {
+        // the best start can be a few blocks off (the lane that runs his way on a parallel road or a deck):
+        // he is not "off the route" while he makes for it, the hop shows it (no re-route each half second)
+        const Node& sn = g_level.Nodes()[start];
+        const float d = std::hypot(sn.x + 0.5f - g_me.x, sn.y + 0.5f - g_me.y);
+        if (d > (m == kCar ? 2.6f : 2.2f)) { r.hop = d; r.hopX = sn.x + 0.5f; r.hopY = sn.y + 0.5f; }
+    }
     r.path = g_level.Path(start, r.next);
     RebuildLines();
     r.lastReroute = Now();
@@ -317,7 +324,7 @@ void Reroute(const char* why) {
     ++r.reroutes;
     const float len = Length(r.cx, r.cy);
     Log("citymap: route (%s) %s from %.1f,%.1f,%.1f: %zu nodes, %s%s", why, m == kCar ? "car" : "walk", g_me.x, g_me.y, g_me.z,
-        r.path.size(), DistanceText(len).c_str(), r.hop > 0 ? " (off the network: a dashed hop to it)" : "");
+        r.path.size(), DistanceText(len).c_str(), r.hop > 0 ? " (a dashed hop to its start)" : "");
     // the lane's corners (for scripted drivers and the log reader): x,y,level each
     std::string corners;
     for (size_t k = 0; k < r.lx.size() && k < 80; ++k) {
@@ -407,7 +414,9 @@ void UpdateRoute() {
         return;
     }
     const float limit = m == kCar ? 2.6f : 2.2f;
-    if (r.hop > 0 && r.offLine > limit) return;   // still making his way to the network: the hop shows it
+    if (r.hop > 0 && r.offLine <= limit) r.hop = 0;   // he has reached the route
+    // still making his way to it: the hop shows it; only if he goes the other way is it searched again
+    if (r.hop > 0 && r.offLine > limit && r.offLine < r.hop + 4.0f) return;
     if (r.offLine > limit) {
         if (r.offSince < 0) r.offSince = now;
         if (now - r.offSince > 0.6 && now - r.lastReroute > 0.5) {
@@ -791,11 +800,15 @@ void ToCell(ImVec2 p, float* x, float* y) {
     *y = (p.y - (g_view.y0 + g_view.y1) * 0.5f) / g_view.s + g_view.cy;
 }
 float FitScale() { return (g_view.y1 - g_view.y0 - 24 * g_u) / 256.0f; }
+// The level fills the map band on each axis it is wider than the band (the view never shows past its
+// edge there), and is centred on an axis it is narrower than (the whole city: balanced margins), so a
+// 16:9 or 16:10 frame has no empty band on one side.
 void ClampView() {
     const float lo = FitScale(), hi = 16.0f * g_u;
     g_view.s = (std::max)(lo, (std::min)(hi, g_view.s));
-    g_view.cx = (std::max)(0.0f, (std::min)(256.0f, g_view.cx));
-    g_view.cy = (std::max)(0.0f, (std::min)(256.0f, g_view.cy));
+    const float hw = (g_view.x1 - g_view.x0) * 0.5f / g_view.s, hh = (g_view.y1 - g_view.y0) * 0.5f / g_view.s;
+    g_view.cx = 256.0f >= 2 * hw ? (std::max)(hw, (std::min)(256.0f - hw, g_view.cx)) : 128.0f;
+    g_view.cy = 256.0f >= 2 * hh ? (std::max)(hh, (std::min)(256.0f - hh, g_view.cy)) : 128.0f;
 }
 void ZoomAt(ImVec2 p, float factor) {
     float bx, by;
@@ -816,12 +829,14 @@ bool KeyEdge(int vk) {
     if (vk <= 0 || vk >= 256) return false;
     const SHORT st = GetAsyncKeyState(vk);
     const bool now = (st & 0x8000) != 0;
-    const bool hit = now && !g_edges[vk].down;
+    // bit 0: pressed since the last call, which catches a tap shorter than a frame (a slow frame in a heavy spot)
+    const bool hit = (now && !g_edges[vk].down) || (!now && !g_edges[vk].down && (st & 0x0001) != 0);
     g_edges[vk].down = now;
     return hit;
 }
 
 void Layout(int W, int H) {
+    g_mapW = W; g_mapH = H;
     g_view.x0 = 0;
     g_view.y0 = std::round(58 * g_u);
     g_view.x1 = static_cast<float>(W);
@@ -831,7 +846,8 @@ void Layout(int W, int H) {
 void OpenMap() {
     g_open = true;
     g_openedAt = Now();
-    if (!g_viewInit) { g_view.s = FitScale() * 1.7f; g_viewInit = true; }
+    // first open: the city as wide as the band (16:9, 16:10: no margin at the sides), at least 1.7x the whole-city fit
+    if (!g_viewInit) { g_view.s = (std::max)(FitScale() * 1.7f, (g_view.x1 - g_view.x0) / 256.0f); g_viewInit = true; }
     g_view.cx = g_me.x; g_view.cy = g_me.y;
     ClampView();
     g_cursor = ToScreen(g_me.x, g_me.y);
@@ -956,7 +972,12 @@ void PollDevtools() {
         const bool first = lastView[0] == '\x01';
         strncpy(lastView, b, sizeof lastView - 1);
         float x, y, s;
-        if (!first && sscanf(b, "%f,%f,%f", &x, &y, &s) == 3) { g_view.cx = x; g_view.cy = y; g_view.s = s * g_u; g_viewInit = true; ClampView(); g_cursor = ToScreen(x, y); }
+        if (!first && sscanf(b, "%f,%f,%f", &x, &y, &s) == 3) {
+            g_view.cx = x; g_view.cy = y; g_view.s = s * g_u; g_viewInit = true; ClampView(); g_cursor = ToScreen(x, y);
+            // where the asked cell is on screen now (the view may have been held inside the level): scripted clicks aim at it
+            Log("citymap: view at %.2f,%.2f, %.3f px a cell; cell %.1f,%.1f at pixel %.1f,%.1f of %dx%d", g_view.cx, g_view.cy, g_view.s, x, y,
+                g_cursor.x, g_cursor.y, g_mapW, g_mapH);
+        }
     }
 }
 
@@ -1110,7 +1131,7 @@ void DrawMap(ImDrawList* dl, int W, int H, float t) {
         const float mpp = g_cfg.metres / v.s;
         int nice = 1000;
         for (int n : {25, 50, 100, 200, 250, 500, 1000}) if (n / mpp >= 70 * u) { nice = n; break; }
-        const float bl = nice / mpp, bx = (std::max)(v.x0, e0.x) + 30 * u, by = v.y1 - 22 * u;
+        const float bl = nice / mpp, bx = (std::max)(v.x0, e0.x) + 30 * u, by = (std::min)(v.y1, e1.y) - 22 * u;
         dl->AddRectFilled(ImVec2(bx, by - 3 * u), ImVec2(bx + bl, by), C3(kWhite, 0.8f));
         dl->AddRectFilled(ImVec2(bx, by - 3 * u), ImVec2(bx + bl / 2, by), Col(20, 22, 28, 0.86f));
         dl->AddRect(ImVec2(bx, by - 3 * u), ImVec2(bx + bl, by), C3(kWhite, 0.8f), 0, 0, 1 * u);
@@ -1120,9 +1141,10 @@ void DrawMap(ImDrawList* dl, int W, int H, float t) {
     }
     // the legend, bottom right
     {
-        const float lx = v.x1 - 196 * u, ly = v.y1 - 92 * u;
-        dl->AddRectFilled(ImVec2(lx, ly), ImVec2(v.x1 - 14 * u, v.y1 - 14 * u), Col(9, 11, 16, 0.8f), 6 * u);
-        dl->AddRect(ImVec2(lx, ly), ImVec2(v.x1 - 14 * u, v.y1 - 14 * u), Col(255, 255, 255, 0.16f), 6 * u, 0, 1 * u);
+        const float rx = (std::min)(v.x1, e1.x), by = (std::min)(v.y1, e1.y);   // inside the level's frame
+        const float lx = rx - 196 * u, ly = by - 92 * u;
+        dl->AddRectFilled(ImVec2(lx, ly), ImVec2(rx - 14 * u, by - 14 * u), Col(9, 11, 16, 0.8f), 6 * u);
+        dl->AddRect(ImVec2(lx, ly), ImVec2(rx - 14 * u, by - 14 * u), Col(255, 255, 255, 0.16f), 6 * u, 0, 1 * u);
         const char* rows[4] = {"YOU", "WAYPOINT", "ROUTE", "ROAD  \xC2\xB7  OVERPASS"};
         for (int i = 0; i < 4; ++i) {
             const float yy = ly + 13 * u + i * 17 * u, ix = lx + 18 * u;
@@ -1451,6 +1473,8 @@ void CityMapUpdate(IDirect3DDevice9* device, int width, int height, HWND present
     if (KeyEdge(g_cfg.key)) {
         if (g_open) CloseMap("key");
         else if (canOpen) OpenMap();
+        else Log("citymap: the map key, but no map now (player %s, level %s, F4 menu %s)", g_me.valid ? "found" : "not found",
+                 g_level.Ready() ? "ready" : "not ready", DebugMenuVisible() ? "open" : "closed");
     }
     if (g_open && KeyEdge(VK_ESCAPE)) { CloseMap("escape"); g_escLatch = true; }
     if (g_escLatch && !KeyDown(VK_ESCAPE)) g_escLatch = false;
