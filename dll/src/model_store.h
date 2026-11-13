@@ -73,6 +73,10 @@ struct Model {
     std::vector<ModelNode> nodes;
     std::vector<ModelMesh> meshes;
     std::vector<ModelAnimation> animations;
+    // PEDS-VARIETY-3: a garment-detail variant (manifest "detail_of") is its avatar's mesh with two clothing maps of
+    // its own; it carries no clips and plays its avatar's (the store index of that avatar, -1 none). Animation() and
+    // ModelHasClips() look through it.
+    int animOwner = -1;
     std::vector<ModelSkin> skins;
     bool skinned = false;
     // Of the rest pose, in the model's own units after the importer's scale.

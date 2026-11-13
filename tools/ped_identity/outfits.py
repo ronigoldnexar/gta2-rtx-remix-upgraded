@@ -60,6 +60,16 @@ def outfit(seed, female, formal=False, jumpsuit=False):
     return None
 
 
+MODEST_TOPS = [('navy', (40, 46, 72)), ('black', (32, 32, 36)), ('dark grey', (66, 68, 72)), ('deep burgundy', (92, 30, 40))]
+MODEST_SKIRTS = [('black', (30, 30, 34)), ('charcoal', (58, 60, 64))]
+
+
+def modest_outfit(seed):
+    """identity.cpp ModestOutfit: the Haredi woman's restricted muted palette (always dressed)."""
+    h = mix(seed & 0xffffffff)
+    return MODEST_TOPS[(h >> 3) % len(MODEST_TOPS)], MODEST_SKIRTS[(h >> 11) % len(MODEST_SKIRTS)]
+
+
 DETAIL_SALT = 0x2c1b3c6d
 DETAIL_SUFFIX = ['_dy', '_ds', '_db']   # yoke, sleeve or cuff, band (garment_detail.py)
 
@@ -97,13 +107,14 @@ def crowd(seed, remap, model, entry, sprite_outfit, civilian=True, models=None):
     zoned = bool(entry.get('ped_zones'))
     out = dict(height=height, width=width, zone=None, paint=None)
     if zoned and civilian:   # a curated outfit, else the avatar's own colours; shaded +-6% once
-        o = outfit(seed ^ OUTFIT_SALT, 'female' in model, 'business' in model, model in JUMPSUIT_AVATARS)
+        modest = model.startswith('human_haredi_female')
+        o = modest_outfit(seed ^ OUTFIT_SALT) if modest else outfit(seed ^ OUTFIT_SALT, 'female' in model, 'business' in model, model in JUMPSUIT_AVATARS)
         s = 1.0 + (shade - 1.0) * 0.5
         own = [entry.get('zone_rgb_t') or [ref] * 3, entry.get('zone_rgb_b') or [ref] * 3]
         cols = [o[0][1], o[1][1]] if o else own
         out.update(kind='outfit' if o else 'own', label=(o[0][0] + ' / ' + o[1][0]) if o else 'own colours',
                    zone=[[max(0.0, min(2.0, s * c / ref)) for c in cols[k]] for k in range(2)], model=model)
-        if o and 'business' not in model and models is not None:   # PEDS-VARIETY-3: a detail variant (DetailPick)
+        if o and not modest and 'business' not in model and models is not None:   # PEDS-VARIETY-3: a detail variant (DetailPick)
             vs = [model + x for x in DETAIL_SUFFIX if model + x in models]
             k = detail_pick(seed, len(vs))
             if k >= 0: out['model'] = vs[k]; out['label'] += ' ' + vs[k][-3:]

@@ -342,7 +342,7 @@ change.
   load +30 MB, free address space 2489 -> 2456 MB (largest free block unchanged, 2048 MB); warm-up to "cars ready"
   5.0 -> 5.7 s. Every avatar is warmed whatever the pools say, so the pool size itself costs nothing.
 
-## Garment detail (PEDS-VARIETY-3, 13 Nov 2026; on branch peds-variety-3, not shipped)
+## Garment detail (PEDS-VARIETY-3, 13 Nov 2026)
 
 - **Variants.** `tools/ped_identity/garment_detail.py <models> <out> <avatar>:<variant>,... --manifest <manifest>` bakes
   detail into a zoned avatar's clothing maps and writes `<avatar>_dy` (yoke: the shoulders a darker tone of the
@@ -369,3 +369,29 @@ change.
 - **Open before shipping.** The heap cost is the copied meshes: a variant could borrow the avatar's meshes and clips
   and override two texture names (engine work in `model_store.cpp`, where textures are looked up by the mesh's
   name in several places), which would leave about 70 MB of textures.
+
+### Round 3 as shipped: shared meshes, Haredi figures
+
+- **Variants share the avatar's clips.** A variant's `.mesh` now carries no animation block
+  (`garment_detail.py strip_clips`, 0.55 MB instead of 3.8 MB); its manifest entry's `detail_of` makes the DLL set
+  `Model::animOwner` to the avatar, and `Model::Animation()` (the one door every clip lookup goes through) answers
+  from the avatar's clips. Mesh, skeleton and texture names stay the variant's own (two clothing maps; the head and
+  hair maps are the avatar's files, one texture each in memory). `render.py anim_from` poses variants on the sheets.
+- **Haredi figures.** `human_haredi_male_01` (homburg, dark beard) and `_02` (fedora, greyer beard), fixed outfits
+  with no zones: no tint, no outfit, no detail. `human_haredi_female_01` (navy tichel with knot and tails, a dark
+  shell top under the blouse, the skirt to mid-calf, dark stockings): zoned, always in `ModestOutfit` (a navy, black,
+  dark grey or deep burgundy top over a black or charcoal skirt), never a detail. `make_ped_manifest.py
+  place_haredi`: each group in 13 of the 31 civilian pools (one man's or one woman's place, 8/8 kept); expected from
+  the remaps seen in the logs: men about 1 in 33, women about 1 in 42. Built by `haredi_men.py` / `haredi_women.py` /
+  `haredi_build.py` (Blender 4.2 at /mnt/gta2/tools/blender), imported by `import_assets.py`.
+- **Memory (same scenario: qa_pedsvar6 round 2, qa_pedsvar8 copied meshes, qa_pedsvar9 shared).**
+
+| | round 2 | copied meshes | shared (shipped) |
+|---|---|---|---|
+| models loaded | 290 | 325 | 328 |
+| heap after the models are read | 352.6 MB | 471.9 MB | 383.2 MB |
+| private commit after the models | 404 MB | 533 MB | 434 MB |
+| managed textures | 546.6 MB | 616.6 MB | 628.1 MB |
+| GPU-only textures | 435.6 MB | 505.6 MB | 517.1 MB |
+| at 1 min: private / free / largest free block | 997 / 2022 / 1433 MB | 1127 / 1900 / 622 MB | 1011 / 2027 / 1542 MB |
+| warm-up to "cars ready" | 5.5 s | 5.8 s | 5.9 s |

@@ -21,8 +21,10 @@ def look(eye, target, up=(0, 1, 0)):
 def persp(fov, aspect, n=0.05, f=20):
     t = np.tan(np.radians(fov) / 2); m = np.zeros((4, 4))
     m[0, 0] = 1 / (t * aspect); m[1, 1] = 1 / t; m[2, 2] = -(f + n) / (f - n); m[2, 3] = -2 * f * n / (f - n); m[3, 2] = -1; return m
-def render(path, views, tints=None, clip='idle', frame=0, size=(320, 480), bg=(0.42, 0.44, 0.46), hide=None):
-    model = gmsh.load(path); parts, world = gmsh.pose(model, clip, frame)
+def render(path, views, tints=None, clip='idle', frame=0, size=(320, 480), bg=(0.42, 0.44, 0.46), hide=None, anim_from=None):
+    model = gmsh.load(path)
+    if anim_from: model['anims'] = gmsh.load(anim_from)['anims']   # a detail variant carries no clips: its avatar's
+    parts, world = gmsh.pose(model, clip, frame)
     d = os.path.dirname(path); W, H = size; imgs = []
     allp = np.concatenate([p[0] for p in parts]); lo, hi = allp.min(0), allp.max(0); c = (lo + hi) / 2; h = hi[1] - lo[1]
     for (yaw, pitch) in views:

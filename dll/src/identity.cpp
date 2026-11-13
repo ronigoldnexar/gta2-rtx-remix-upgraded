@@ -143,6 +143,17 @@ bool CivilianOutfit(uint32_t seed, bool female, bool formal, bool jumpsuit, Garm
 }
 constexpr uint32_t kOutfitSalt = 0x632be5abu;   // the outfit's hash apart from the build's and the pool's
 
+// PEDS-VARIETY-3: the Haredi woman (human_haredi_female_*) always wears a modest outfit from a restricted muted
+// palette: a navy, black, dark grey or deep burgundy top over a black or charcoal skirt (never the base avatar's own
+// light blouse and denim, never a curated, near-future or detail look). The Haredi men are fixed outfits (no zones).
+constexpr Garment kModestTops[] = {{40, 46, 72}, {32, 32, 36}, {66, 68, 72}, {92, 30, 40}};
+constexpr Garment kModestSkirts[] = {{30, 30, 34}, {58, 60, 64}};
+void ModestOutfit(uint32_t seed, Garment* top, Garment* bottom) {
+    const uint32_t h = Mix(seed);
+    *top = kModestTops[(h >> 3) % std::size(kModestTops)];
+    *bottom = kModestSkirts[(h >> 11) % std::size(kModestSkirts)];
+}
+
 // PEDS-VARIETY-3: garment detail. An avatar may have detail variants, models named <avatar>_dy (a darker yoke with
 // piping), _ds (two-tone sleeves, or a hoodie's darker cuffs) and _db (a narrow darker chest band): copies of its
 // mesh whose clothing maps carry the detail, still tinted by the outfit (tools/ped_identity/garment_detail.py).
@@ -176,8 +187,10 @@ void CrowdVariety(IdentityRecord* r) {
         // A civilian on an avatar with clothing zones: a curated outfit, or else the avatar's own colours (its
         // artist's; the remap's sprite colours put men in hot pink and olive on olive), shaded +-6% once.
         Garment top, bottom;
-        const bool dressed = CivilianOutfit(r->seed ^ kOutfitSalt, model.name.find("female") != std::string::npos,
-                                            model.name.find("business") != std::string::npos, JumpsuitAvatar(model.name), &top, &bottom);
+        const bool modest = model.name.compare(0, 19, "human_haredi_female") == 0;
+        if (modest) ModestOutfit(r->seed ^ kOutfitSalt, &top, &bottom);
+        const bool dressed = modest || CivilianOutfit(r->seed ^ kOutfitSalt, model.name.find("female") != std::string::npos,
+                                                      model.name.find("business") != std::string::npos, JumpsuitAvatar(model.name), &top, &bottom);
         const float s = 1.0f + (shade - 1.0f) * 0.5f;
         const float ref = (std::max)(8.0f, model.zoneRef);
         const uint8_t outfit[2][3] = {{top.r, top.g, top.b}, {bottom.r, bottom.g, bottom.b}};
@@ -193,7 +206,7 @@ void CrowdVariety(IdentityRecord* r) {
         r->zoneHair = false;
         r->tinted = false;
         r->clothes = dressed;
-        if (dressed && model.name.find("business") == std::string::npos) {   // formal wear stays plain
+        if (dressed && !modest && model.name.find("business") == std::string::npos) {   // formal and modest wear stay plain
             const Model* v[3]; int n = 0;
             for (const char* suf : kDetailSuffix)
                 if (const Model* m = ModelByName((model.name + suf).c_str())) v[n++] = m;

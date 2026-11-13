@@ -1415,7 +1415,8 @@ float Model::Loco::TimeAtDist(float d) const {
 }
 
 const ModelAnimation* Model::Animation(const char* name) const {
-    for (const ModelAnimation& a : animations) if (a.name == name) return &a;
+    const std::vector<ModelAnimation>& list = animOwner >= 0 && static_cast<size_t>(animOwner) < g_models.size() ? g_models[animOwner].animations : animations;
+    for (const ModelAnimation& a : list) if (a.name == name) return &a;
     return nullptr;
 }
 
@@ -1541,6 +1542,16 @@ void ModelsLoad(const char* folder) {
         if (!LoadModel(g_folder + "\\" + name + ".mesh", &model)) {
             Log("models: %s.mesh could not be read", name.c_str());
             continue;
+        }
+        {   // PEDS-VARIETY-3: a garment-detail variant plays its avatar's clips (its file carries none)
+            const std::string of = Field(entry, "detail_of");
+            const auto base = of.empty() ? g_byName.end() : g_byName.find(of);
+            if (base != g_byName.end()) {
+                model.animOwner = static_cast<int>(base->second);
+                std::vector<ModelAnimation>().swap(model.animations);
+                static int logged = 0;
+                if (logged++ < 3) Log("models: %s is a detail variant of %s (its clips, its own clothing maps)", name.c_str(), of.c_str());
+            }
         }
         ComputeBounds(&model);
         // VEHICLE-ART-2's authored bodies (surface-named textures: _glass, _chrome, ...) have their
@@ -2563,7 +2574,7 @@ std::map<std::string, const Model*> g_propMerged;   // role -> the merged copy (
 // 8 and a hydrant 2-3 instead of 20 (PERF-2: props were ~800 of ~1550 draw calls a frame).
 // Null when the model is skinned or animated, or merging would not save a draw.
 const Model* MergeStatic(const Model& model) {
-    if (model.skinned || !model.animations.empty()) return nullptr;
+    if (model.skinned || !model.animations.empty() || model.animOwner >= 0) return nullptr;
     std::vector<gta2::Mat4> worlds;
     ModelRestNodeWorlds(model, &worlds);
     Model merged;

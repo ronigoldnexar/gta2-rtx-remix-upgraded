@@ -224,9 +224,26 @@ def civilian_pools(remaps, have, hero):
         rng.shuffle(pool)
         pools[remap] = pool
     return pools
+# PEDS-VARIETY-3: Haredi men and women, a few in the street (their avatars: tools/ped_identity/haredi_men.py,
+# haredi_women.py; never tinted the men, a restricted muted palette the woman, identity.cpp ModestOutfit). Each takes
+# one man's (or woman's) place in HAREDI_POOLS pools picked by a fixed seed, so the 8/8 balance holds: about 1 in 40
+# civilians each for the men together and for the women (1 in 16 within a pool, the remaps' street frequency).
+HAREDI_MEN = ["human_haredi_male_01", "human_haredi_male_02"]
+HAREDI_WOMEN = ["human_haredi_female_01"]
+HAREDI_POOLS = 13
+def place_haredi(pools, have):
+    rng = random.Random(613)
+    remaps = sorted(pools)
+    for group, female in ((HAREDI_MEN, False), (HAREDI_WOMEN, True)):
+        group = [x for x in group if x in have]
+        if not group: continue
+        for i, r in enumerate(sorted(rng.sample(remaps, min(HAREDI_POOLS, len(remaps))))):
+            slots = [k for k, x in enumerate(pools[r]) if ("female" in x) == female and x not in CAPPED_POOLS and not x.startswith("human_haredi")]
+            pools[r][rng.choice(slots)] = group[i % len(group)]
+    return pools
 have = {e["name"] for e in m["models"]}
 civ_remaps = [r for r in range(53) if r not in typed]
-pools = civilian_pools(civ_remaps, have, names.get(HERO))
+pools = place_haredi(civilian_pools(civ_remaps, have, names.get(HERO)), have)
 for r in civ_remaps:
     types.append({"name": f"civilian_{r}", "remaps": [r], "models": pools[r], "tint": 1})
 civ = [x for x in CIV_WOMEN + CIV_MEN if x in have and x != names.get(HERO) and x not in CAPPED_POOLS]

@@ -41,7 +41,8 @@ for row, r in enumerate(remaps):
         n = pool_model(seed, t['models'], r)
         e = imported[n]
         rec = crowd(seed, r, n, e, sprite, civilian, models=imported)
-        n = rec.get('model', n)   # PEDS-VARIETY-3: a detail variant
+        base, n = n, rec.get('model', n)   # PEDS-VARIETY-3: a detail variant (posed with its avatar's clips)
+        af = M + base + '.mesh' if n != base else None
         counts[rec['kind']] = counts.get(rec['kind'], 0) + 1
         def tints(tex, node, rec=rec):
             if rec['zone'] is not None:
@@ -50,10 +51,10 @@ for row, r in enumerate(remaps):
             if rec['paint'] is not None and '_paint' in tex: return rec['paint']
             return None
         if a.pitch > 60:   # from above the figure fills little of a frame fitted to his height: render big, keep the middle
-            big = render.render(M + n + '.mesh', [(a.yaw, a.pitch)], tints=tints, size=(CW * 3, CH * 3))[0]
+            big = render.render(M + n + '.mesh', [(a.yaw, a.pitch)], tints=tints, size=(CW * 3, CH * 3), anim_from=af)[0]
             im = big.crop((CW, CH, 2 * CW, 2 * CH)).resize((CW, CH))
         else:
-            im = render.render(M + n + '.mesh', [(a.yaw, a.pitch)], tints=tints, size=(CW, CH))[0]
+            im = render.render(M + n + '.mesh', [(a.yaw, a.pitch)], tints=tints, size=(CW, CH), anim_from=af)[0]
         x, y = i * CW, row * (CH + 26)
         sheet.paste(im, (x, y))
         d.text((x + 2, y + CH + 1), n.replace('human_', '').replace('business_', 'biz_')[:18], fill=(250, 200, 120))

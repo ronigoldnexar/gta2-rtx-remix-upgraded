@@ -9,7 +9,8 @@ variants (suffix): yoke (_dy)   the shoulder yoke a darker tone of the shirt col
                    band (_db)   hoodies, tracksuits, zip jackets: a narrow chest band a darker tone, graphite piping
 A tone change stays in the paint half (greyscale x k: the outfit's colour, darker); a fixed neutral moves the texel to
 the rest half (never tinted). Each variant is <avatar><suffix>.mesh, a copy whose body and body_paint references
-name the variant's two maps; the head and hair maps stay the avatar's own (one texture in memory). With --manifest,
+name the variant's two maps and that carries no clips (the DLL plays the avatar's: Model::animOwner); the head and
+hair maps stay the avatar's own (one texture in memory). With --manifest,
 the variants' "models" and "imported" entries are added (copies of the avatar's, renamed). The DLL deals them
 (identity.cpp CrowdVariety: DetailPick). Positions come from the bind pose, measured per avatar."""
 import sys, os, json, struct, numpy as np
@@ -89,6 +90,24 @@ def detail(mesh, paint, rest, pos, zone, bone, variant):
         if variant == 'sleeve': fixed(ring, (226, 224, 216))
     return paint, rest
 
+def strip_clips(d):
+    """The GMSH bytes without the animation block (header count 0): a variant plays its avatar's clips."""
+    d = bytearray(d); o = 4
+    ver, nn, nm, na, ns = struct.unpack_from('<5I', d, o); o += 20
+    o += nn * 80
+    for _ in range(nm):
+        nv, ni = struct.unpack_from('<II', d, o); o += 8 + 64
+        skin, = struct.unpack_from('<i', d, o); o += 4
+        o += nv * 32 + (nv * 24 if skin >= 0 else 0) + ni * 4
+    a0 = o
+    for _ in range(na):
+        o += 32; nc, = struct.unpack_from('<I', d, o); o += 4
+        for _ in range(nc):
+            node, path, k = struct.unpack_from('<iII', d, o); o += 12
+            o += 4 * k + 4 * k * (4 if path == 1 else 3)
+    struct.pack_into('<I', d, 4 + 12, 0)
+    return bytes(d[:a0] + d[o:])
+
 def write_variant(M, out, name, variant, mesh_bytes, paint_tex, paint, rest):
     suf = SUFFIX[variant]; vname = name + suf
     rest_tex = paint_tex.replace('_paint', '')
@@ -99,7 +118,7 @@ def write_variant(M, out, name, variant, mesh_bytes, paint_tex, paint, rest):
         k = 0; hits = 0
         while (k := b.find(o, k)) >= 0: b[k:k + 64] = n; k += 64; hits += 1
         assert hits, (name, old)
-    open(os.path.join(out, vname + '.mesh'), 'wb').write(b)
+    open(os.path.join(out, vname + '.mesh'), 'wb').write(strip_clips(b))
     write_tga(paint.astype(np.uint8), os.path.join(out, new_paint)); write_tga(rest.astype(np.uint8), os.path.join(out, new_rest))
     return vname, new_rest, new_paint
 
