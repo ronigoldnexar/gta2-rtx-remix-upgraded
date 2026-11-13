@@ -169,13 +169,13 @@ def side_render(shell, view):
     return HR.render([shell], view, res=0.002)
 
 
-def fit_wheel(R, zc0, zsign, window=0.2, dthr=0.10):
+def fit_wheel(R, zc0, zsign, window=0.2, dthr=0.10, tyre_lum=0.16, tyre_sat=0.10):
     """the tyre circle near the axle hint zc0 (model z) on a side render: a dark, unsaturated disc on the outer face
     touching the road, with a lighter rim inside it and no dark tyre just outside it. -> (score, r, zc, outer depth)"""
     u0, u1, v0, v1 = R['extent']; res = R['res']; H, W = R['alpha'].shape
     alb = R['albedo']; L = lum(alb); S = sat(alb)
     near = R['alpha'] & (R['depth'] < dthr)
-    tyre = near & (L < 0.16) & (S < 0.10)
+    tyre = near & (L < tyre_lum) & (S < tyre_sat)   # specs "tyre_lum"/"tyre_sat" for a generator's brown tyres (016)
     U = u0 + (np.arange(W) + 0.5) * res; Vv = v1 - (np.arange(H) + 0.5) * res
     ground = v0 + 0.01
 
@@ -325,6 +325,7 @@ def paint_band(prof, paint_rgb):
     hue = lambda c: np.degrees(np.arctan2(math.sqrt(3) * (c[..., 1] - c[..., 2]), 2 * c[..., 0] - c[..., 1] - c[..., 2]))
     dh = np.abs((hue(prof) - hue(pr) + 180) % 360 - 180)
     m = (dh < 28) & (sat(prof) > 0.12) & (prof.max(-1) > 0.18)
+    m[int(0.74 * len(m)):] = False   # the tyre wall is never paint (016's brown tyres share the body's hue)
     if m.sum() < 3: return None
     idx = np.flatnonzero(m)
     # the longest run
@@ -369,12 +370,12 @@ def find_lamps(shell, view, kind, hw, height, prior_x=None):
     u0, u1, v0, v1 = R['extent']; res = R['res']; H, W = R['alpha'].shape
     alb = R['albedo']; L = lum(alb); S = sat(alb)
     dmin = np.min(R['depth'][R['alpha']])
-    front = R["alpha"] & (R["depth"] < dmin + 0.18)
+    front = R["alpha"] & (R["depth"] < dmin + 0.30)   # a truck's lamps sit in the fenders well behind its bumper
     U = u0 + (np.arange(W) + 0.5) * res; Vv = v1 - (np.arange(H) + 0.5) * res
     uu, vv = np.meshgrid(U, Vv)
     band = (vv > 0.06 * height) & (vv < 0.80 * height) & (np.abs(uu) > 0.12 * hw)
     if kind == 'head':
-        m = front & band & (L > 0.50) & (S < 0.32)
+        m = front & band & (L > 0.45) & (S < 0.45)   # sealed beams are often cream (007)
     else:
         r, g, b = alb[..., 0], alb[..., 1], alb[..., 2]
         m = front & band & (r > 0.28) & (r > 1.5 * g) & (r > 1.4 * b)
@@ -530,7 +531,9 @@ def build(m, spec, src, log):
         for ai, zh in enumerate(hints):
             fits = {}
             for side, R in renders.items():
-                fits[side] = fit_wheel(R, zh, 1 if side > 0 else -1, window=spec.get('axle_window', 0.2))
+                fits[side] = fit_wheel(R, zh, 1 if side > 0 else -1, window=spec.get('axle_window', max(0.2, 0.25 * L)),   # a bus's CARI axles sit far from its generated wheels
+                                      
+                                       tyre_lum=spec.get('tyre_lum', 0.16), tyre_sat=spec.get('tyre_sat', 0.10))
             r = float(np.mean([f[1] for f in fits.values()])); zc = float(np.mean([f[2] for f in fits.values()]))
             for side, R in renders.items():
                 sc, _, _, dep = fits[side]
@@ -763,9 +766,29 @@ def sign_panel(text, rgb, size=(256, 80)):
     return im
 
 
+def tex_lens(kind, size=128):
+    """a lamp lens seen face on: a hot core (the bulb behind clear glass), a prism lens of fine cells, a bright reflector
+    lip and a dark bezel at the rim; also the emission pattern under Remix (EMISSIVE)"""
+    yy, xx = np.mgrid[0:size, 0:size] / (size - 1.0) * 2 - 1
+    r = np.hypot(xx, yy)
+    cell = 0.16
+    grid = ((np.abs(((xx / cell) % 1.0) - 0.5) > 0.42) | (np.abs(((yy / cell) % 1.0) - 0.5) > 0.42)) & (r > 0.32) & (r < 0.84)
+    if kind == 'head':
+        core, lens, lip, rim = np.array([255, 248, 228.]), np.array([196, 198, 194.]), np.array([236, 236, 232.]), np.array([46, 46, 50.])
+    else:
+        core, lens, lip, rim = np.array([255, 92, 70.]), np.array([168, 22, 20.]), np.array([210, 50, 40.]), np.array([40, 10, 10.])
+    t = np.clip((r - 0.18) / 0.20, 0, 1)[..., None]
+    c = core * (1 - t) + lens * t
+    c = np.where(grid[..., None], c * 0.80, c)
+    c = np.where(((r > 0.84) & (r < 0.92))[..., None], lip, c)
+    c = np.where((r >= 0.92)[..., None], rim, c)
+    c += np.exp(-(((xx + 0.35) ** 2 + (yy + 0.40) ** 2) / 0.010))[..., None] * 50   # a glint
+    return Image.fromarray(np.clip(c, 0, 255).astype(np.uint8))
+
+
 def set_materials(kc, wheels, paint_rgb, livery):
-    kc.materials['lamp_head'] = K.tex_lamp('head')
-    kc.materials['lamp_tail'] = K.tex_lamp('tail')
+    kc.materials['lamp_head'] = tex_lens('head')
+    kc.materials['lamp_tail'] = tex_lens('tail')
     kc.materials['tyre_tread'] = K.tex_tread()
     kc.materials['tyre_side'] = K.tex_tyre_side()
     kc.materials['whitewall'] = K.tex_flat((228, 226, 218))
@@ -796,7 +819,10 @@ def write(kc, out_src, name, info, livery):
     return entry
 
 
-EMISSIVE = {'sign': [1.0, 0.88, 0.62]}   # lit by night and day (a taxi's roof sign); the lamps glow by the renderer's lights
+# Remix emission (tools/remix_model_pbr.py): factor, strength. The strength is the gain and the texture's own pattern is
+# the emission, so a lens shows a hot core, a dimmer prism lens and a dark rim (defect prxr1: flat white discs), at a
+# gain near 1 (the night exposure; [devtools] remix_day_emissive_percent dims every emitter by day).
+EMISSIVE = {'sign': ([1.0, 0.88, 0.62], 1.2), 'lamp_head': ([1.0, 0.94, 0.82], 1.0), 'lamp_tail': ([1.0, 0.30, 0.22], 1.3)}
 
 
 def write_glb(car_, path, order):
@@ -809,7 +835,12 @@ def write_glb(car_, path, order):
     b = open(path, 'rb').read()
     jl = struct.unpack('<I', b[12:16])[0]; js = json.loads(b[20:20 + jl]); rest = b[20 + jl:]
     for mt in js.get('materials', []):
-        if mt.get('name') in EMISSIVE: mt['emissiveFactor'] = EMISSIVE[mt['name']]
+        if mt.get('name') in EMISSIVE:
+            f, st = EMISSIVE[mt['name']]
+            mt['emissiveFactor'] = f
+            mt.setdefault('extensions', {})['KHR_materials_emissive_strength'] = {'emissiveStrength': st}
+            js.setdefault('extensionsUsed', [])
+            if 'KHR_materials_emissive_strength' not in js['extensionsUsed']: js['extensionsUsed'].append('KHR_materials_emissive_strength')
     j = json.dumps(js).encode()
     while len(j) % 4: j += b' '
     out = b'glTF' + struct.pack('<II', 2, 12 + 8 + len(j) + len(rest)) + struct.pack('<I', len(j)) + b'JSON' + j + rest
