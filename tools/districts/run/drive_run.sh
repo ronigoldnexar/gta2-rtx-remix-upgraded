@@ -13,7 +13,7 @@ if [ "${3:-}" = remix ]; then
 else
   STAGE=$G/stage_districts GTA2_DIRECT_KEYS=1 FPS=15 GTA2_GPU=0 INI_SED="s/^facade_kit=.*/facade_kit=$KIT/" \
   SETTINGS_SED='s/^Paused=.*/Paused=1/; s/^StartHour=.*/StartHour=12.5/; s/^ClearSky=.*/ClearSky=1/' \
-  gamerun/grun.sh $N 600 keys_districts_drive.sh -e SCENE_KEY=F11 -e "DK_ROUTE=$ROUTE" \
+  gamerun/grun.sh $N 600 keys_districts_drive.sh -e GTA2DX9_VA_WATCH=${VA_WATCH:-0} -e SCENE_KEY=F11 -e "DK_ROUTE=$ROUTE" \
     -v $G/stage_districts/gta2dx9_districts:/tmp/wp/drive_c/Games/GTA2/gta2dx9_districts:ro > $G/out/$N.nohup 2>&1
 fi
 echo "$(date +%T) $N done: FAULT $(grep -c FAULT out/$N/gta2dx9.log 2>/dev/null)"

@@ -222,3 +222,72 @@ Remix: the RTX PRO 6000 is shared with the weather agent, whose back-to-back run
 were killed by those reboots (the second after it had the Downtown day third, first and street frames, kept). The
 remaining Remix captures ran on Tokyo's L4 through `gamerun/remix_l4.sh` (the documented L4 path-tracing route) with
 the no-parallax layer copy.
+
+## 9. Round 3 (13 Nov): review fixes, Qwen complete, streaming pilot (Zarelli)
+
+Fixes from the round-2 review:
+
+1. **Roof parts only on real roofs + a QA hard check.** The floating Industrial stack stood on a sloped roof block
+   (slope types 19/20) of a column that starts at level 4 over nothing. Stacks, vents, water towers and roof teeth
+   now need `roof_host`: the cell's top block at the base height minus one, flat (slope 0), lidded, with a block
+   under it. kit.py writes every roof part's host cell to `<kit>.anchors.json`; qa.py flags any part whose cell is not
+   such a roof ("N roof parts not on a roof"). Verified: 0 in the POC streets and the whole of Industrial; the round-2
+   stack position injected into the anchors is flagged.
+2. **Awnings by archetype.** Industrial archetypes get no fabric: a plain steel hood over a shop-window-like opening
+   (a third have none), loading canopies and docks as before. Fabric only on shop windows of commercial and
+   residential archetypes, varied per shop by hash: a fifth have none; the rest striped or solid canvas (6 new solid
+   canvas materials), sloped (two drops) or a flat box canopy; the colour from a three-colour palette per district,
+   the entry nearest the art's own colour.
+3. **Sills**: half the round-2 depth on small windows (proud 0.15 x window width, 0.012-0.045), thinner, with a
+   bevelled top (the front edge lower), so they read as stone, not shelves.
+4. **Qwen results committed** (`tools/districts/qwen/{wil,ste,bil}.json`): 1 053 generic buildings asked, 940 answered
+   with confidence >= 0.6, in 34 min of model time on one L4 (3.3 s a building). The answers lean heavily to
+   "brick_tenement" (597 of 940): a label bias to look at before trusting the class for anything beyond the kit's
+   masonry rules.
+
+Remaining QA class (not fixed, flagged): sub-centimetre coplanar sides of drips, cheek walls and the industrial
+coping against piers and ribs.
+
+### Streaming pilot: Zarelli (Downtown local-nav m31, 121 kitted buildings)
+
+- `kit.py --district local_nav:m31` (LOD0) and `--coarse` (LOD1: skin without openings, two-course cornice, roof
+  silhouettes) -> `pack_kit.py` -> `wil.kit2`: 91 chunk entries (16 x 16 cells, two levels), LOD0 301k triangles,
+  LOD1 28k, 15.5 MB with 14-byte packed vertices (int16 position, int8 normal, half uv) against 32-byte floats.
+  `make stage DISTRICTS_STREAM=wil:local_nav:m31` builds it; the renderer prefers `<style>.kit2` to `<style>.kit`.
+- Runtime (`src/kit_stream.*`): only the chunk table is in memory; a chunk's bytes are read from the file when it
+  comes into range and unpacked into a fixed set of 2 MB vertex pages made at level load (first fit; no index
+  buffers). LOD0 within 24 blocks of a chunk's box, LOD1 within 56, nothing beyond, 2 blocks of hysteresis, at most
+  3 chunks unpacked per 0.2 s, each new chunk or level fading in over 0.4 s while the one it replaces fades out.
+- What the memory work found (GTA2DX9_VA_WATCH, MEM-FRAG's watcher):
+  - a VB + IB per chunk, made and freed while driving, fragmented the address space (largest free 553 MB, dkd_on2);
+  - holding the 15 MB packed file as one block cut the 2 GB free block to 1333 MB at level load (dkd_on5);
+  - one 15 MB pool was placed in the middle of it (2047 -> 1543 MB at load, dkd_on6);
+  - the kit-off baseline over the same drive also falls to 604 MB (dkd_off3): something outside the kit splits the
+    block while driving across the city (a 0.75 MB private block at d1120000 in the watch log).
+  - with the table-only reader and 2 MB pages the kit's own load-time block is gone; the 15.8 MB load-time blocks the
+    watcher still shows appear in the kit-off baseline too (dkd_off4: three of them), so they are not the kit's.
+- **Measured** (plain renderer, Tokyo L4, the same two-lap Zarelli route in a car, chase view, 12:30):
+
+  | run | kit | drive | world draw avg / worst | busy avg / worst window | resident (mean / max) | largest free block (min) | commit max |
+  |---|---|---|---|---|---|---|---|
+  | dkd_on8 | streamed | 6.6 min | 2.21 / 16.8 ms | 16.6 / 24.4 ms | 25 chunks, 92k tris / 35, 138k tris, 13.0 MB of pages | 792 MB | 1231 MB |
+  | dkd_off4 | off | 6.6 min | 1.79 / 23.2 ms | 14.4 / 21.3 ms | - | 1421 MB | 1260 MB |
+  | dkd_off3 | off | 5.7 min | 2.38 / 34.9 ms | 21.8 / 33.0 ms | - | 604 MB | 1205 MB |
+  | dkd_on5 / on6 | streamed (earlier builds) | 7.6 / 3.3 min | 2.83 / 2.30 ms | 22.5 / 18.8 ms | max 139k / 134k tris | 789 / 792 MB | 1299 / 1219 MB |
+
+  The kit adds about 0.4 ms of world draw at ~90k resident triangles; frame time is inside the run-to-run spread
+  (busy 14.4-21.8 ms without it). The largest free block stays well above the agreed 320 MB gate in every kit run
+  (min 789-792 MB); the kit-off baseline itself ranges 604-1421 MB over the same route, so the earlier 1.2 GB target
+  is not met by the game without the kit either. 0 FAULT in every run.
+- **Videos** (H.264 1280x720 15 fps, faststart, ffprobe-checked; on Tokyo, not in git, game art):
+  `deliverables/districts/zarelli_drive_plain_kit_on.mp4` (437 s), `..._plain_kit_off.mp4` (450 s),
+  `..._remix_L4_kit_on.mp4` (901 s, RTX Remix on the L4 through `remix_l4.sh`, the no-parallax layer copy).
+- Streaming leaves the plain renderer's sun shadows out for the streamed kit (the shadow pass reads the static world
+  copy); the static per-street kit keeps its dithered shadows. Folding the resident chunks into the shadow pass is the
+  next step if the streamed path is kept.
+
+### Next (approved, not started): (3)
+
+QA flags under 10 % through the five rule classes, per-district style tables (prop mix, awning and kit palette,
+fog/grade, Remix overrides) keyed by the district map, three districts side by side; rebase onto camera-modes when
+the lighting branch lands.

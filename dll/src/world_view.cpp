@@ -4184,8 +4184,8 @@ void WorldView::RenderFrame() {
                 static uint32_t kitLogFrame = 0;
                 if ((++kitLogFrame % 60u) == 0) {
                     const gta2::KitStreamStats s = renderer_.KitStreamStatus();
-                    Log("districts stream: resident %d chunks (LOD0 %d, LOD1 %d, fading %d), %d triangles, %u KB buffers; created %d, released %d",
-                        s.resident, s.lod0, s.lod1, s.fading, s.triangles, static_cast<unsigned>(s.gpuBytes / 1024), s.created, s.released);
+                    Log("districts stream: resident %d chunks (LOD0 %d, LOD1 %d, fading %d), %d triangles, %u KB of the vertex pool; created %d, released %d, refused (pool full) %d",
+                        s.resident, s.lod0, s.lod1, s.fading, s.triangles, static_cast<unsigned>(s.gpuBytes / 1024), s.created, s.released, s.refused);
                     if ((kitLogFrame % 300u) == 0) MemStatsLog("districts stream", 1);
                 }
             }

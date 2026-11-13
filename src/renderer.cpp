@@ -1805,8 +1805,7 @@ void Renderer::DrawKitStream(const Camera& camera) {
     device_->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
     device_->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
     device_->SetFVF(kWorldFvf);
-    if (!kitStream_.Pool()) { device_->SetStreamSource(0, vertexBuffer_, 0, sizeof(Vertex)); return; }
-    device_->SetStreamSource(0, kitStream_.Pool(), 0, sizeof(Vertex));
+    int boundPage = -1;
     for (const KitStream::Resident& r : kitStream_.Residents()) {
         const float a = r.alpha * kitAlpha_;
         if (a <= 0.02f) continue;
@@ -1832,6 +1831,7 @@ void Renderer::DrawKitStream(const Camera& camera) {
             const DWORD addr = (g.flags & 4) ? D3DTADDRESS_WRAP : D3DTADDRESS_CLAMP;
             device_->SetSamplerState(0, D3DSAMP_ADDRESSU, addr);
             device_->SetSamplerState(0, D3DSAMP_ADDRESSV, addr);
+            if (g.page != boundPage) { device_->SetStreamSource(0, kitStream_.Page(g.page), 0, sizeof(Vertex)); boundPage = g.page; }
             device_->DrawPrimitive(D3DPT_TRIANGLELIST, g.vstart, g.vcount / 3);
         }
     }
