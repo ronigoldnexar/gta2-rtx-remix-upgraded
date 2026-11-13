@@ -46,6 +46,7 @@ struct Settings {
     int drops = 1600;
     bool wetRoads = true;
     bool remixStreaks = false;
+    int remixRain = 2;
     float reflection = 1.0f;
     int wetPercent = -1;
 };
@@ -102,6 +103,7 @@ void ReadSettings() {
     s.drops = ReadInt("rain_drops", 1600);
     s.wetRoads = ReadInt("wet_roads", 1) != 0;
     s.remixStreaks = ReadInt("remix_streaks", 0) != 0;
+    s.remixRain = ReadInt("remix_rain", 2);
     s.reflection = ReadInt("reflection_percent", 100) / 100.0f;
     s.wetPercent = ReadInt("wet_percent", -1);
     if (!g_haveSet || memcmp(&s, &g_set, sizeof s) != 0) {
@@ -144,11 +146,13 @@ void Step(double dt) {
     w.active = g_set.enabled;
     w.streaks = g_set.streaks;
     w.wetRoads = g_set.wetRoads;
-    w.remixStreaks = g_set.remixStreaks;
+    w.remixStreaks = g_set.remixStreaks || g_set.remixRain == 1;
+    w.remixRainApi = g_set.remixRain == 2 && !g_set.remixStreaks;
     w.drops = g_set.drops;
     w.reflection = g_set.reflection;
     if (!g_set.enabled) {
         w.rain = w.cloud = w.fog = w.wind = w.wet = 0.0f;
+        TimeOfDaySetOvercast(0.0f);
         return;
     }
     float rain = g_set.rain, cloud = g_set.cloud, fog = g_set.fog, wind = g_set.wind;
@@ -173,6 +177,8 @@ void Step(double dt) {
     w.cloud += (cloud - w.cloud) * k;
     w.fog += (fog - w.fog) * k;
     w.wind += (wind - w.wind) * k;
+    // WEATHER-V2: rain above a drizzle closes the sky (the cloud setting can close it alone).
+    TimeOfDaySetOvercast((std::max)(w.cloud, (std::min)(1.0f, (w.rain - 0.1f) * 1.6f)));
     // The wind turns slowly.
     const float a = static_cast<float>(0.7 + 0.5 * std::sin(g_clock * 0.013));
     w.windDir[0] = std::cos(a);

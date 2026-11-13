@@ -35,7 +35,8 @@ struct WeatherState {
     float reflection = 1.0f;           // wet-road reflection strength
     bool streaks = true;
     bool wetRoads = true;
-    bool remixStreaks = false;         // WEATHER-V2 probe: draw the streaks on a Remix device too
+    bool remixStreaks = false;         // WEATHER-V2: the D3D9 streaks on a Remix device ([weather] remix_rain=1)
+    bool remixRainApi = false;         // WEATHER-V2: Remix API water drops ([weather] remix_rain=2, the default)
     int drops = 1600;                  // streaks at full rain
     double seconds = 0.0;
 };
