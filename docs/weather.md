@@ -92,6 +92,12 @@ not run there).
 | `fade_seconds` | 20 | easing into a new setting (0: at once) |
 | `rain_streaks`, `rain_drops` | 1, 1600 | the streaks and their count at full rain |
 | `wet_roads`, `reflection_percent`, `wet_percent` | 1, 100, -1 | the wet-road pass; forced wetness (developer) |
+| `spell` | (empty) | WEATHER-V2: force one spell of the cycle (`clear`, `cloudy`, `drizzle`, `rain`, `storm`, `fog`); eased in by `fade_seconds` |
+| `lightning_every` | 0 | WEATHER-V2: seconds between strikes while it storms (0: at random, 5-20 s divided by the storm) |
+| `remix_screen_rain` | 1 | WEATHER-V2: near-field rain streaks in the UI layer under Remix (they survive Ray Reconstruction) |
+| `remix_rain` | 2 | WEATHER-V2: 2 Remix API drop geometry, 1 the D3D9 streaks, 0 none |
+| `remix_fog_proxy` | 0 | WEATHER-V2: fog slabs under Remix (1 lit, 2 emissive); see phase 2 below |
+| `remix_lightning_percent` | 100 | WEATHER-V2: the Remix lightning light's strength |
 
 Logs: `weather:` lines on every settings change, a status line every 30 s (clock, sun elevation,
 rain / cloud / fog / wind / wetness), `weather: wet-road pass ready` when its target is made.
@@ -259,3 +265,20 @@ Open, in order: emissive proxies under RR (backlit streaks near lights, headligh
 puddle ripples; plain night streaks; plain puddle parity; rain-under-cover test; gate-1 matrix retake (with the
 step); phase 2 (cycle, fog, storm, transitions video); phase 3 (perf both renderers, vreg same base, soak, 5090
 rtx.conf keys).
+
+## WEATHER-V2 phase 2: cycle, transitions, storm (13 Nov 2026)
+
+- The cycle steps only to a neighbour: clear - cloudy - drizzle - rain - storm, and fog off the cloudy and clear
+  skies (`kNext` in `dll/src/weather.cpp`); spells last `cycle_minutes` x 0.6-1.4. `spell=` forces one.
+- Rain, cloud, fog and wind follow their targets critically damped (no step at the start of a change, no crawl at
+  the end), ~95% after `fade_seconds`. Rain above a drizzle still closes the sky; Remix gets it only through
+  `TimeOfDaySetOvercast` (the lighting side composes the keys).
+- Storm = heavy rain (> 0.8) in a strong wind (> 0.55). Lightning: a strike is 2-4 pulses over ~0.5 s from one
+  azimuth (`w.flash`, `w.flashDir`). Plain: ambient, fog colour and the sky deck lifted by the flash. Remix: one
+  distant light (hash 0x4C49474854000001, 70 deg wide so the rain drops cast no line shadows, radiance 3.5 x flash);
+  it reads under Ray Reconstruction (fx1: night luma +40..78 per pulse at radiance 6, then cut to 3.5).
+- Transitions video: `gamerun/wx_cycle.py` (one pose, wil 167.5,127.5 on the pavement; clear - cloudy - drizzle -
+  rain - storm - rain - cloudy - fog - clear, 16 s each, fade 10 s), cut at the `cycle_start` / `cycle_end` marks,
+  H.264 with `+faststart`.
+- Gate-1 pose moved to the pavement (167.5,127.5): in the lane at 169.6 traffic killed the player and the game
+  respawned him in a courtyard (wil 219,70) mid-matrix.

@@ -235,7 +235,8 @@ remixapi_MeshHandle ChunkMesh(const gta2::Map& map, int chunkX, int chunkZ, int 
 }
 
 void Draw(remixapi_MeshHandle mesh, uint32_t categories, bool blend, int alphaArg1, int alphaArg2, int alphaOp, int alpha,
-          const float (*xf)[4] = nullptr) {   // xf: a 3x4 world transform (rows), null = identity
+          const float (*xf)[4] = nullptr, int tfRgb = -1) {   // xf: a 3x4 world transform (rows), null = identity;
+          // tfRgb >= 0: the colour too comes from the texture factor (0xRRGGBB), as the alpha does
     // The instance state of the probe board's cubes that render (p1a): colour = texture modulate,
     // blend factors ONE/ZERO unless blending, alpha test on (ref 1) when not blending.
     remixapi_InstanceInfo instance = {};
@@ -262,6 +263,11 @@ void Draw(remixapi_MeshHandle mesh, uint32_t categories, bool blend, int alphaAr
     b.textureAlphaArg2Source = static_cast<uint32_t>(alphaArg2);
     b.textureAlphaOperation = static_cast<uint32_t>(alphaOp);
     b.tFactor = (static_cast<uint32_t>(alpha) << 24) | 0x00FFFFFFu;
+    if (tfRgb >= 0) {   // fx2: the film's state drew the fog slabs black (texture x diffuse with no texture)
+        b.textureColorArg1Source = 3;   // the texture factor, selected like the alpha
+        b.textureColorOperation = 1;
+        b.tFactor = (static_cast<uint32_t>(alpha) << 24) | (static_cast<uint32_t>(tfRgb) & 0x00FFFFFFu);
+    }
     b.isTextureFactorBlend = g_set.tfBlend ? 1 : 0;
     b.isVertexColorBakedLighting = 0;
     instance.pNext = &b;
@@ -1063,6 +1069,9 @@ void DrawFogProxy(float ex, float ey, float ez, float viewMix, const float fwd[3
     if (!mat) return;
     remixapi_MeshHandle quad = FogQuad(mat);
     if (!quad) return;
+    // The fog's colour: a pale grey-blue by day, a dark blue-grey at night (the slab's albedo, or its colour under emission).
+    auto mix = [&](float d, float n) { return static_cast<int>(255.0f * (n + (d - n) * day) + 0.5f); };
+    const int fogRgb = (mix(0.74f, 0.05f) << 16) | (mix(0.76f, 0.055f) << 8) | mix(0.80f, 0.07f);
     float prev = 0.0f;
     for (int k = 0; k < kFogSlabs; ++k) {
         const float d = 1.5f * std::pow(1.36f, static_cast<float>(k));
@@ -1078,7 +1087,7 @@ void DrawFogProxy(float ex, float ey, float ez, float viewMix, const float fwd[3
         // The wet film's blend state (alpha from the texture factor alone), which renders under RR; DrawXf's
         // texture x factor alpha left the untextured slabs at 0 (fx1: no fog in any mode).
         const float xf[3][4] = {{ax[0], ay[0], az[0], o[0]}, {ax[1], ay[1], az[1], o[1]}, {ax[2], ay[2], az[2], o[2]}};
-        Draw(quad, 0, true, 3, 0, 1, a255, xf);
+        Draw(quad, 0, true, 3, 0, 1, a255, xf, fogRgb);
     }
 }
 
