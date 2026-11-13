@@ -221,3 +221,14 @@ keys itself:
 
 Keys the weather code does push (not shared): rtx.weather.precipitation.* stays at intensity 0 (our own drops
 are drawn instead; the runtime's particles were not seen on this setup), and nothing else.
+
+## WEATHER-V2: Ray Reconstruction hides rain and volumetric fog (13 Nov 2026, gta2-rtx6000 runs vf1-vf3)
+
+On the RTX PRO 6000 (Wine 10, Remix Plus 1.5.1, DLSS 310.6), with DLSS Ray Reconstruction ON the Remix-API rain
+drops (thin water quads) and the volumetric fog (rtx.volumetrics.transmittanceMeasurementDistanceMeters, and the
+runtime's own foggy preset) do not appear at all, day or night. With RR OFF both render: backlit rain streaks in the
+head lamps, haze round lamps and lamp cones (vf3 norr_taau2, foggy2; vf1 taau2, dense2), and they stay visible with
+DLSS super resolution back on (vf3 back_dlss2). Turning RR off live takes effect only after a renderer reset (the
+next upscaler change: vf2 RR on + TAA-U shows nothing; vf3 RR off then TAA-U shows them), so set it at launch.
+The frames with RR off are also much darker and noisier at night (the denoiser change, not the weather) - a LIGHTING
+question. Not yet checked on the Windows 5090 (native NVAPI): re-test there.
