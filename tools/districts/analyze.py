@@ -276,8 +276,15 @@ def main():
              "wall_rgb": [round(float(c), 3) for c in rgb]}
         arche = classify(f, lvl)
         q = qwen.get(str(b["id"]))
-        if arche == "block" and q and q["confidence"] >= 0.6 and q["archetype"] != "block":
-            arche = q["archetype"]; f["source"] = "qwen"; f["qwen_confidence"] = q["confidence"]
+        # a building label only where the art has a window or a loading door somewhere: the round-4 by-eye check
+        # (scratchpad districts/r4_qwen_v2_spotcheck_30) found the windowless elevations (rock walls, girders,
+        # bridge decks) labelled as buildings even when both runs agreed
+        has_openings = f["window_tiles"] > 0 or f["loading_doors"] > 0
+        if arche == "block" and q and q["confidence"] >= 0.6 and q["archetype"] != "block" and \
+                (has_openings or q["archetype"] == "wall_or_structure"):
+            # v2's "not a building" (a wall, fence, hedge, bridge, girder) is the catalogue's "structure": no kit
+            arche = "structure" if q["archetype"] == "wall_or_structure" else q["archetype"]
+            f["source"] = "qwen"; f["qwen_confidence"] = q["confidence"]
         out_b.append({"id": b["id"], "archetype": arche, "evidence": f})
     json.dump({"level": lvl, "tiles": {str(k): v for k, v in tiles.items()}, "buildings": out_b},
               open(os.path.join(work, f"{lvl}_analysis.json"), "w"))

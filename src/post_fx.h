@@ -134,6 +134,10 @@ public:
     // the classic view). The kit's casters sample an 8x8 ordered-dither cell of the alpha atlas against 1 - this,
     // so the shadow fills in as the kit fades in instead of appearing in one frame.
     void SetKitShadow(float a) { kitShadow_ = a < 0.0f ? 0.0f : (a > 1.0f ? 1.0f : a); }
+    // DISTRICTS streaming: the streamed kit's resident chunks as shadow casters (renderer vertices in the stream's
+    // pages), set once a frame by the renderer; dithered against kitShadow_ times each chunk's own fade.
+    struct StreamCaster { IDirect3DVertexBuffer9* vb; UINT start, count; float lo[3], hi[3]; float alpha; };
+    void SetStreamCasters(const std::vector<StreamCaster>* casters) { streamCasters_ = casters; }
 
     bool Available() const { return device_ && !remix_ && ok_; }
     // Switches the frame to the post's targets; false leaves everything as it was.
@@ -283,6 +287,8 @@ private:
     UINT worldIndexCount_ = 0;
     std::vector<Chunk> chunks_;          // three sets: solid, cutout, facade kit (DISTRICTS)
     float kitShadow_ = 1.0f;             // see SetKitShadow
+    const std::vector<StreamCaster>* streamCasters_ = nullptr;   // see SetStreamCasters
+    IDirect3DTexture9* ditherTex_ = nullptr;   // 8 x 8 Bayer alpha, wrapped over the streamed casters' own uv
     int ditherCell_ = -1;
     int chunksX_ = 0, chunksZ_ = 0;
 

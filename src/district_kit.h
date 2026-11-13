@@ -21,7 +21,7 @@
 
 namespace gta2 {
 
-constexpr int kKitMaterials = 16;
+constexpr int kKitMaterials = 32;   // kit.py KIT (22 used); a group past it is skipped, so keep headroom
 inline int KitTileIndex(const Style& style, int k) { return style.TileCount() + 2 + k; }
 inline bool IsKitTile(const Style& style, int tile) { return tile >= style.TileCount() + 2 && tile < style.TileCount() + 2 + kKitMaterials; }
 

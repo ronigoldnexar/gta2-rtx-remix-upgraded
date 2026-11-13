@@ -44,6 +44,8 @@ public:
     bool Loaded() const { return !entries_.empty(); }
     void Update(IDirect3DDevice9* device, float eyeX, float eyeZ, double now);
     const std::vector<Resident>& Residents() const { return res_; }
+    // an entry's box (lo x y z, hi x y z), for the shadow pass's cascade test
+    const float* Bounds(int entry) const { return entry >= 0 && entry < static_cast<int>(entries_.size()) ? entries_[static_cast<size_t>(entry)].bb : nullptr; }
     // The vertices of every resident chunk live in a fixed set of 2 MB pages made once at level load and sub-allocated
     // first fit (a group never spans pages). A buffer per chunk, made and freed as the eye moves, fragmented the
     // address space (pilot run dkd_on2); one 15 MB pool was placed by the heap in the middle of the 2 GB free block and

@@ -7,6 +7,7 @@
 #include "boarding.h"
 #include "cab_interior.h"   // FIX-COCKPIT-BODY: his body at the wheel in first person
 #include "cockpit_mode.h"
+#include "district_style.h"   // DISTRICTS: prop multipliers per district
 
 #include <algorithm>
 #include <cmath>
@@ -5524,7 +5525,7 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
             // ("Field" alone is no guide: GTA2 uses that lid type for roofs,
             // plazas and bare ground as much as for grass.)
             if (anyTree && IsGrassTile(top.lid.Tile())) ++g_treeStatGrass;
-            if (anyTree && IsGrassTile(top.lid.Tile()) && (h % 4) == 0) {
+            if (anyTree && IsGrassTile(top.lid.Tile()) && districts::Keep(cx, mapY, districts::kTrees, h, (h % 4) == 0, 0.25f)) {
                 bool lawn = true;
                 for (int k = 0; k < 4 && lawn; ++k) {
                     const int nx = cx + (k == 0) - (k == 1), nz = cz + (k == 2) - (k == 3);
@@ -5588,7 +5589,7 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
                         placed.push_back({signOneWay, px + roadDx * 0.38f, floor, pz + roadDz * 0.38f, faceRoad, 1.0f, d2});
                         continue;
                     }
-                    if (meter && (h % 11) == 0) {
+                    if (meter && districts::Keep(cx, mapY, districts::kMeters, h, (h % 11) == 0, 1.0f / 11.0f)) {
                         float floor = static_cast<float>(topLevel);
                         ground_->SurfaceAt(px + roadDx * 0.36f, pz + roadDz * 0.36f, topLevel + 0.5f, &floor);
                         placed.push_back({meter, px + roadDx * 0.36f, floor, pz + roadDz * 0.36f, faceRoad, 1.0f, d2});
@@ -5633,7 +5634,7 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
                             continue;
                         }
                     }
-                    if ((h % 5) == 0) {
+                    if (districts::Keep(cx, mapY, districts::kContainers, h, (h % 5) == 0, 0.2f)) {
                         const Model* box = containers[(h >> 3) & 3];
                         if (!box) box = containers[0];
                         float floor = static_cast<float>(topLevel);
@@ -5654,7 +5655,10 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
                     if (nc.offset + static_cast<int>(nc.blocks.size()) > topLevel) { wallDx = nx - cx; wallDz = nz - cz; }
                 }
                 if (!wallDx && !wallDz) continue;
-                const uint32_t pick = h % 23;
+                uint32_t pick = h % 23;
+                // DISTRICTS: more or fewer of them by district (the default keeps exactly the rule's cells)
+                if (!districts::Keep(cx, mapY, districts::kFurniture, h, pick < 4, 4.0f / 23.0f)) continue;
+                if (pick >= 4) pick = (h >> 11) % 4;
                 // At the figures' scale (FIX-PROPS-3: an adult is 0.46 block, a metre about 0.263):
                 // a 95 cm litter bin, a bench 90 cm to the top of its back (the scan's own 1.2 m
                 // length then), an 80 cm hydrant. (They were sized at 2 m a block: a 1.75 m bin,
@@ -5727,7 +5731,10 @@ void LiveGeometry::DrawProps(IDirect3DDevice9* device, const gta2::Vec3& eye) {
         for (int cz = rz0; cz <= rz1; ++cz) {
             for (int cx = rx0; cx <= rx1; ++cx) {
                 const uint32_t h = (static_cast<uint32_t>(cx) * 2654435761u) ^ (static_cast<uint32_t>(cz) * 40503u);
-                const uint32_t pick = h % 211;
+                uint32_t pick = h % 211;
+                // DISTRICTS: roof plant by district (map y of this cell: kMapHeight - 1 - cz)
+                if (!districts::Keep(cx, gta2::kMapHeight - 1 - cz, districts::kRoofProps, h, pick < 20, 20.0f / 211.0f)) continue;
+                if (pick >= 20) pick = 1 + (h >> 9) % 19;
                 const Model* model = pick == 0 && waterTower ? waterTower : (pick < 12 && roofAc ? roofAc : (pick < 20 && roofVent ? roofVent : nullptr));
                 if (!model) continue;
                 int t, g, l;

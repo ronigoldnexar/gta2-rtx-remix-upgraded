@@ -5,23 +5,29 @@
 
 Per building (the kit file's geometry is attributed by footprint):
   footprint   largest distance (per axis) a kit vertex stands outside the footprint in plan (limit 0.26 block: the kit stands nothing beyond 0.25) and
-              whether anything goes below the street
+              whether anything goes below the building's lowest wall (its floor: the lowest face level; a building on a
+              slope has walls under the street level the catalogue gives it, and their trims are right there)
   zfight      kit polygons coplanar with a wall of the map at the wall plane (the skin and trim stand off it by
               construction; a hit is a kit bug) and pairs of kit triangles coplanar and overlapping (two
               parts sharing a face: the classic cornice-corner case)
-  texture     for every recess, how much the opening stands out from the wall round it in the tile art
-              (luminance contrast of the box against a 3-texel ring); a recess with no contrast is a false
-              window (a vent, a sign) and gets flagged
+  texture     for every opening the kit cuts (kit.cuttable: kind, confidence, size), how much it stands out from
+              the wall round it in the tile art (luminance contrast of the box against a 3-texel ring); a recess with
+              no contrast is a false window (a vent, a sign) and gets flagged. Since round 4 the generator refuses
+              those (kit.contrast), so this is a regression guard on that gate
   pop         height of kit geometry above the roof line (parapet, plant, chimney): the part a classic-view
               player never saw; anything over 0.25 block must fade (it does: TileBatch::kit), it is reported
               so the review can watch the move frames of those buildings
   budget      triangles; flagged over 20 000 for one building
+  hosts       every roof part stands on real flat roof (the map's top block flat, lidded, not a floating deck) and
+              every wall part (stoop, bay, balcony, shopfront, dock, fire escape, hood, pipe, duct) on a map wall
+              face that is there, flat (slope 0) and open (the cell in front of it is not built up at that level)
 A building is flagged when any check fails; the JSON lists the reasons."""
 import json, math, os, struct, sys
 from collections import defaultdict
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gmap
 from gmap import W, H
+from kit import cuttable, CONF
 
 
 def read_kit(path):
@@ -51,6 +57,11 @@ def main():
         for x, y in b["cells"]:
             owner[(x, y)] = b["id"]
     tris = read_kit(kitp)
+    floors = {}
+    def floor_of(b):
+        if b["id"] not in floors:
+            floors[b["id"]] = min([b["street"]] + [f["lo"] for f in b["faces"]])
+        return floors[b["id"]]
     per = defaultdict(lambda: {"tris": 0, "over": 0.0, "below": False, "above_roof": 0.0, "zfight_wall": 0, "planes": defaultdict(list)})
     m = gmap.Map(os.path.join(os.environ.get("GTA2_DATA", "/mnt/gta2/gta2-linux/game/data"), f"{lvl}.gmp"))
     for tile, bid, vs in tris:
@@ -66,7 +77,7 @@ def main():
                 d = min(max(max(c[0] - mx, 0, mx - c[0] - 1), max(c[1] - my, 0, my - c[1] - 1)) for c in cells
                         if abs(c[0] - mx) < 2 and abs(c[1] - my) < 2) if any(abs(c[0] - mx) < 2 and abs(c[1] - my) < 2 for c in cells) else 9.0
                 r["over"] = max(r["over"], d)
-            if v[1] < b["street"] - 0.01:
+            if v[1] < floor_of(b) - 0.01:
                 r["below"] = True
             r["above_roof"] = max(r["above_roof"], v[1] - b["roof"])
         n = (vs[0][3], vs[0][4], vs[0][5])
@@ -86,7 +97,8 @@ def main():
                 if blk and blk[gmap.SIDES[side][0]] & 0x3FF:
                     r["zfight_wall"] += 1
             key = (ax, 1 if n[ax] > 0 else -1, round(plane, 4))
-            r["planes"][key].append((tile, [(v[(ax + 1) % 3], v[(ax + 2) % 3]) for v in vs]))
+            if all(abs(v[ax] - plane) < 1e-4 for v in vs):   # in that plane (a tapered stack's facet is not)
+              r["planes"][key].append((tile, [(v[(ax + 1) % 3], v[(ax + 2) % 3]) for v in vs]))
         elif ax == 1:
             key = (1, 1 if n[1] > 0 else -1, round(vs[0][1], 4))
             if all(abs(v[1] - vs[0][1]) < 1e-4 for v in vs):
@@ -109,8 +121,11 @@ def main():
         holes, weak = 0, 0
         for f in b["faces"]:
             for l in f["levels"]:
+                feat = tiles.get(str(l["tile"]), {}).get("features") or {}
+                if not l["tile"] or l["slope"] != 0 or feat.get("alpha", 1.0) > 0.02:
+                    continue   # a face the kit leaves as it is (slope, lattice, railing): nothing is cut there
                 for o in tiles.get(str(l["tile"]), {}).get("openings", []):
-                    if o["kind"] == "sill":
+                    if cuttable(o) is None:
                         continue
                     L = tl(l["tile"])
                     if L is None:
@@ -140,6 +155,8 @@ def main():
                     ox = min(a_[2], b_[2]) - max(a_[0], b_[0]); oy = min(a_[3], b_[3]) - max(a_[1], b_[1])
                     if ox > 2e-3 and oy > 2e-3 and a_[4] != b_[4]:
                         zf_pairs += 1
+                        if os.environ.get("QA_DEBUG") and zf_pairs <= 2:
+                            print("coplanar", bid, key, [round(v, 3) for v in a_[:4]], a_[4], [round(v, 3) for v in b_[:4]], b_[4])
         reasons = []
         if r["over"] > 0.26: reasons.append(f"overhang {r['over']:.2f}")
         if r["below"]: reasons.append("below street")
@@ -153,7 +170,17 @@ def main():
     # the part's base height (the column's top block one under it, flat, lidded, not a floating deck)
     floating = defaultdict(list)
     ap = kitp + ".anchors.json"
-    for bid_, kind, x, y, base in (json.load(open(ap)) if os.path.exists(ap) else []):
+    for a_ in (json.load(open(ap)) if os.path.exists(ap) else []):
+        bid_, kind, x, y, base = a_[:5]
+        if len(a_) > 5:     # a wall part: the face it is fixed to
+            side = a_[5]
+            blk = m.block(x, y, base)
+            dx, dy = gmap.SIDES[side][3]
+            ok = bool(blk) and (blk[gmap.SIDES[side][0]] & 0x3FF) != 0 and (blk[6] >> 2) == 0 and \
+                not (0 <= x + dx < W and 0 <= y + dy < H and m.top(x + dx, y + dy)[0] > base)
+            if not ok:
+                floating[bid_].append(f"{kind}@{x},{y},{base}{side}")
+            continue
         off, idx = m.columns[y * W + x]
         top = base - 1 - off
         ok = 0 < top < len(idx) and idx[top] < len(m.blocks) and (m.blocks[idx[top]][6] >> 2) == 0 and (m.blocks[idx[top]][4] & 0x3FF) != 0 \
@@ -163,7 +190,7 @@ def main():
     for o in out:
         if floating.get(o["id"]):
             o["floating"] = floating[o["id"]]; o["flagged"] = True
-            o["reasons"].append(f"{len(floating[o['id']])} roof parts not on a roof (" + ", ".join(floating[o["id"]][:3]) + ")")
+            o["reasons"].append(f"{len(floating[o['id']])} parts off their host (" + ", ".join(floating[o["id"]][:3]) + ")")
     path = sys.argv[sys.argv.index("--out") + 1] if "--out" in sys.argv else os.path.join(work, f"{lvl}_qa.json")
     json.dump(out, open(path, "w"), indent=0)
     fl = [o for o in out if o["flagged"]]

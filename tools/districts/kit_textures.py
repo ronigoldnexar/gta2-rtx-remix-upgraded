@@ -74,6 +74,12 @@ def make(name, k):
         a[..., :3] = tint(col, 0, k, 0.06) * weave[..., None]
     elif name == "rubber":
         a[..., :3] = tint((28, 28, 30), 0, k, 0.08)
+    elif name == "shutter":
+        # a roller shutter: galvanised slats (a rib every 8 px: 16 a block at the kit's scale 2), streaks and grime
+        rib = 0.80 + 0.20 * np.sin((yy % 8) / 8.0 * 2 * np.pi) ** 2
+        a[..., :3] = tint((132, 138, 140), 0, k, 0.16) * rib[..., None]
+        a[..., :3] *= np.where((yy % 8) == 0, 0.62, 1.0)[..., None]
+        a[..., :3] *= (0.9 + 0.1 * noise(k + 7, 32)[..., None])
     elif name == "glass_dark":
         a[..., :3] = tint((30, 40, 52), 0, k, 0.06)
     return np.clip(a, 0, 1)

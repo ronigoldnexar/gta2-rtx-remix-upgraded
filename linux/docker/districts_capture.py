@@ -115,43 +115,48 @@ def pose_line(p, pose):
     return "cam " + " ".join(f"{v:.3f}" for v in (p["x"] + e[0], p["y"] + e[1], p["z"] + e[2], p["x"] + a[0], p["y"] + a[1], p["z"] + a[2])) + f" {pose.get('fov', 60)}"
 
 
-cam("off")
-D.start()
-s = D.wait_state(40)
-say("start:", T.words(s) if s else "no state")
-for p in POINTS:
-    for tod, hhmm in (("day", 1230), ("night", 2230)):
-        clock(tod)
-        T.warp(p["x"], p["y"], int(p["z"]), why=f"districts {p['name']}")
-        time.sleep(2.0)
-        Q.set_view("classic", settle=1.5)
-        kit(True)
-        grab(f"{p['name']}_{tod}_classic_on"); record(f"{p['name']}_{tod}_classic_on")
-        kit(False); grab(f"{p['name']}_{tod}_classic_off"); record(f"{p['name']}_{tod}_classic_off"); kit(True)
-        # the move from the classic view into third person, kit on: a burst through the 1.4 s move
-        move_in(f"{p['name']}_{tod}_move")
-        Q.set_view("third", settle=1.0)
-        face_building(p); time.sleep(1.5)
-        ab(f"{p['name']}_{tod}_third")
-        Q.set_view("first", settle=1.5)
-        ab(f"{p['name']}_{tod}_first")
-        Q.set_view("third", settle=1.5)
-        for pose in p["poses"]:
-            n0 = len(Q.log_text())
-            cam(pose_line(p, pose)); time.sleep(2.0)
-            ab(f"{p['name']}_{tod}_{pose['name']}")
-        if os.environ.get("DK_PERF") and tod == "day":
-            # frame-time A/B: the same pose held with the kit on, then off, twice (the frame log averages 256 frames)
-            pose = [q for q in p["poses"] if q["name"] == os.environ["DK_PERF"]][0]
-            cam(pose_line(p, pose)); time.sleep(2.0)
-            for rnd in range(2):
-                for on in (True, False):
-                    kit(on); T.mark(f"perf {'on' if on else 'off'} start"); time.sleep(20.0); T.mark(f"perf {'on' if on else 'off'} end")
-            kit(True)
-        cam("off"); time.sleep(0.5)
-        # back to classic: the move out, kit on (it must fade, not pop)
-        Q.set_view("first", settle=1.0)
-        burst(f"{p['name']}_{tod}_moveout", 5.0, 6); time.sleep(1.2); D.tap("v", 0.25); time.sleep(4.2)
-        Q.set_view("classic", settle=1.0)
-say("districts capture: done in", round(time.time() - T0), "s")
-open("/out/.dk_done", "w").write("ok\n")
+def main():
+  cam("off")
+  D.start()
+  s = D.wait_state(40)
+  say("start:", T.words(s) if s else "no state")
+  for p in POINTS:
+      for tod, hhmm in (("day", 1230), ("night", 2230)):
+          clock(tod)
+          T.warp(p["x"], p["y"], int(p["z"]), why=f"districts {p['name']}")
+          time.sleep(2.0)
+          Q.set_view("classic", settle=1.5)
+          kit(True)
+          grab(f"{p['name']}_{tod}_classic_on"); record(f"{p['name']}_{tod}_classic_on")
+          kit(False); grab(f"{p['name']}_{tod}_classic_off"); record(f"{p['name']}_{tod}_classic_off"); kit(True)
+          # the move from the classic view into third person, kit on: a burst through the 1.4 s move
+          move_in(f"{p['name']}_{tod}_move")
+          Q.set_view("third", settle=1.0)
+          face_building(p); time.sleep(1.5)
+          ab(f"{p['name']}_{tod}_third")
+          Q.set_view("first", settle=1.5)
+          ab(f"{p['name']}_{tod}_first")
+          Q.set_view("third", settle=1.5)
+          for pose in p["poses"]:
+              n0 = len(Q.log_text())
+              cam(pose_line(p, pose)); time.sleep(2.0)
+              ab(f"{p['name']}_{tod}_{pose['name']}")
+          if os.environ.get("DK_PERF") and tod == "day":
+              # frame-time A/B: the same pose held with the kit on, then off, twice (the frame log averages 256 frames)
+              pose = [q for q in p["poses"] if q["name"] == os.environ["DK_PERF"]][0]
+              cam(pose_line(p, pose)); time.sleep(2.0)
+              for rnd in range(2):
+                  for on in (True, False):
+                      kit(on); T.mark(f"perf {'on' if on else 'off'} start"); time.sleep(20.0); T.mark(f"perf {'on' if on else 'off'} end")
+              kit(True)
+          cam("off"); time.sleep(0.5)
+          # back to classic: the move out, kit on (it must fade, not pop)
+          Q.set_view("first", settle=1.0)
+          burst(f"{p['name']}_{tod}_moveout", 5.0, 6); time.sleep(1.2); D.tap("v", 0.25); time.sleep(4.2)
+          Q.set_view("classic", settle=1.0)
+  say("districts capture: done in", round(time.time() - T0), "s")
+  open("/out/.dk_done", "w").write("ok\n")
+
+
+if __name__ == "__main__":
+    main()

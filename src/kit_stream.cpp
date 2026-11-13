@@ -132,7 +132,14 @@ bool KitStream::Create(IDirect3DDevice9* device, int ei, Resident* r) {
         int page = -1;
         uint32_t base = 0;
         Vertex* vd = nullptr;
-        if (!Alloc(v, &page, &base)) { ++st_.refused; break; }
+        if (!Alloc(v, &page, &base)) {
+            // all or nothing: a chunk with some of its groups missing would stay resident with walls missing (the
+            // round-4 ste frames); give back what it took and let a later plan try again
+            ++st_.refused;
+            for (const Group& q : r->groups) Free(q.page, q.vstart, q.vcount);
+            r->groups.clear(); r->tris = 0; r->bytes = 0;
+            return false;
+        }
         if (FAILED(pages_[static_cast<size_t>(page)].vb->Lock(base * sizeof(Vertex), v * sizeof(Vertex), reinterpret_cast<void**>(&vd), 0))) {
             Free(page, base, v); break;
         }

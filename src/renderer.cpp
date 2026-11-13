@@ -1792,6 +1792,8 @@ void Renderer::DrawKitStream(const Camera& camera) {
     const double now = static_cast<double>(t.QuadPart - f0.QuadPart) / static_cast<double>(freq.QuadPart);
     const Vec3 eye = camera.Position();
     kitStream_.Update(device_, eye.x, eye.z, now);
+    kitCasters_.clear();
+    post_.SetStreamCasters(&kitCasters_);
     if (!streetView_ || !kitVisible_ || kitAlpha_ <= 0.02f) {
         device_->SetStreamSource(0, vertexBuffer_, 0, sizeof(Vertex));
         device_->SetIndices(indexBuffer_);
@@ -1807,6 +1809,12 @@ void Renderer::DrawKitStream(const Camera& camera) {
     device_->SetFVF(kWorldFvf);
     int boundPage = -1;
     for (const KitStream::Resident& r : kitStream_.Residents()) {
+        if (const float* bb = kitStream_.Bounds(r.entry)) {   // shadow casters: the solid groups (no grates)
+            for (const KitStream::Group& g : r.groups) {
+                if ((g.flags & 1) || !kitStream_.Page(g.page)) continue;
+                kitCasters_.push_back({kitStream_.Page(g.page), g.vstart, g.vcount, {bb[0], bb[1], bb[2]}, {bb[3], bb[4], bb[5]}, r.alpha});
+            }
+        }
         const float a = r.alpha * kitAlpha_;
         if (a <= 0.02f) continue;
         const bool blend = a < 0.999f;

@@ -1,7 +1,18 @@
 {
   "_comment": "Hand-editable district overrides for Downtown (wil). rects: [x, y, w, h] in map cells, applied after the map's zones; names: display names for zone keys the game's text does not name; styles: the style-table row (docs/districts-plan.md) a district uses.",
-  "names": {"gang:yakuzagang": "Yakuza turf", "gang:zaibatsugang": "Zaibatsu turf", "gang:looniegang": "Loonies turf"},
-  "styles": {"gang:yakuzagang": "downtown_neon", "gang:zaibatsugang": "downtown_corporate", "gang:looniegang": "downtown_loonie",
-             "local_nav:w03": "downtown_corporate", "local_nav:w01": "downtown_campus", "local_nav:m39": "downtown_neon"},
+  "names": {
+    "gang:yakuzagang": "Yakuza turf",
+    "gang:zaibatsugang": "Zaibatsu turf",
+    "gang:looniegang": "Loonies turf"
+  },
+  "styles": {
+    "gang:yakuzagang": "downtown_neon",
+    "gang:zaibatsugang": "downtown_corporate",
+    "gang:looniegang": "downtown_loonie",
+    "local_nav:w03": "downtown_corporate",
+    "local_nav:w01": "downtown_campus",
+    "local_nav:m39": "downtown_neon",
+    "local_nav:m31": "downtown_core"
+  },
   "rects": []
 }

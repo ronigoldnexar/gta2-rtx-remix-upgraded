@@ -345,6 +345,7 @@ private:
     float photoMix_ = 0.0f;
     float kitAlpha_ = 1.0f;             // see SetKitPresentation
     KitStream kitStream_;
+    std::vector<PostFx::StreamCaster> kitCasters_;   // the resident chunks as shadow casters (post_fx), refilled each frame
     void DrawKitStream(const Camera& camera);
     IDirect3DTexture9* KitMaterialTexture(const Style& style, int tile);
     bool kitVisible_ = true;

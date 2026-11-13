@@ -49,6 +49,7 @@
 #include "synthetic_lights.h"
 #include "texture_store.h"
 #include "time_of_day.h"
+#include "district_style.h"   // DISTRICTS: per-district grade, props, Remix options
 
 namespace gta2dx9 {
 namespace { const gta2::Map* g_coverMap = nullptr; }
@@ -1673,6 +1674,9 @@ bool WorldView::EnsureWorldLoaded() {
         // small overhangs do not push the street cameras) and after every other batch (classic unchanged).
         const std::string kitStreamPath = gta2::DistrictKitDir() + "\\" + leaf + ".kit2";
         kitStreamFile_ = gta2::DistrictKitEnabled() && GetFileAttributesA(kitStreamPath.c_str()) != INVALID_FILE_ATTRIBUTES ? kitStreamPath : std::string();
+        // DISTRICTS: the level's style table (<lvl>.dstyle: which district each cell is in, its grade, props, Remix options)
+        districts::ClearStyles();
+        if (gta2::DistrictKitEnabled()) districts::LoadStyles(gta2::DistrictKitDir() + "\\" + leaf + ".dstyle");
         if (gta2::DistrictKitEnabled() && kitStreamFile_.empty()) {
             const size_t vBefore = mesh.vertices.size(), iBefore = mesh.indices.size();
             gta2::DistrictKitStats ks;
@@ -3795,7 +3799,15 @@ void WorldView::DrawSkyAndShading() {
     }
     float elevation = sky.sunElevationDeg, azimuth = sky.sunAzimuthDeg;
     if (sky.followClock) TimeOfDayAngles(&elevation, &azimuth);
-    const gta2::SkyColours colours = gta2::ComputeSkyColours(elevation, azimuth);
+    gta2::SkyColours colours = gta2::ComputeSkyColours(elevation, azimuth);
+    {
+        // DISTRICTS: the district's grade on the fog (and the horizon it meets) and the ambient, eased in with the sky
+        const gta2::Vec3 fs = districts::FogScale(), as = districts::AmbientScale();
+        auto mix = [blend](float s) { return 1.0f + (s - 1.0f) * blend; };
+        colours.fog = gta2::Vec3{colours.fog.x * mix(fs.x), colours.fog.y * mix(fs.y), colours.fog.z * mix(fs.z)};
+        colours.horizon = gta2::Vec3{colours.horizon.x * mix(fs.x), colours.horizon.y * mix(fs.y), colours.horizon.z * mix(fs.z)};
+        colours.ambient = gta2::Vec3{colours.ambient.x * mix(as.x), colours.ambient.y * mix(as.y), colours.ambient.z * mix(as.z)};
+    }
 
     gta2::WorldShading shading;
     shading.fog = true;
@@ -4179,6 +4191,13 @@ void WorldView::RenderFrame() {
                 kitShow = v;
             }
             renderer_.SetKitPresentation(worldUploaded_ ? g_presentExtras : 0.0f, kitShow != 0);
+            if (districts::StylesLoaded()) {
+                LARGE_INTEGER dc, df;
+                QueryPerformanceCounter(&dc);
+                QueryPerformanceFrequency(&df);
+                const gta2::Vec3 eye = camera_.Position();
+                districts::Update(eye.x, eye.z, worldUploaded_ && g_presentExtras > 0.5f, static_cast<double>(dc.QuadPart) / static_cast<double>(df.QuadPart));
+            }
             if (renderer_.KitStreaming()) {
                 // resident chunks, triangles and buffer memory every 2 s; the address space every 10 s (DISTRICTS pilot)
                 static uint32_t kitLogFrame = 0;

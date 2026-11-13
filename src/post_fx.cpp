@@ -175,6 +175,7 @@ void PostFx::ReleaseWorld() {
     SafeRelease(cellVb_);
     SafeRelease(shadowIb_);
     SafeRelease(alphaAtlas_);
+    SafeRelease(ditherTex_);
     chunks_.clear();
     worldVertexCount_ = 0;
     worldIndexCount_ = 0;
@@ -362,6 +363,19 @@ void PostFx::BuildWorld(const WorldMesh& mesh, const Style& style, IDirect3DVert
                 }
             }
             alphaAtlas_->UnlockRect(0);
+        }
+    }
+    // DISTRICTS streaming: the same Bayer matrix as a texture of its own, wrapped over the streamed kit's uv
+    if (SUCCEEDED(device_->CreateTexture(8, 8, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &ditherTex_, nullptr))) {
+        static const int kB[8][8] = {{0, 32, 8, 40, 2, 34, 10, 42}, {48, 16, 56, 24, 50, 18, 58, 26}, {12, 44, 4, 36, 14, 46, 6, 38},
+                                     {60, 28, 52, 20, 62, 30, 54, 22}, {3, 35, 11, 43, 1, 33, 9, 41}, {51, 19, 59, 27, 49, 17, 57, 25},
+                                     {15, 47, 7, 39, 13, 45, 5, 37}, {63, 31, 55, 23, 61, 29, 53, 21}};
+        D3DLOCKED_RECT r;
+        if (SUCCEEDED(ditherTex_->LockRect(0, &r, nullptr, 0))) {
+            for (int y = 0; y < 8; ++y)
+                for (int x = 0; x < 8; ++x)
+                    reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(r.pBits) + y * r.Pitch)[x] = (static_cast<uint32_t>(kB[y][x] * 4 + 2) << 24) | 0x00FFFFFFu;
+            ditherTex_->UnlockRect(0);
         }
     }
     // The shadow copy of the vertices: position and the uv already moved into the alpha
@@ -901,6 +915,41 @@ void PostFx::RenderShadows(int cascades, const Vec3& sunDirIn) {
                         else flush();
                     }
                     flush();
+                }
+                // DISTRICTS streaming: the resident chunks of the streamed kit (their own vertex pages, renderer
+                // vertices), cut by the cascade's box like the world's chunks and dithered against the kit's fade
+                if (streamCasters_ && !streamCasters_->empty() && kitShadow_ > 0.02f && ditherTex_ && dbg != 12) {
+                    device_->SetFVF(D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_TEX1);
+                    device_->SetPixelShader(psShadowCutout_);
+                    device_->SetTexture(0, ditherTex_);
+                    device_->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_WRAP);
+                    device_->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_WRAP);
+                    IDirect3DVertexBuffer9* lastVb = nullptr;
+                    float lastA = -1.0f;
+                    for (const StreamCaster& c : *streamCasters_) {
+                        const float a = kitShadow_ * c.alpha;
+                        if (a <= 0.02f || !c.vb || c.count < 3) continue;
+                        float mn[3] = {1e9f, 1e9f, 1e9f}, mx[3] = {-1e9f, -1e9f, -1e9f};
+                        for (int i = 0; i < 8; ++i) {
+                            const Vec3 p = XformPoint(view, Vec3{(i & 1) ? c.hi[0] : c.lo[0], (i & 2) ? c.hi[1] : c.lo[1], (i & 4) ? c.hi[2] : c.lo[2]});
+                            mn[0] = std::min(mn[0], p.x); mn[1] = std::min(mn[1], p.y); mn[2] = std::min(mn[2], p.z);
+                            mx[0] = std::max(mx[0], p.x); mx[1] = std::max(mx[1], p.y); mx[2] = std::max(mx[2], p.z);
+                        }
+                        if (!(mx[0] >= -r && mn[0] <= r && mx[1] >= -r && mn[1] <= r && mx[2] >= 0.0f && mn[2] <= range)) continue;
+                        if (a != lastA) {
+                            const float k4[4] = {0.0f, 1.0f - a + 0.004f, 0.0f, 0.0f};
+                            device_->SetPixelShaderConstantF(0, k4, 1);
+                            lastA = a;
+                        }
+                        if (c.vb != lastVb) { device_->SetStreamSource(0, c.vb, 0, 32); lastVb = c.vb; }
+                        device_->DrawPrimitive(D3DPT_TRIANGLELIST, c.start, c.count / 3);
+                        ++stats_.worldDraws;
+                    }
+                    device_->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+                    device_->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+                    device_->SetFVF(kShadowWorldFvf);
+                    device_->SetStreamSource(0, cellVb_, 0, kShadowVertexFloats * sizeof(float));
+                    device_->SetTexture(0, alphaAtlas_);
                 }
                 device_->SetPixelShaderConstantF(0, psc, 1);
             }

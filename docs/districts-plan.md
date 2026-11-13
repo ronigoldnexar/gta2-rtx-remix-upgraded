@@ -286,8 +286,71 @@ coping against piers and ribs.
   copy); the static per-street kit keeps its dithered shadows. Folding the resident chunks into the shadow pass is the
   next step if the streamed path is kept.
 
-### Next (approved, not started): (3)
+### Next (approved): (3) — done in round 4, section 10.
 
-QA flags under 10 % through the five rule classes, per-district style tables (prop mix, awning and kit palette,
-fog/grade, Remix overrides) keyed by the district map, three districts side by side; rebase onto camera-modes when
-the lighting branch lands.
+## 10. Round 4 (13 Nov): gaps closed, Qwen re-asked, style tables, three districts side by side
+
+Rebased onto camera-modes with LIGHTING-V1 (gate C) in it.
+
+### Gaps closed
+- **A real bug found on the way:** the renderer had 16 kit material slots (`kKitMaterials`) but the kit uses 22, so
+  every group in materials 16+ (the solid canvas awnings `canvas_*` since round 3, and the new shutter) was dropped
+  silently, in the static kit and the stream alike. Raised to 32.
+- **Roller doors** on industrial loading bays: a corrugated `shutter` (new procedural material) in the opening,
+  closed or part way up (deterministic per opening), a bottom rail, a galvanised housing over the head; the dock
+  canopy moves above it.
+- **Wall-mounted parts on their host:** `qa.py` now checks every wall part (stoop, bay, balcony, shopfront, dock,
+  fire escape, hood, downpipe, duct) against the map face it is fixed to: the face is there, flat, and the cell in
+  front of it is open at that level. 8 811 wall anchors and 719 roof anchors checked over the three whole
+  cities: 0 off host. An injected wrong-side anchor is flagged.
+- **Sun shadows for the streamed chunks** (plain renderer): the resident chunks' solid groups are shadow casters,
+  culled per cascade by their chunk box, drawn from the stream's own vertex pages, dithered (8 x 8 Bayer texture)
+  against the kit's fade times each chunk's own crossfade, so they fade with the move like the static kit's.
+  Zarelli drive, same GPU load (Qwen on the GPU): busy 20.6 ms kit on (stream + its shadows, `dkd_r4sh`) vs 19.3 ms
+  kit off (`dkd_r4off`), world pass 2.67 vs 2.51 ms; largest free block min 1 101 MB (gate 320), 0 FAULT.
+- **Stream fix:** a chunk whose group did not fit the pool stayed resident with that group missing (whole walls of
+  the Residential district had no kit). Groups are now split at 4 096 triangles (they fit the holes of a used page)
+  and a chunk comes in whole or not at all (retried next plan).
+
+### QA flag rate (generator fixes, the whole city of each level)
+| level | buildings | round 3 | round 4 |
+|---|---|---|---|
+| wil | 874 | 41 % | 7 % |
+| ste | 769 | 39 % | 1 % |
+| bil | 1 111 | 36 % | 8 % |
+
+What fixed it: openings are cut only where the art sets them off from the wall (the same 3-texel ring contrast the
+QA measures; the QA keeps it as a regression guard and counts only openings the kit would cut); proud parts end
+their caps a little past their ends in proportion to depth (no two parts of different depth end in one plane), and
+the parts that shared a depth by accident moved (balcony 0.235 vs fire escape 0.245, stoop step 0.178 vs plinth
+0.185, sills at most 0.19 vs piers 0.195, bay sill 0.232 vs bay 0.24, N/S vs E/W level trims); no parapet inside a
+map railing; "below street" measures from the building's lowest wall (a building on a slope has walls under its
+street level). QA fix: a facet is put in a plane only if all its vertices are in it (tapered stacks were false
+hits). What remains: small coplanar caps (sills vs hood drips) and 15 buildings over 20 000 triangles.
+
+### Qwen archetypes, v2 (label bias)
+Spot check of 30 random v1 answers by eye (`scratchpad/districts/r4_qwen_spotcheck_30.jpg`): 597/940 "brick_tenement"
+was a bias (office towers, walls, girders, hedges labelled tenement). v2 (`qwen_archetype.py`): the label order
+randomised per question, a "not a building" choice, the two longest walls side by side, two questions per building,
+an answer kept only when both agree. Run: 1 053 generic buildings, 2 questions each, 6.6-6.9 s a building on one L4
+(about 1 h 50 min in all; bil resumed after an OOM when game runs shared the GPU). Both runs agreed on 690 (66 %);
+"brick_tenement" fell from 63 % to 33 % of the answers. By eye on 30 random agreed answers
+(`r4_qwen_v2_spotcheck_30.jpg`) only 14 were right: the windowless elevations (rock walls, girders, bridge decks)
+still got building labels. So a label is now accepted only where the art has a window or a loading door
+(`analyze.py`); on the same 30 that keeps 19, 13 of them right (68 %), and rejects 11, 10 of them wrong. In use:
+573 Qwen labels (wil 271, ste 171, bil 131). Qwen stays a tie-breaker for the rules' generic class, not a
+classifier to trust alone.
+
+### Style tables (`tools/districts/styles.json`, picked per district in `overrides/<lvl>.json`)
+| row | silhouette and kit | awnings | props (x the street rules) | grade (fog / ambient) | Remix |
+|---|---|---|---|---|---|
+| downtown_core (wil Zarelli) | generic buildings recast as towers and shop rows; heavy cornices, 0.14 parapets, plant rooms, rooftop units, antennas; no fire escapes or water towers | every shop window and front door, 3/4 striped, red/green/blue/yellow | furniture 2.2, meters 2.5, roof plant 1.6, trees 0.4 | cool | exposure +0.1, cool balance |
+| residential_brownstone (ste Scientists turf) | generic recast as brownstones and tenements; fire escapes on the street front (2+ levels), water towers on 90 %, heavy cornices, stoops, bays | 60 %, solid maroon/green/cream | trees 3, furniture 0.8, meters 0.3 | warm | warm balance |
+| industrial_docks (bil Tedium, and the three docks districts) | generic recast as factories (3+ levels) and warehouses: coping, 0.12 parapets, 3 stacks a building, sawtooth/monitor roofs, vents, docks with roller doors, downpipes and ducts | none (steel hoods) | containers 3, roof plant 2, furniture 0.3, meters 0 | grey-green | exposure -0.15 |
+
+Runtime: `dstyle.py` bakes `<lvl>.dstyle` at stage time (rows + the district grid, 2 KB); `dll/src/district_style.*`
+reads it, eases the grade over ~2 s as the camera crosses districts (fog, horizon and ambient, weighted by the
+street blend: the classic view is untouched), scales the street prop rules (a multiplier of 1 gives exactly the
+old props) and pushes the row's Remix options when the street view enters a district (the default row's values
+back on leaving, or in the classic view). Logged: `districts: style table ...`, `districts: camera in <row>`.
+
