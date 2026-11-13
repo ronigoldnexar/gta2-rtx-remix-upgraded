@@ -1,6 +1,7 @@
 #include "mem_stats.h"
 #include "frame_log.h"
 #include "live_geometry.h"
+#include "../../src/weather_fx.h"
 #include "prop_collision.h"
 #include "car_glass.h"   // VEHICLE-GLASS
 #include "boarding.h"
@@ -5274,6 +5275,15 @@ bool FigureTimeOfDayLight(float out[3]) {
         const float ref = light(day, k);
         out[k] = ref > 1e-4f ? (std::min)(1.0f, (std::max)(0.05f, light(now, k) / ref)) : 1.0f;
         dim = dim || out[k] < 0.995f;
+    }
+    // WEATHER-V2: wet clothes and hair are darker (plain renderer; nothing with [weather] off or under Remix).
+    if (!RemixApiAvailable()) {
+        const gta2::WeatherState& w = gta2::WeatherNow();
+        const float wet = w.active ? (std::min)(1.0f, w.wet) : 0.0f;
+        if (wet > 0.0f) {
+            for (int k = 0; k < 3; ++k) out[k] *= 1.0f - 0.14f * wet;
+            dim = true;
+        }
     }
     static int s_logged = 0;
     if (dim && s_logged < 3 && ++s_logged)

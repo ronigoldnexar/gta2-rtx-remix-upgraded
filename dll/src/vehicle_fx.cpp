@@ -1,6 +1,7 @@
 // See vehicle_fx.h.
 #include "mem_stats.h"
 #include "vehicle_fx.h"
+#include "../../src/weather_fx.h"
 
 #include <algorithm>
 #include <cmath>
@@ -174,7 +175,7 @@ struct CarState {
     bool wreck = false, exploded = false;
     uint32_t aliveFrame = 0;               // last frame seen as a whole car
     int ground[4] = {0, 0, 0, 0};
-    float exhaustT = 0, smokeT = 0;
+    float exhaustT = 0, smokeT = 0, sprayT = 0;
     bool skidOn[4] = {};
     gta2::Vec3 skidLast[4];
     float sparkT = 0;
@@ -227,6 +228,32 @@ void EmitSmoke(const gta2::Vec3& at, float groundY, const gta2::Vec3& drift, flo
     p.a = exhaust ? 0.20f : 0.30f * Clamp(amount, 0.3f, 1.0f);
     p.groundY = groundY;
     Emit(p);
+}
+
+
+// WEATHER-V2: road spray - a thin mist thrown back and up off the rear wheels of a moving car on a wet road
+// (nothing with [weather] off or a dry road). The soft smoke particle, light, short-lived, low alpha.
+void EmitSpray(const gta2::Vec3& at, float groundY, const gta2::Vec3& back, float k) {
+    Particle p{};
+    p.kind = kSmoke;
+    p.x = at.x + Rand(-0.03f, 0.03f); p.y = at.y; p.z = at.z + Rand(-0.03f, 0.03f);
+    p.vx = back.x * Rand(0.6f, 1.0f) + Rand(-0.1f, 0.1f); p.vy = Rand(0.10f, 0.25f); p.vz = back.z * Rand(0.6f, 1.0f) + Rand(-0.1f, 0.1f);
+    p.life = Rand(0.6f, 1.0f);
+    p.size0 = 0.06f; p.size1 = Rand(0.35f, 0.55f);
+    p.rot = Rand(0.0f, 2.0f * kPi); p.rotV = Rand(-1.0f, 1.0f);
+    const float grey = Rand(0.80f, 0.88f);
+    p.r = grey * 0.97f; p.g = grey; p.b = grey * 1.03f;
+    p.a = 0.16f * k;
+    p.groundY = groundY;
+    p.tone = 0;
+    Emit(p);
+}
+
+float WetSpray(float speed) {
+    const gta2::WeatherState& w = gta2::WeatherNow();
+    const float wet = w.active ? (std::min)(1.0f, w.wet) : 0.0f;
+    if (wet < 0.25f || speed < 1.2f) return 0.0f;
+    return Clamp((speed - 1.2f) / 3.0f, 0.0f, 1.0f) * Clamp((wet - 0.25f) / 0.5f, 0.0f, 1.0f);
 }
 
 // Steam (white, thin) from a hurt engine, dark smoke from a badly hurt one.
@@ -1050,6 +1077,16 @@ const VehicleFeel& VehicleFxUpdate(const VehicleFxCar& car, uint32_t frame) {
                 EmitSmoke(at, groundY, gta2::Vec3{st.vx * 0.15f, 0.0f, st.vz * 0.15f}, tyre[i], false);
             }
         }
+        if (const float spray = WetSpray(speed); spray > 0.0f) {
+            st.sprayT -= dt * 24.0f * spray;
+            while (st.sprayT <= 0.0f) {
+                st.sprayT += 1.0f;
+                const int i = (st.vx * f.x + st.vz * f.z) >= 0.0f ? 2 + static_cast<int>(Rand() * 1.99f) : static_cast<int>(Rand() * 1.99f);
+                if (st.ground[i] != 1 && st.ground[i] != 2) continue;
+                const gta2::Vec3 at = Point(w, wheelX[i] * 1.05f, 0.03f, wheelZ[i]);
+                EmitSpray(at, groundY, gta2::Vec3{-st.vx * 0.25f, 0.0f, -st.vz * 0.25f}, spray);
+            }
+        }
 
         // ---- the wheels of a hurt corner: camber (top out) and a bent toe that
         // wobbles with the spin.
@@ -1189,6 +1226,16 @@ const VehicleFeel& VehicleFxUpdate(const VehicleFxCar& car, uint32_t frame) {
                 const int i = 2 + static_cast<int>(Rand() * 1.99f);
                 const gta2::Vec3 at = Point(w, wheelX[i] * 1.05f, 0.04f, wheelZ[i]);
                 EmitSmoke(at, groundY, gta2::Vec3{st.vx * 0.15f, 0.0f, st.vz * 0.15f}, tyre, false);
+            }
+        }
+        if (const float spray = WetSpray(speed); spray > 0.0f) {
+            st.sprayT -= dt * 24.0f * spray;
+            while (st.sprayT <= 0.0f) {
+                st.sprayT += 1.0f;
+                const int i = 2 + static_cast<int>(Rand() * 1.99f);
+                if (st.ground[i] != 1 && st.ground[i] != 2) continue;
+                const gta2::Vec3 at = Point(w, wheelX[i] * 1.05f, 0.03f, wheelZ[i]);
+                EmitSpray(at, groundY, gta2::Vec3{-st.vx * 0.25f, 0.0f, -st.vz * 0.25f}, spray);
             }
         }
         // Exhaust at idle on a cold night (and on a hard launch at night).
