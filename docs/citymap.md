@@ -59,7 +59,23 @@ The waypoint clears itself 3.5 s after you arrive (within 2.5 blocks of it).
 ## The road graph
 
 Built once per level from the map the world was drawn from (`CityMapSetLevel`, ~35 ms), the picture
-baked on a worker thread (~0.6 s) and uploaded as one 2048x2048 mipmapped texture.
+baked on a worker thread (~0.8 s) into one 2048x2048 DXT1 texture with mips (2.7 MB), put on the
+device (MANAGED) only while the map is open and released 10 s after it closes.
+
+## Drawing (and the 2560x1440 finding)
+
+The map, the chevrons and the danger chip are Dear ImGui draw lists rendered by `RenderUi` in
+`city_map.cpp`, not by `imgui_impl_dx9`: the vertices go up with `DrawIndexedPrimitiveUP` from system
+memory and the font and map textures are MANAGED, with `imgui_impl_dx9`'s states (an orthographic
+projection, Z writes off: RTX Remix takes the draws as UI and rasterises them over the traced frame).
+Reason (CITYMAP-1 gate 2, from a trailer dry run): under Wine at 2560x1440 the device reports **0 MB
+of texture memory left** (the post-FX targets, the HD tiles and the model textures spend Wine's
+emulated budget), `CreateVertexBuffer` in D3DPOOL_DEFAULT fails with D3DERR_OUTOFVIDEOMEMORY and
+`imgui_impl_dx9` silently draws nothing. That also hides the **modern HUD** at 2560x1440 (hud3d's
+"render" time 0.002-0.004 ms in those runs, without any city-map code: tr_chase2/3), so it is not the
+map's alone. Even our textures cannot be paged in with 0 MB left; the prefix needs a larger budget:
+`[HKEY_CURRENT_USER\Software\Wine\Direct3D] "VideoMemorySize"="4096"` (measured: 2.8 GB left at
+1440, the map and the modern HUD both drawn, out/cm_probe1440v with an install.reg override).
 
 - **Nodes**: the lid of every block whose ground type is road, pavement or field, not water, not
   built over; its height at each edge from the slope tables (block z spans z..z+1, a flat lid is at

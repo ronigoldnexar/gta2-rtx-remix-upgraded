@@ -23,9 +23,9 @@
 #include <vector>
 
 #include <imgui.h>
-#include <backends/imgui_impl_dx9.h>
 
 #include "../../src/gta2_map.h"
+#include "beats.h"
 #include "city_route.h"
 #include "compat.h"
 #include "debug_overlay.h"
@@ -105,10 +105,8 @@ std::string g_levelName;      // wil, ste, bil
 uint32_t g_levelSerial = 0;
 HANDLE g_bakeThread = nullptr;
 volatile LONG g_bakeDone = 0;
-std::vector<uint32_t> g_bakePixels;
 constexpr int kPpc = 8;
 IDirect3DTexture9* g_tex = nullptr;
-bool g_texFailed = false;
 
 struct Label { std::string name; float x, y, area; bool district; };
 std::vector<Label> g_labels;
@@ -127,13 +125,85 @@ std::string GameText(const std::string& key) {
     return s;
 }
 
+// The picture in DXT1 (8:1 against ARGB: 2.7 MB with its mips instead of 21 MB): at 2560x1440 the device's
+// video memory budget under Wine is nearly spent by the frame's own targets, and an ARGB map texture
+// pushed ImGui's buffers (the modern HUD's too) out of it. Flat map colours survive DXT1 well.
+std::vector<std::vector<uint8_t>> g_dxt;   // level 0.. (4x4 and up), each the level's blocks
+uint16_t To565(int r, int g, int b) { return static_cast<uint16_t>(((r * 31 + 127) / 255) << 11 | ((g * 63 + 127) / 255) << 5 | ((b * 31 + 127) / 255)); }
+void From565(uint16_t c, int* r, int* g, int* b) { *r = ((c >> 11) & 31) * 255 / 31; *g = ((c >> 5) & 63) * 255 / 63; *b = (c & 31) * 255 / 31; }
+void EncodeDxt1(const std::vector<uint32_t>& px, int size, std::vector<uint8_t>* out) {
+    const int nb = size / 4;
+    out->assign(static_cast<size_t>(nb) * nb * 8, 0);
+    for (int by = 0; by < nb; ++by)
+        for (int bx = 0; bx < nb; ++bx) {
+            int rgb[16][3];
+            int lo = 0, hi = 0, lmin = 1 << 30, lmax = -1;
+            for (int i = 0; i < 16; ++i) {
+                const uint32_t v = px[static_cast<size_t>(by * 4 + i / 4) * size + bx * 4 + i % 4];
+                rgb[i][0] = (v >> 16) & 255; rgb[i][1] = (v >> 8) & 255; rgb[i][2] = v & 255;
+                const int l = rgb[i][0] * 2 + rgb[i][1] * 5 + rgb[i][2];
+                if (l < lmin) { lmin = l; lo = i; }
+                if (l > lmax) { lmax = l; hi = i; }
+            }
+            uint16_t c0 = To565(rgb[hi][0], rgb[hi][1], rgb[hi][2]), c1 = To565(rgb[lo][0], rgb[lo][1], rgb[lo][2]);
+            uint32_t idx = 0;
+            if (c0 == c1) {
+                if (c0 > 0) --c1; else ++c0;   // four-colour mode needs c0 > c1; every texel takes index 0 (c0's colour)
+                if (c0 < c1) std::swap(c0, c1);
+                // keep the exact colour on the endpoint that matches it
+                const uint16_t want = To565(rgb[hi][0], rgb[hi][1], rgb[hi][2]);
+                idx = want == c0 ? 0u : 0x55555555u;
+            } else {
+                if (c0 < c1) std::swap(c0, c1);
+                int pal[4][3];
+                From565(c0, &pal[0][0], &pal[0][1], &pal[0][2]);
+                From565(c1, &pal[1][0], &pal[1][1], &pal[1][2]);
+                for (int k = 0; k < 3; ++k) { pal[2][k] = (2 * pal[0][k] + pal[1][k]) / 3; pal[3][k] = (pal[0][k] + 2 * pal[1][k]) / 3; }
+                for (int i = 0; i < 16; ++i) {
+                    int best = 0, bd = 1 << 30;
+                    for (int p = 0; p < 4; ++p) {
+                        const int dr = rgb[i][0] - pal[p][0], dg = rgb[i][1] - pal[p][1], db = rgb[i][2] - pal[p][2];
+                        const int d = dr * dr * 2 + dg * dg * 4 + db * db;
+                        if (d < bd) { bd = d; best = p; }
+                    }
+                    idx |= static_cast<uint32_t>(best) << (2 * i);
+                }
+            }
+            uint8_t* o = &(*out)[(static_cast<size_t>(by) * nb + bx) * 8];
+            o[0] = c0 & 255; o[1] = c0 >> 8; o[2] = c1 & 255; o[3] = c1 >> 8;
+            o[4] = idx & 255; o[5] = (idx >> 8) & 255; o[6] = (idx >> 16) & 255; o[7] = idx >> 24;
+        }
+}
+
 DWORD WINAPI BakeThread(LPVOID) {
     const double t0 = Now();
-    std::vector<uint32_t> px;
-    g_level.Bake(kPpc, false, &px);   // texels reach the screen as they are (only vertex colours are squared)
-    g_bakePixels.swap(px);
+    std::vector<uint32_t> cur, nxt;
+    g_level.Bake(kPpc, false, &cur);   // texels reach the screen as they are (only vertex colours are squared)
     g_level.cells.Clear();
-    Log("citymap: map picture baked (%dx%d, %.0f ms, off the render thread)", kW * kPpc, kH * kPpc, (Now() - t0) * 1000.0);
+    std::vector<std::vector<uint8_t>> levels;
+    int size = kW * kPpc;
+    while (size >= 4) {
+        levels.emplace_back();
+        EncodeDxt1(cur, size, &levels.back());
+        const int half = size / 2;
+        if (half < 4) break;
+        nxt.assign(static_cast<size_t>(half) * half, 0);
+        for (int y = 0; y < half; ++y)
+            for (int x = 0; x < half; ++x) {
+                const uint32_t q[4] = {cur[static_cast<size_t>(2 * y) * size + 2 * x], cur[static_cast<size_t>(2 * y) * size + 2 * x + 1],
+                                       cur[static_cast<size_t>(2 * y + 1) * size + 2 * x], cur[static_cast<size_t>(2 * y + 1) * size + 2 * x + 1]};
+                uint32_t o = 0xFF000000u;
+                for (int sh = 0; sh < 24; sh += 8) { uint32_t v = 0; for (uint32_t w : q) v += (w >> sh) & 255; o |= ((v + 2) / 4) << sh; }
+                nxt[static_cast<size_t>(y) * half + x] = o;
+            }
+        cur.swap(nxt);
+        size = half;
+    }
+    size_t bytes = 0;
+    for (const auto& l : levels) bytes += l.size();
+    g_dxt.swap(levels);
+    Log("citymap: map picture baked (%dx%d, DXT1 %zu levels %.1f MB, %.0f ms, off the render thread)", kW * kPpc, kH * kPpc, g_dxt.size(),
+        bytes / 1048576.0, (Now() - t0) * 1000.0);
     InterlockedExchange(&g_bakeDone, 1);
     return 0;
 }
@@ -386,6 +456,135 @@ float g_u = 1.0f;
 struct Fonts { ImFont *title = nullptr, *big = nullptr, *district = nullptr, *label = nullptr, *text = nullptr; float titlePx, bigPx, districtPx, labelPx, textPx; };
 Fonts g_f;
 
+// ---- our own ImGui renderer -------------------------------------------------------------
+//
+// Not imgui_impl_dx9: that one needs a dynamic vertex and index buffer and its font texture in
+// D3DPOOL_DEFAULT, and under Wine at 2560x1440 the device reports no texture memory left (the HD tiles
+// stream in until it is spent): CreateVertexBuffer fails with D3DERR_OUTOFVIDEOMEMORY and that backend
+// silently draws nothing (measured: cm_probe1440b; the modern HUD's frames show it too). Here the
+// vertices go up with DrawIndexedPrimitiveUP from system memory and the textures are MANAGED, so the
+// map draws whatever the device's budget. The states are imgui_impl_dx9's (an orthographic projection
+// with Z writes off: RTX Remix takes the draws as UI and rasterises them over the traced frame).
+IDirect3DTexture9* g_fontTex = nullptr;
+struct UiVertex { float x, y, z; D3DCOLOR col; float u, v; };
+constexpr DWORD kUiFvf = D3DFVF_XYZ | D3DFVF_DIFFUSE | D3DFVF_TEX1;
+
+void MakeFontTexture() {
+    ImGuiIO& io = ImGui::GetIO();
+    unsigned char* pixels = nullptr;
+    int w = 0, h = 0;
+    io.Fonts->GetTexDataAsRGBA32(&pixels, &w, &h);
+    if (g_fontTex) { g_fontTex->Release(); g_fontTex = nullptr; }
+    if (!g_device || !pixels) return;
+    if (FAILED(g_device->CreateTexture(w, h, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &g_fontTex, nullptr)) || !g_fontTex) {
+        Log("citymap: the font texture could not be made (%dx%d)", w, h);
+        g_fontTex = nullptr;
+        return;
+    }
+    D3DLOCKED_RECT lr;
+    if (SUCCEEDED(g_fontTex->LockRect(0, &lr, nullptr, 0))) {
+        for (int y = 0; y < h; ++y) {
+            const unsigned char* src = pixels + static_cast<size_t>(y) * w * 4;
+            uint32_t* dst = reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(lr.pBits) + static_cast<size_t>(y) * lr.Pitch);
+            for (int x = 0; x < w; ++x)
+                dst[x] = (static_cast<uint32_t>(src[x * 4 + 3]) << 24) | (static_cast<uint32_t>(src[x * 4]) << 16) |
+                         (static_cast<uint32_t>(src[x * 4 + 1]) << 8) | src[x * 4 + 2];
+        }
+        g_fontTex->UnlockRect(0);
+    }
+    io.Fonts->SetTexID(reinterpret_cast<ImTextureID>(g_fontTex));
+}
+
+void SetupUiState(IDirect3DDevice9* d, const ImDrawData* dd) {
+    D3DVIEWPORT9 vp = {0, 0, static_cast<DWORD>(dd->DisplaySize.x), static_cast<DWORD>(dd->DisplaySize.y), 0.0f, 1.0f};
+    d->SetViewport(&vp);
+    d->SetPixelShader(nullptr);
+    d->SetVertexShader(nullptr);
+    d->SetFVF(kUiFvf);
+    d->SetRenderState(D3DRS_FILLMODE, D3DFILL_SOLID);
+    d->SetRenderState(D3DRS_SHADEMODE, D3DSHADE_GOURAUD);
+    d->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+    d->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
+    d->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+    d->SetRenderState(D3DRS_ZENABLE, FALSE);
+    d->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+    d->SetRenderState(D3DRS_BLENDOP, D3DBLENDOP_ADD);
+    d->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
+    d->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+    d->SetRenderState(D3DRS_SEPARATEALPHABLENDENABLE, TRUE);
+    d->SetRenderState(D3DRS_SRCBLENDALPHA, D3DBLEND_ONE);
+    d->SetRenderState(D3DRS_DESTBLENDALPHA, D3DBLEND_INVSRCALPHA);
+    d->SetRenderState(D3DRS_SCISSORTESTENABLE, TRUE);
+    d->SetRenderState(D3DRS_FOGENABLE, FALSE);
+    d->SetRenderState(D3DRS_RANGEFOGENABLE, FALSE);
+    d->SetRenderState(D3DRS_SPECULARENABLE, FALSE);
+    d->SetRenderState(D3DRS_STENCILENABLE, FALSE);
+    d->SetRenderState(D3DRS_CLIPPING, TRUE);
+    d->SetRenderState(D3DRS_LIGHTING, FALSE);
+    d->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
+    d->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+    d->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
+    d->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
+    d->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+    d->SetTextureStageState(0, D3DTSS_ALPHAARG2, D3DTA_DIFFUSE);
+    d->SetTextureStageState(0, D3DTSS_TEXCOORDINDEX, 0);
+    d->SetTextureStageState(0, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE);
+    d->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+    d->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+    d->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
+    d->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
+    d->SetSamplerState(0, D3DSAMP_MIPFILTER, D3DTEXF_LINEAR);   // the map's mips (the font has one level)
+    d->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+    d->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+    const float L = dd->DisplayPos.x + 0.5f, R = dd->DisplayPos.x + dd->DisplaySize.x + 0.5f;
+    const float T = dd->DisplayPos.y + 0.5f, B = dd->DisplayPos.y + dd->DisplaySize.y + 0.5f;
+    D3DMATRIX id = {{{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}}};
+    D3DMATRIX proj = {{{2.0f / (R - L), 0, 0, 0, 0, 2.0f / (T - B), 0, 0, 0, 0, 0.5f, 0, (L + R) / (L - R), (T + B) / (B - T), 0.5f, 1.0f}}};
+    d->SetTransform(D3DTS_WORLD, &id);
+    d->SetTransform(D3DTS_VIEW, &id);
+    d->SetTransform(D3DTS_PROJECTION, &proj);
+}
+
+void RenderUi(IDirect3DDevice9* d, ImDrawData* dd) {
+    if (!d || !dd || dd->DisplaySize.x <= 0 || dd->DisplaySize.y <= 0 || dd->TotalVtxCount == 0) return;
+    IDirect3DStateBlock9* sb = nullptr;
+    if (FAILED(d->CreateStateBlock(D3DSBT_ALL, &sb)) || !sb) return;
+    sb->Capture();
+    D3DMATRIX w, v, p;
+    d->GetTransform(D3DTS_WORLD, &w); d->GetTransform(D3DTS_VIEW, &v); d->GetTransform(D3DTS_PROJECTION, &p);
+    SetupUiState(d, dd);
+    static std::vector<UiVertex> verts;
+    for (int n = 0; n < dd->CmdListsCount; ++n) {
+        const ImDrawList* cl = dd->CmdLists[n];
+        verts.resize(static_cast<size_t>(cl->VtxBuffer.Size));
+        for (int i = 0; i < cl->VtxBuffer.Size; ++i) {
+            const ImDrawVert& s = cl->VtxBuffer.Data[i];
+            const ImU32 c = s.col;   // ABGR in memory order RGBA -> D3DCOLOR ARGB
+            verts[i] = {s.pos.x, s.pos.y, 0.0f, (c & 0xFF00FF00u) | ((c & 0xFF) << 16) | ((c >> 16) & 0xFF), s.uv.x, s.uv.y};
+        }
+        for (int c = 0; c < cl->CmdBuffer.Size; ++c) {
+            const ImDrawCmd& cmd = cl->CmdBuffer.Data[c];
+            if (cmd.UserCallback) {
+                if (cmd.UserCallback == ImDrawCallback_ResetRenderState) SetupUiState(d, dd);
+                else cmd.UserCallback(cl, &cmd);
+                continue;
+            }
+            if (cmd.ElemCount == 0) continue;
+            const RECT r = {static_cast<LONG>(cmd.ClipRect.x - dd->DisplayPos.x), static_cast<LONG>(cmd.ClipRect.y - dd->DisplayPos.y),
+                            static_cast<LONG>(cmd.ClipRect.z - dd->DisplayPos.x), static_cast<LONG>(cmd.ClipRect.w - dd->DisplayPos.y)};
+            if (r.right <= r.left || r.bottom <= r.top) continue;
+            d->SetScissorRect(&r);
+            d->SetTexture(0, reinterpret_cast<IDirect3DTexture9*>(cmd.GetTexID()));
+            const UINT nv = static_cast<UINT>(cl->VtxBuffer.Size) - cmd.VtxOffset;
+            d->DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, 0, nv, cmd.ElemCount / 3, cl->IdxBuffer.Data + cmd.IdxOffset,
+                                      sizeof(ImDrawIdx) == 2 ? D3DFMT_INDEX16 : D3DFMT_INDEX32, verts.data() + cmd.VtxOffset, sizeof(UiVertex));
+        }
+    }
+    d->SetTransform(D3DTS_WORLD, &w); d->SetTransform(D3DTS_VIEW, &v); d->SetTransform(D3DTS_PROJECTION, &p);
+    sb->Apply();
+    sb->Release();
+}
+
 void BuildFonts(int height) {
     ImGuiIO& io = ImGui::GetIO();
     io.Fonts->Clear();
@@ -406,7 +605,7 @@ void BuildFonts(int height) {
     g_f.label = add(kHudFontBold, sizeof kHudFontBold, g_f.labelPx);
     g_f.text = add(kHudFontText, sizeof kHudFontText, g_f.textPx);
     io.Fonts->Build();
-    ImGui_ImplDX9_InvalidateDeviceObjects();
+    MakeFontTexture();
     g_fontHeight = height;
 }
 
@@ -419,13 +618,8 @@ bool EnsureContext(IDirect3DDevice9* device, int height) {
         ImGuiIO& io = ImGui::GetIO();
         io.IniFilename = nullptr;
         io.LogFilename = nullptr;
-        if (!ImGui_ImplDX9_Init(device)) {
-            Log("citymap: ImGui DX9 init failed; no map");
-            ImGui::DestroyContext(g_ctx);
-            g_ctx = nullptr;
-            ImGui::SetCurrentContext(previous);
-            return false;
-        }
+        io.BackendRendererName = "gta2dx9_citymap";
+        io.BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset;
         g_device = device;
         BuildFonts(height);
         ImGui::SetCurrentContext(previous);
@@ -768,57 +962,38 @@ void PollDevtools() {
 
 // ---- the texture ------------------------------------------------------------------------
 
+double g_texRetryAt = 0;
+double g_closedAt = -1;
 void EnsureTexture(IDirect3DDevice9* device) {
-    if (g_tex || g_texFailed || !g_bakeDone || g_bakePixels.empty() || !device) return;
+    if (g_tex || !g_bakeDone || g_dxt.empty() || !device || Now() < g_texRetryAt) return;
     const int N = kW * kPpc;
     const double t0 = Now();
-    IDirect3DTexture9* staging = nullptr;
-    if (FAILED(device->CreateTexture(N, N, 0, 0, D3DFMT_A8R8G8B8, D3DPOOL_SYSTEMMEM, &staging, nullptr)) || !staging) {
-        Log("citymap: the map texture's staging copy could not be made; no picture");
-        g_texFailed = true;
+    const UINT levels = static_cast<UINT>(g_dxt.size());
+    // MANAGED: the runtime keeps the copy and pages it in; a full video memory budget does not refuse it
+    HRESULT hr = device->CreateTexture(N, N, levels, 0, D3DFMT_DXT1, D3DPOOL_MANAGED, &g_tex, nullptr);
+    if (SUCCEEDED(hr) && g_tex) {
+        int size = N;
+        for (UINT l = 0; l < levels; ++l, size /= 2) {
+            D3DLOCKED_RECT lr;
+            if (FAILED(g_tex->LockRect(l, &lr, nullptr, 0))) { hr = E_FAIL; break; }
+            const int rows = size / 4, rowBytes = (size / 4) * 8;
+            for (int y = 0; y < rows; ++y) memcpy(static_cast<uint8_t*>(lr.pBits) + static_cast<size_t>(y) * lr.Pitch, &g_dxt[l][static_cast<size_t>(y) * rowBytes], rowBytes);
+            g_tex->UnlockRect(l);
+        }
+    }
+    if (FAILED(hr) || !g_tex) {
+        if (g_tex) { g_tex->Release(); g_tex = nullptr; }
+        g_texRetryAt = Now() + 2.0;
+        Log("citymap: the map texture could not be made on the device (%08lx; texture memory left %u MB); the map draws without its picture",
+            static_cast<unsigned long>(hr), device->GetAvailableTextureMem() / 1048576u);
         return;
     }
-    const DWORD levels = staging->GetLevelCount();
-    std::vector<uint32_t> cur = g_bakePixels, nxt;
-    int size = N;
-    for (DWORD l = 0; l < levels; ++l) {
-        D3DLOCKED_RECT lr;
-        if (FAILED(staging->LockRect(l, &lr, nullptr, 0))) break;
-        for (int y = 0; y < size; ++y) memcpy(static_cast<uint8_t*>(lr.pBits) + static_cast<size_t>(y) * lr.Pitch, &cur[static_cast<size_t>(y) * size], static_cast<size_t>(size) * 4);
-        staging->UnlockRect(l);
-        if (size == 1) break;
-        const int half = size / 2;
-        nxt.assign(static_cast<size_t>(half) * half, 0);
-        for (int y = 0; y < half; ++y)
-            for (int x = 0; x < half; ++x) {
-                uint32_t s[4] = {cur[static_cast<size_t>(2 * y) * size + 2 * x], cur[static_cast<size_t>(2 * y) * size + 2 * x + 1],
-                                 cur[static_cast<size_t>(2 * y + 1) * size + 2 * x], cur[static_cast<size_t>(2 * y + 1) * size + 2 * x + 1]};
-                uint32_t o = 0xFF000000u;
-                for (int sh = 0; sh < 24; sh += 8) {
-                    uint32_t v = 0;
-                    for (uint32_t q : s) v += (q >> sh) & 255;
-                    o |= ((v + 2) / 4) << sh;
-                }
-                nxt[static_cast<size_t>(y) * half + x] = o;
-            }
-        cur.swap(nxt);
-        size = half;
-    }
-    if (FAILED(device->CreateTexture(N, N, levels, 0, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &g_tex, nullptr)) || !g_tex ||
-        FAILED(device->UpdateTexture(staging, g_tex))) {
-        if (g_tex) { g_tex->Release(); g_tex = nullptr; }
-        Log("citymap: the map texture could not be made on the device; no picture");
-        g_texFailed = true;
-    } else {
-        Log("citymap: map texture %dx%d, %lu levels, on the device in %.0f ms", N, N, levels, (Now() - t0) * 1000.0);
-    }
-    staging->Release();
-    std::vector<uint32_t>().swap(g_bakePixels);
+    Log("citymap: map texture %dx%d DXT1, %u levels, on the device in %.0f ms (texture memory left %u MB)", N, N, levels, (Now() - t0) * 1000.0,
+        device->GetAvailableTextureMem() / 1048576u);
 }
 
 void ReleaseTexture() {
     if (g_tex) { g_tex->Release(); g_tex = nullptr; }
-    g_texFailed = false;
 }
 
 // ---- the overlay ------------------------------------------------------------------------
@@ -1076,7 +1251,7 @@ void DrawChevrons(ImDrawList* dl, int W, int H, float t) {
                 b.y0 = (std::min)(b.y0, sy * H); b.y1 = (std::max)(b.y1, sy * H);
                 b.depth = (std::min)(b.depth, d);
             }
-        if (any) boxes.push_back(b);
+        if (any && b.depth > 0.8f) boxes.push_back(b);   // one round the eye (the cab he sits in) has no box worth the name
     }
     auto addFigure = [&](float x, float y, float z, float height) {
         Box b = {1e9f, 1e9f, -1e9f, -1e9f, 1e9f};
@@ -1093,7 +1268,11 @@ void DrawChevrons(ImDrawList* dl, int W, int H, float t) {
                 }
         if (any) boxes.push_back(b);
     };
-    for (const AimPed& a : LiveAimPeds()) addFigure(a.x, a.y, a.z, a.corpse ? 0.25f : 0.8f);
+    const float meX = p.x, meZ = static_cast<float>(gta2::kMapHeight) - p.y;
+    for (const AimPed& a : LiveAimPeds()) {
+        if (std::hypot(a.x - meX, a.z - meZ) < 1.2f) continue;   // himself (in the driver's seat he is drawn round the eye)
+        addFigure(a.x, a.y, a.z, a.corpse ? 0.25f : 0.8f);
+    }
     if (!first && !g_me.inCar && p.valid) addFigure(p.x, p.z, static_cast<float>(gta2::kMapHeight) - p.y, 0.8f);
     // the turn ahead, for the gentle pulse
     std::vector<float> cx, cy, cz;
@@ -1106,7 +1285,9 @@ void DrawChevrons(ImDrawList* dl, int W, int H, float t) {
         float td; int tdir;
         if (NextTurn(rx, ry, &td, &tdir)) turnAt = td;
     }
-    const float spacing = 1.25f, nearFade0 = 1.0f, nearFade1 = 2.2f, farFade0 = 6.5f, farFade1 = 9.5f;   // blocks: ~36 m shown
+    // blocks: ~36 m shown; from the driver's seat they start further out (the first blocks lie under the bonnet)
+    const bool seat = first && g_me.inCar;
+    const float spacing = 1.25f, nearFade0 = seat ? 2.2f : 1.0f, nearFade1 = seat ? 3.4f : 2.2f, farFade0 = 6.5f, farFade1 = 9.5f;
     const float sPlayer = r.laneS;
     float s = std::ceil((sPlayer + nearFade0) / spacing) * spacing;
     int seg = (std::max)(1, r.laneSeg);
@@ -1166,13 +1347,21 @@ void BeginFrame(int W, int H, float dt) {
     ImGuiIO& io = ImGui::GetIO();
     io.DisplaySize = ImVec2(static_cast<float>(W), static_cast<float>(H));
     io.DeltaTime = dt > 0 ? dt : 1.0f / 30.0f;
-    ImGui_ImplDX9_NewFrame();
     ImGui::NewFrame();
 }
-void EndFrame() {
+void EndFrame(const char* what) {
     ImGui::EndFrame();
     ImGui::Render();
-    ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
+    ImDrawData* dd = ImGui::GetDrawData();
+    RenderUi(g_device, dd);
+    static double last[2] = {0, 0};
+    const int k = what[0] == 'm' ? 0 : 1;
+    const double now = Now();
+    if (dd && now - last[k] > 2.0) {
+        last[k] = now;
+        Log("citymap: %s drawn: %d vertices, %d indices, display %.0fx%.0f; texture memory left %u MB", what, dd->TotalVtxCount, dd->TotalIdxCount,
+            dd->DisplaySize.x, dd->DisplaySize.y, g_device ? g_device->GetAvailableTextureMem() / 1048576u : 0u);
+    }
 }
 
 float g_dt = 1.0f / 30.0f;
@@ -1194,7 +1383,7 @@ void CityMapSetLevel(const gta2::Map& map, const std::vector<uint8_t>& zones, co
     CloseMap("level change");
     if (g_route.active) ClearWaypoint("level change");
     ReleaseTexture();
-    std::vector<uint32_t>().swap(g_bakePixels);
+    std::vector<std::vector<uint8_t>>().swap(g_dxt);
     InterlockedExchange(&g_bakeDone, 0);
     const size_t slash = mapPath.find_last_of("\\/");
     std::string file = slash == std::string::npos ? mapPath : mapPath.substr(slash + 1);
@@ -1248,6 +1437,16 @@ void CityMapUpdate(IDirect3DDevice9* device, int width, int height, HWND present
     Layout(width, height);
     ReadDanger();
     if (!worldLoaded) CloseMap("left the level");
+    // WASTED or BUSTED: the map steps aside for the game's own moment (and he is somewhere else after it)
+    if (g_open && (Beat().kind == BeatKind::Wasted || Beat().kind == BeatKind::Busted)) CloseMap(Beat().kind == BeatKind::Wasted ? "wasted" : "busted");
+    {   // a respawn or any jump of more than 30 blocks: the map closes, the route is re-picked from the new spot
+        static float lx = -1, ly = -1;
+        if (g_me.valid && lx >= 0 && std::hypot(g_me.x - lx, g_me.y - ly) > 30.0f) {
+            CloseMap("he was moved (a respawn)");
+            if (g_route.active) { g_route.offSince = -1; g_route.lastReroute = -10; g_route.path.clear(); g_route.fieldMode = -1; }
+        }
+        if (g_me.valid) { lx = g_me.x; ly = g_me.y; }
+    }
     const bool canOpen = g_me.valid && g_level.Ready() && !DebugMenuVisible();
     if (KeyEdge(g_cfg.key)) {
         if (g_open) CloseMap("key");
@@ -1260,7 +1459,13 @@ void CityMapUpdate(IDirect3DDevice9* device, int width, int height, HWND present
     ViewSetMapHold(g_open || g_escLatch);
     if (g_open) MapInput(presentWindow, width, height, g_dt);
     UpdateRoute();
-    if (device) EnsureTexture(device);
+    // the picture lives on the device only while the map is open (and 10 s after, for a quick reopen)
+    if (device && g_open) EnsureTexture(device);
+    if (g_open) g_closedAt = -1;
+    else if (g_tex) {
+        if (g_closedAt < 0) g_closedAt = now;
+        if (now - g_closedAt > 10.0) { ReleaseTexture(); g_closedAt = -1; Log("citymap: map texture released (closed 10 s)"); }
+    }
     // the route's state every two seconds
     static double lastLog = 0;
     if (g_route.active && now - lastLog > 2.0) {
@@ -1283,7 +1488,7 @@ void CityMapDrawWorld(IDirect3DDevice9* device, int width, int height) {
     if (g_fontHeight != height) BuildFonts(height);
     BeginFrame(width, height, g_dt);
     DrawChevrons(ImGui::GetForegroundDrawList(), width, height, g_time);
-    EndFrame();
+    EndFrame("chevrons");
     ImGui::SetCurrentContext(previous);
 }
 
@@ -1296,7 +1501,7 @@ void CityMapDrawOverlay(IDirect3DDevice9* device, int width, int height) {
     Layout(width, height);
     BeginFrame(width, height, g_dt);
     DrawMap(ImGui::GetForegroundDrawList(), width, height, g_time);
-    EndFrame();
+    EndFrame("map");
     ImGui::SetCurrentContext(previous);
 }
 
