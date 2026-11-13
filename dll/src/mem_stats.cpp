@@ -115,11 +115,24 @@ void LogAllocSites() {
     Log("%s", line);
 }
 
+// MEM-FRAG: a big block (texel buffers: a 512x512 map is 1 MB) does not go through the CRT heap. Wine serves a heap
+// block that size with its own mapping, placed anywhere in the free space: one left alive in the middle of the big
+// free block above 2 GB cut it in two (vawatch: 2048 MB -> 836 MB at the level's load, a 1.06 MB private commit).
+// Mapped top-down they stack at the top of the address space instead (GTA2DX9_BIG_ALLOC_TOPDOWN=0: as before).
+constexpr size_t kBigAlloc = 256u << 10;
+constexpr size_t kBigFlag = static_cast<size_t>(1) << (sizeof(size_t) * 8 - 1);
+bool BigTopDown() {
+    static int on = -1;
+    if (on < 0) { char v[8] = {}; on = !(GetEnvironmentVariableA("GTA2DX9_BIG_ALLOC_TOPDOWN", v, sizeof v) && v[0] == '0'); }
+    return on != 0;
+}
+
 void* CountedAlloc(size_t bytes) {
     for (int attempt = 0;; ++attempt) {
-        void* p = malloc(bytes + kHeader);
+        const bool big = bytes >= kBigAlloc && BigTopDown();
+        void* p = big ? VirtualAlloc(nullptr, bytes + kHeader, MEM_RESERVE | MEM_COMMIT | MEM_TOP_DOWN, PAGE_READWRITE) : malloc(bytes + kHeader);
         if (p) {
-            *static_cast<size_t*>(p) = bytes;
+            *static_cast<size_t*>(p) = big ? (bytes | kBigFlag) : bytes;
             const long long live = g_liveBytes.fetch_add(static_cast<long long>(bytes), std::memory_order_relaxed) + static_cast<long long>(bytes);
             g_liveBlocks.fetch_add(1, std::memory_order_relaxed);
             const long long count = g_totalAllocs.fetch_add(1, std::memory_order_relaxed);
@@ -140,9 +153,12 @@ void* CountedAlloc(size_t bytes) {
 void CountedFree(void* q) {
     if (!q) return;
     char* p = static_cast<char*>(q) - kHeader;
-    g_liveBytes.fetch_sub(static_cast<long long>(*reinterpret_cast<size_t*>(p)), std::memory_order_relaxed);
+    const size_t word = *reinterpret_cast<size_t*>(p);
+    const size_t bytes = word & ~kBigFlag;
+    g_liveBytes.fetch_sub(static_cast<long long>(bytes), std::memory_order_relaxed);
     g_liveBlocks.fetch_sub(1, std::memory_order_relaxed);
-    free(p);
+    if (word & kBigFlag) VirtualFree(p, 0, MEM_RELEASE);
+    else free(p);
 }
 
 // The gauges of one full line, appended without allocating (the failure path uses it too).
@@ -180,6 +196,58 @@ VaSurvey SurveyAddressSpace() {
         a = next;
     }
     return s;
+}
+
+// MEM-FRAG: who splits the largest free block. GTA2DX9_VA_WATCH=1: every second (first 3 minutes), the address
+// space is walked; whenever the largest free block shrinks by more than 32 MB, every region now inside the old
+// block's range is logged (base, size, state, type, protection, allocation base) with the time, so the allocation
+// that cut it (and where it sits in the block) is named.
+struct FreeBlock { uintptr_t base = 0; size_t size = 0; };
+FreeBlock LargestFree() {
+    FreeBlock best;
+    SYSTEM_INFO si; GetSystemInfo(&si);
+    uintptr_t a = reinterpret_cast<uintptr_t>(si.lpMinimumApplicationAddress);
+    const uintptr_t end = reinterpret_cast<uintptr_t>(si.lpMaximumApplicationAddress);
+    MEMORY_BASIC_INFORMATION mbi;
+    while (a < end && VirtualQuery(reinterpret_cast<void*>(a), &mbi, sizeof(mbi)) == sizeof(mbi)) {
+        if (mbi.State == MEM_FREE && mbi.RegionSize > best.size) { best.base = reinterpret_cast<uintptr_t>(mbi.BaseAddress); best.size = mbi.RegionSize; }
+        const uintptr_t next = reinterpret_cast<uintptr_t>(mbi.BaseAddress) + mbi.RegionSize;
+        if (next <= a) break;
+        a = next;
+    }
+    return best;
+}
+void VaWatchTick(unsigned long long now) {
+    static int on = -1;
+    if (on < 0) { char v[8] = {}; on = GetEnvironmentVariableA("GTA2DX9_VA_WATCH", v, sizeof v) && v[0] == '1'; }
+    if (!on) return;
+    static unsigned long long start = 0, last = 0;
+    if (!start) start = now;
+    if (now - start > 180000 || now - last < 1000) return;
+    last = now;
+    static FreeBlock prev;
+    const FreeBlock cur = LargestFree();
+    if (prev.size && cur.size + (32u << 20) < prev.size) {
+        Log("vawatch: t=%.1f s largest free block %08lx+%.1fMB -> %08lx+%.1fMB; inside the old block now:", (now - start) / 1000.0,
+            static_cast<unsigned long>(prev.base), prev.size / 1048576.0, static_cast<unsigned long>(cur.base), cur.size / 1048576.0);
+        MEMORY_BASIC_INFORMATION mbi; uintptr_t a = prev.base; int n = 0;
+        while (a < prev.base + prev.size && n < 24 && VirtualQuery(reinterpret_cast<void*>(a), &mbi, sizeof(mbi)) == sizeof(mbi)) {
+            if (mbi.State != MEM_FREE)
+                Log("vawatch:   %08lx +%.2fMB state %s type %s protect %lx allocbase %08lx", static_cast<unsigned long>(reinterpret_cast<uintptr_t>(mbi.BaseAddress)),
+                    mbi.RegionSize / 1048576.0, mbi.State == MEM_COMMIT ? "commit" : "reserve",
+                    mbi.Type == MEM_IMAGE ? "image" : mbi.Type == MEM_MAPPED ? "mapped" : "private", static_cast<unsigned long>(mbi.Protect),
+                    static_cast<unsigned long>(reinterpret_cast<uintptr_t>(mbi.AllocationBase)));
+            ++n;
+            const uintptr_t next = reinterpret_cast<uintptr_t>(mbi.BaseAddress) + mbi.RegionSize;
+            if (next <= a) break;
+            a = next;
+        }
+    }
+    if (!prev.size || cur.size != prev.size) {
+        static int logged = 0;
+        if (logged++ < 200) Log("vawatch: t=%.1f s largest free %08lx+%.1fMB", (now - start) / 1000.0, static_cast<unsigned long>(cur.base), cur.size / 1048576.0);
+    }
+    prev = cur;
 }
 
 // VmSize / VmRSS / RssAnon / RssFile of this process as Linux sees it. Under Wine a file is
@@ -358,6 +426,7 @@ void MemStatsTick() {
         MemStatsLog("emergency", 2);
     }
     if (g_emergency.load() && CurrentViewMode() != ViewMode::Classic) SetViewMode(ViewMode::Classic);
+    VaWatchTick(GetTickCount64());
     if (!MemLogOn()) return;
     const unsigned long long now = GetTickCount64();
     if (!g_startTick) g_startTick = now;
