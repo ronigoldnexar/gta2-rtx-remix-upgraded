@@ -170,3 +170,55 @@ blocks; props rules read the row of the cell they place in. Kit palettes are bak
 2. Kit under Remix: keep or drop the facade POM on tiles the skin recesses.
 3. Archetype labels: accept the rule classifier (cheap, explainable, ~40 % "block") or pay for a Qwen3-VL pass.
 4. Fade policy for kit shadows in the plain renderer.
+
+## 8. Round 2 (13 Nov, after review): bolder kit, decisions applied
+
+Decisions from the review and what was done:
+
+1. **Kits regenerated at stage time, never committed**: `make stage DISTRICTS_DATA=<game/data> DISTRICTS_PY=<python with
+   numpy+Pillow> [DISTRICTS_MODE=all]` runs `tools/districts/build_kits.sh` (catalogue, analysis with the committed
+   one-time Qwen archetypes, pick, kit, materials) into `stage/gta2dx9_districts`. Deterministic: two independent
+   builds of the three levels' kits and materials are byte-identical. `assets/districts/` is gone from git.
+2. **No Remix facade parallax on kit tiles**: `remix_nopom.py hashes` lists the Remix hash of every tile a kit skins
+   (108 for the three POC streets), `remix_nopom.py patch` writes a layer copy (hard links, mod.usda / mod_wet.usda
+   unlinked and rewritten) with `displace_in = 0` and no height texture on those prims (93 in the shipped layer).
+   Caveat: the tile hash is shared, so an un-kitted building using the same tile also loses its parallax until the
+   kit covers the whole city.
+3. **Qwen3-VL for the generic class only** (`qwen_archetype.py`): each "block" building's longest street wall as an
+   elevation, Qwen3-VL-8B-Instruct (Apache-2.0, host cache) picks one archetype + confidence; answers >= 0.6 replace
+   "block" in analyze.py. Runtime on one L4 (shared GPU 0): 37 s model load, 3.2-3.3 s a building at batch 4-8;
+   ~1 250 generic buildings over the three levels is ~70 min, once per map. Downtown so far: 444 asked, 401
+   confident (255 brick tenement, 83 brownstone, 44 warehouse, 30 civic, 27 shopfront row, 5 office tower). The
+   result is committed per level as `tools/districts/qwen/<lvl>.json` (ids and labels, no art).
+4. **Kit shadows fade with the kit**: the kit's triangles are a third set in the plain renderer's shadow pass that
+   samples an 8x8 ordered-dither cell of the alpha atlas against 1 - the kit's fade, so the shadow fills in over the
+   move instead of appearing in one frame (`PostFx::SetKitShadow`).
+5. **Bolder kit** (`kit.py` v2; depth ladder in its header; nothing beyond 0.25 block): window reveals 0.15 (was
+   0.065) with sill ledges and hood moulds with drips scaled to the window; piers standing out where the art paints
+   vertical bands (`analyze.py pier_spans`) or between window bays; string courses at floor lines where the art has a
+   band; a heavy cornice (frieze, dentil course, brackets, a crown at 0.25 and a cap, all in the wall's own top-band
+   art); a rusticated three-course plinth. Residential: stoops with cheek walls and rails, bay windows (the
+   window's own art carried out) and balconies on hashed window columns, fire escapes on side and rear runs first,
+   a timber water tower. Industrial: sawtooth (factory) or monitor (warehouse) roofs over the largest all-interior
+   roof rectangle, loading docks (platform, rubber bumpers, canopy on tie rods), downpipes and a duct (never across a
+   window), stacks, vents. Shopfronts: the sign band stood out and a deep awning whose colour is picked from the art.
+6. **Openings**: cut only above a confidence from the opening's contrast against the art round it; edges snapped to
+   the strongest luminance step within 3 texels; tops and bottoms of one kind unified within a tile (one window
+   grid); wide, short or lighter-than-wall "windows" (panels, plaques, vents) are not cut. This removed the jagged
+   dark cut-outs of round 1.
+7. **The POC covers a street**: the picked building and every building whose footprint comes within 6 cells
+   (Downtown 19 buildings / 106k triangles, Residential 9 / 44k, Industrial 9 / 32k). The pick now also scores what
+   the kit can build (street doors, upper windows): Residential #1250 (brownstone row under the elevated rail),
+   Industrial #1136 (brick factory); Downtown #490 unchanged.
+8. **Capture**: a standing ped's logged facing comes from his sprite and can be half a turn off, so the turn-to-face
+   helper now walks from the warp point toward the wall (he ends facing it); third and first person face the
+   building.
+
+Whole-city numbers with the v2 kit (one CPU): Downtown 3.24 M triangles / 241 MB / 29 s kit / 228 s QA, 41 %
+flagged; Residential 2.39 M / 178 MB / 22 s / 169 s, 39 %; Industrial 1.61 M / 119 MB / 14 s / 96 s, 35 %. The
+streaming + LOD plan of section 4 is now a must: a POC street is 30-106k triangles.
+
+Remix: the RTX PRO 6000 is shared with the weather agent, whose back-to-back runs reboot the VM; two of my runs there
+were killed by those reboots (the second after it had the Downtown day third, first and street frames, kept). The
+remaining Remix captures ran on Tokyo's L4 through `gamerun/remix_l4.sh` (the documented L4 path-tracing route) with
+the no-parallax layer copy.
