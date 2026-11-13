@@ -202,3 +202,22 @@ nothing to change.
 - Not verified: night fog, rain plus fog (same code path, not framed), and a Remix take (no patches drawn there).
   Patches between 18 and 45 blocks at fog 0 now fade slightly (f up to about 0.25), which is the correct
   composite with the fogged ground; the old pass left them a little too dark there.
+
+## WEATHER-V2: who sets the shared Remix keys (13 Nov 2026)
+
+The day/night cycle, night exposure and the lamps belong to the LIGHTING work (branch lighting-v1). Weather and
+the clock meet in ONE place: `dll/src/time_of_day.cpp` (`UpdateSky` / `UpdateDayLook`) composes the final values of
+the shared Remix keys from the clock and one weather input, `TimeOfDaySetOvercast(0..1)` (set every frame by
+`dll/src/weather.cpp` from max(cloud, rain overcast); 0 with [weather] off). The weather code pushes none of these
+keys itself:
+
+| key | composed in time_of_day.cpp from |
+|---|---|
+| rtx.atmosphere.cloudEnabled / cloudShadowStrength / cloudCoverageMean | clear-sky setting, overcast (coverage 0.29 + 0.66 o) |
+| rtx.atmosphere.directionalLightRadianceScale | 1 - 0.7 o |
+| rtx.atmosphere.sunShadowSoftnessDeg | 0.4 + 5 o |
+| rtx.atmosphere.skyIndirectRadianceScale | day/night fill x (1 + 0.8 o) |
+| rtx.autoExposure.* / rtx.tonemap.exposureBias | clock only (LIGHTING) |
+
+Keys the weather code does push (not shared): rtx.weather.precipitation.* stays at intensity 0 (our own drops
+are drawn instead; the runtime's particles were not seen on this setup), and nothing else.

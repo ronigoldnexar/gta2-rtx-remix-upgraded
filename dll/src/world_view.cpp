@@ -4249,6 +4249,8 @@ void WorldView::RenderFrame() {
         // is redrawn every frame and the world under it moves - so the layer is
         // cleared every frame there, which is what it always did.
         if (renderer_.BeginUiLayer(worldUploaded_)) {
+            // WEATHER-V2: rain on the lens in first person (under the HUD); nothing in the other views.
+            renderer_.DrawLensDrops(g_presentStreet && CurrentViewMode() == ViewMode::FirstPerson ? g_presentMix : 0.0f);
             overlay_.Flush(renderer_.Device(), renderer_.Width(), renderer_.Height());
             renderer_.EndUiLayer();
         } else {

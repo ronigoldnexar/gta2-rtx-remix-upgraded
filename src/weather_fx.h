@@ -12,6 +12,7 @@
 
 #include <d3d9.h>
 
+#include <cstdint>
 #include <vector>
 
 #include "math3d.h"
@@ -78,6 +79,17 @@ private:
     IDirect3DTexture9* remixRain_[kRemixRainLevels] = {};
     std::vector<RainTexVertex> texVerts_[kRemixRainLevels];
     void DrawRainRemix(const WeatherState& w);
+public:
+    // WEATHER-V2: rain drops on the lens in the first-person views, drawn into the UI layer before the HUD
+    // (both renderers: screen space, never path traced). weight: the first-person view's share (0 none).
+    void DrawLensDrops(int width, int height, float weight);
+private:
+    struct LensDrop { float x, y, r, born, life, slide, vy; };
+    std::vector<LensDrop> lensDrops_;
+    IDirect3DTexture9* dropTex_ = nullptr;
+    double lensClock_ = -1.0;
+    float lensSpawn_ = 0.0f;
+    uint32_t lensSeed_ = 0x51ED270Bu;
     IDirect3DDevice9* device_ = nullptr;
     IDirect3DTexture9* puddles_ = nullptr;
     IDirect3DStateBlock9* saved_ = nullptr;
