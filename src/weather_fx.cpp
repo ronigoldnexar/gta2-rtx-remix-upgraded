@@ -236,7 +236,10 @@ void WeatherFx::DrawRain(const WorldShading& shading) {
     const float light = std::min(1.1f, std::max(0.22f, (shading.ambient.x + shading.ambient.y + shading.ambient.z) / 3.0f +
                                                           0.5f * (shading.sunColour.x + shading.sunColour.y + shading.sunColour.z) / 3.0f));
     // Brighter than the air behind them: a streak is light caught by a falling drop.
-    const Vec3 tint = Vec3{0.80f, 0.84f, 0.90f} * (light * 1.25f + 0.08f);
+    // Night (trailer dry run 13 Nov: "a white curtain"): away from the lamps the streaks are barely there - the floor
+    // of 0.22 read as grey on the near-black street - and the lamps and head lamps carry them (below).
+    const float nightK = Clamp01(w.night);
+    const Vec3 tint = Vec3{0.80f, 0.84f, 0.90f} * (light * (1.25f - 0.45f * nightK) + 0.08f * (1.0f - nightK));
     auto wrap = [](float v, float L) { return v - L * std::floor(v / L + 0.5f); };
 
     // The night lights within the rain box's reach (at most 16, nearest first).
@@ -273,7 +276,7 @@ void WeatherFx::DrawRain(const WorldShading& shading) {
         const float sl = std::sqrt(Dot(side, side));
         if (sl < 1e-4f) continue;
         side = side * (std::max(0.009f, dist * 0.0030f) / sl);
-        float a = (0.30f + 0.25f * w.rain) * fade * g_blend;
+        float a = (0.30f + 0.25f * w.rain) * fade * g_blend * (1.0f - 0.45f * nightK);
         // Light caught from the nearest night lights (lamps, head lamps), by distance and the beam's cone.
         Vec3 lit{0.0f, 0.0f, 0.0f};
         if (nearL.size()) {
@@ -292,7 +295,10 @@ void WeatherFx::DrawRain(const WorldShading& shading) {
             }
         }
         const Vec3 col{std::min(1.0f, tint.x + lit.x), std::min(1.0f, tint.y + lit.y), std::min(1.0f, tint.z + lit.z)};
-        a = std::min(0.85f, a * (1.0f + 1.5f * std::min(1.0f, (lit.x + lit.y + lit.z) / 3.0f)));
+        const float litLum = std::min(1.0f, (lit.x + lit.y + lit.z) / 3.0f);
+        // At night a drop out of every light is mostly not drawn at all (fewer, fainter): rain is seen where light catches it.
+        if (nightK > 0.0f && litLum < 0.04f && Hash01(s * 7u + 40503u) < 0.35f * nightK) continue;
+        a = std::min(0.85f, a * (1.0f + (1.5f + 4.0f * nightK) * litLum));
         const DWORD cBottom = D3DCOLOR_ARGB(static_cast<int>(a * 255.0f), static_cast<int>(col.x * 255.0f),
                                             static_cast<int>(col.y * 255.0f), static_cast<int>(col.z * 255.0f));
         const DWORD cTop = cBottom & 0x00FFFFFFu;   // the tail fades out

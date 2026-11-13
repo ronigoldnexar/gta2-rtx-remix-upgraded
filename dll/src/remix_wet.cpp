@@ -16,6 +16,7 @@
 #include <cstring>
 #include <map>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "log.h"
@@ -235,7 +236,7 @@ remixapi_MeshHandle ChunkMesh(const gta2::Map& map, int chunkX, int chunkZ, int 
 }
 
 void Draw(remixapi_MeshHandle mesh, uint32_t categories, bool blend, int alphaArg1, int alphaArg2, int alphaOp, int alpha,
-          const float (*xf)[4] = nullptr, int tfRgb = -1) {   // xf: a 3x4 world transform (rows), null = identity;
+          const float (*xf)[4] = nullptr, int tfRgb = -1, int alphaRef = 1) {   // xf: a 3x4 world transform (rows), null = identity;
           // tfRgb >= 0: the colour too comes from the texture factor (0xRRGGBB), as the alpha does
     // The instance state of the probe board's cubes that render (p1a): colour = texture modulate,
     // blend factors ONE/ZERO unless blending, alpha test on (ref 1) when not blending.
@@ -246,7 +247,7 @@ void Draw(remixapi_MeshHandle mesh, uint32_t categories, bool blend, int alphaAr
     b.sType = REMIXAPI_STRUCT_TYPE_INSTANCE_INFO_BLEND_EXT;
     const bool legacy = Dev("wx_legacy_draw", 0) != 0;   // A/B: the p0 state that rendered nothing opaque
     b.alphaTestEnabled = (!blend && !legacy) ? 1 : 0;
-    b.alphaTestReferenceValue = 1;
+    b.alphaTestReferenceValue = static_cast<uint32_t>(alphaRef);
     b.alphaTestCompareOp = 6;
     b.alphaBlendEnabled = blend ? 1 : 0;
     b.srcColorBlendFactor = blend ? 6 : 1;
@@ -998,11 +999,12 @@ void DrawRainProxies(float ex, float ey, float ez, float viewMix) {
 // colour (by the daylight), 0: off.
 constexpr int kFogSlabs = 12, kFogLevels = 8;
 remixapi_MeshHandle g_fogQuad = nullptr;
-remixapi_MaterialHandle g_fogMat[2][kFogLevels] = {};
-int g_fogMode = 0;
+std::map<uint64_t, remixapi_MaterialHandle> g_fogMat;
+int g_fogMode = 0, g_fogEmissivePct = 100;
 
 remixapi_MaterialHandle FogMaterial(int mode, int level) {
-    remixapi_MaterialHandle& h = g_fogMat[mode - 1][level];
+    const uint64_t key = (static_cast<uint64_t>(mode) << 40) | (static_cast<uint64_t>(level) << 32) | static_cast<uint32_t>(g_fogEmissivePct);
+    remixapi_MaterialHandle& h = g_fogMat[key];
     if (h) return h;
     remixapi_MaterialInfoOpaqueEXT op = {};
     op.sType = REMIXAPI_STRUCT_TYPE_MATERIAL_INFO_OPAQUE_EXT;
@@ -1013,8 +1015,8 @@ remixapi_MaterialHandle FogMaterial(int mode, int level) {
     op.useDrawCallAlphaState = 1;
     remixapi_MaterialInfo info = {};
     info.sType = REMIXAPI_STRUCT_TYPE_MATERIAL_INFO; info.pNext = &op;
-    info.hash = 0x464F470000000000ull | (static_cast<uint64_t>(mode) << 8) | static_cast<uint64_t>(level);
-    const float e = mode == 2 ? 0.02f + 1.2f * level / (kFogLevels - 1.0f) : 0.0f;
+    info.hash = 0x464F470000000000ull ^ key;
+    const float e = mode == 2 ? (0.02f + 1.2f * level / (kFogLevels - 1.0f)) * g_fogEmissivePct / 100.0f : 0.0f;
     info.emissiveColorConstant = {0.80f, 0.82f, 0.86f};
     info.emissiveIntensity = e;
     info.filterMode = 1; info.wrapModeU = 2; info.wrapModeV = 2;
@@ -1024,17 +1026,76 @@ remixapi_MaterialHandle FogMaterial(int mode, int level) {
     return h;
 }
 
-remixapi_MeshHandle FogQuad(remixapi_MaterialHandle mat) {
-    // x -1..1, y 0..1, facing -z (the eye). The material is per instance? No: per surface, so one mesh per material
-    // would be needed; one quad mesh is made per (mode, level) and cached by the material.
-    static std::map<remixapi_MaterialHandle, remixapi_MeshHandle> meshes;
-    auto it = meshes.find(mat);
+// Mode 3 (fx2-fx4: blended slabs drew dark grey whatever their emission): opaque emissive slabs cut by an alpha test
+// against a noise texture (a screen door), the cut-off per slab its coverage; Ray Reconstruction resolves the door
+// into a partial veil the way it resolves foliage.
+std::wstring g_ditherPath;
+bool WriteDitherDds(const std::wstring& path) {
+    const int n = 64;
+    std::vector<uint8_t> px(static_cast<size_t>(n) * n * 4);
+    // white noise (fx5: interleaved gradient noise drew vertical bars through the near slabs)
+    for (int y = 0; y < n; ++y) for (int x = 0; x < n; ++x) {
+        const float v = Hash2(x * 31 + 7, y * 17 + 3);
+        uint8_t* q = &px[(static_cast<size_t>(y) * n + x) * 4];
+        q[0] = q[1] = q[2] = 255; q[3] = static_cast<uint8_t>(1 + v * 253.0f);
+    }
+    uint32_t header[32] = {};
+    header[0] = 0x20534444; header[1] = 124; header[2] = 0x100F; header[3] = n; header[4] = n; header[5] = n * 4;
+    header[19] = 32; header[20] = 0x41; header[22] = 32;
+    header[23] = 0x00FF0000; header[24] = 0x0000FF00; header[25] = 0x000000FF; header[26] = 0xFF000000; header[27] = 0x1000;
+    FILE* f = _wfopen(path.c_str(), L"wb");
+    if (!f) return false;
+    const bool ok = fwrite(header, 4, 32, f) == 32 && fwrite(px.data(), 1, px.size(), f) == px.size();
+    fclose(f);
+    return ok;
+}
+
+remixapi_MaterialHandle FogDitherMaterial(int level) {
+    const uint64_t key = (3ull << 40) | (static_cast<uint64_t>(level) << 32) | static_cast<uint32_t>(g_fogEmissivePct);
+    remixapi_MaterialHandle& h = g_fogMat[key];
+    if (h) return h;
+    if (g_ditherPath.empty()) {
+        wchar_t exe[MAX_PATH] = {};
+        GetModuleFileNameW(nullptr, exe, MAX_PATH);
+        std::wstring dir = exe; dir = dir.substr(0, dir.find_last_of(L"\\/")) + L"\\gta2dx9_cache";
+        CreateDirectoryW(dir.c_str(), nullptr);
+        g_ditherPath = dir + L"\\wx_fog_dither.dds";
+        if (!WriteDitherDds(g_ditherPath)) { g_ditherPath.clear(); return nullptr; }
+    }
+    remixapi_MaterialInfoOpaqueEXT op = {};
+    op.sType = REMIXAPI_STRUCT_TYPE_MATERIAL_INFO_OPAQUE_EXT;
+    const float day = level / (kFogLevels - 1.0f);
+    const float alb = 0.05f + 0.65f * day;
+    op.albedoConstant = {alb, alb * 1.02f, alb * 1.06f};
+    op.opacityConstant = 1.0f;
+    op.roughnessConstant = 1.0f;
+    op.useDrawCallAlphaState = 1;
+    remixapi_MaterialInfo info = {};
+    info.sType = REMIXAPI_STRUCT_TYPE_MATERIAL_INFO; info.pNext = &op;
+    info.hash = 0x464F470000000000ull ^ key;
+    info.albedoTexture = g_ditherPath.c_str();
+    info.emissiveTexture = g_ditherPath.c_str();
+    info.emissiveColorConstant = {0.80f, 0.82f, 0.86f};
+    info.emissiveIntensity = (0.02f + 0.9f * day) * g_fogEmissivePct / 100.0f;
+    info.filterMode = 0; info.wrapModeU = 0; info.wrapModeV = 0;   // nearest, repeat: a crisp door
+    const remixapi_ErrorCode rc = RemixApi()->CreateMaterial(&info, &h);
+    Log("remix fog: dither material level %d (emissive %.2f) -> %d", level, info.emissiveIntensity, static_cast<int>(rc));
+    if (rc != REMIXAPI_ERROR_CODE_SUCCESS) h = nullptr;
+    return h;
+}
+
+remixapi_MeshHandle FogQuad(remixapi_MaterialHandle mat, int variant = 0) {
+    // x -1..1, y 0..1, facing -z (the eye); one mesh per (material, variant). The variants shift the screen door's
+    // texture by a fraction of its tile, cycled by frame, so Ray Reconstruction averages the door into a veil.
+    static std::map<std::pair<remixapi_MaterialHandle, int>, remixapi_MeshHandle> meshes;
+    auto it = meshes.find({mat, variant});
     if (it != meshes.end()) return it->second;
     remixapi_HardcodedVertex v[4] = {};
     const float px[4] = {-1, 1, 1, -1}, py[4] = {0, 0, 1, 1};
     for (int k = 0; k < 4; ++k) {
         v[k].position[0] = px[k]; v[k].position[1] = py[k]; v[k].position[2] = 0.0f;
-        v[k].normal[2] = -1.0f; v[k].texcoord[0] = (px[k] + 1) * 0.5f; v[k].texcoord[1] = py[k]; v[k].color = 0xFFFFFFFFu;
+        v[k].normal[2] = -1.0f; v[k].texcoord[0] = px[k] * 12.0f + 0.37f * variant; v[k].texcoord[1] = py[k] * 8.0f + 0.61f * variant;
+        v[k].color = 0xFFFFFFFFu;
     }
     uint32_t idx[6] = {0, 1, 2, 0, 2, 3};
     remixapi_MeshInfoSurfaceTriangles surface = {};
@@ -1042,32 +1103,34 @@ remixapi_MeshHandle FogQuad(remixapi_MaterialHandle mat) {
     surface.indices_values = idx; surface.indices_count = 6;
     surface.skinning_hasvalue = 0; surface.material = mat;
     remixapi_MeshInfo mesh = {};
-    mesh.sType = REMIXAPI_STRUCT_TYPE_MESH_INFO; mesh.hash = 0x464F475100000000ull ^ reinterpret_cast<uintptr_t>(mat);
+    mesh.sType = REMIXAPI_STRUCT_TYPE_MESH_INFO; mesh.hash = (0x464F475100000000ull ^ reinterpret_cast<uintptr_t>(mat)) + (static_cast<uint64_t>(variant) << 48);
     mesh.surfaces_values = &surface; mesh.surfaces_count = 1;
     remixapi_MeshHandle h = nullptr;
     if (RemixApi()->CreateMesh(&mesh, &h) != REMIXAPI_ERROR_CODE_SUCCESS) h = nullptr;
-    meshes[mat] = h;
+    meshes[{mat, variant}] = h;
     return h;
 }
 
 void DrawFogProxy(float ex, float ey, float ez, float viewMix, const float fwd[3]) {
     const gta2::WeatherState& w = gta2::WeatherNow();
     static DWORD read = 0;
-    if (GetTickCount() - read >= 1000) { read = GetTickCount(); g_fogMode = GetPrivateProfileIntA("weather", "remix_fog_proxy", 0, g_ini); }
-    if (g_fogMode < 1 || g_fogMode > 2 || !w.active || w.fog < 0.03f || viewMix < 0.5f) return;
+    if (GetTickCount() - read >= 1000) { read = GetTickCount(); g_fogMode = GetPrivateProfileIntA("weather", "remix_fog_proxy", 0, g_ini);
+        g_fogEmissivePct = GetPrivateProfileIntA("weather", "remix_fog_emissive_percent", 100, g_ini); }
+    if (g_fogMode < 1 || g_fogMode > 3 || !w.active || w.fog < 0.03f || viewMix < 0.5f) return;
     // The fog length: the plain renderer's fog end eased the same way (fog 0.5 -> ~40 blocks, a bank -> ~12).
     const float fe = 1.0f - (1.0f - w.fog) * (1.0f - w.fog);
     const float end = 120.0f + (12.0f - 120.0f) * fe;
-    const float D = end / 2.6f;
+    const float D = end / (g_fogMode == 3 ? 1.5f : 2.6f);   // fx5: /2.6 left only ~12 blocks of street
     float fx = fwd[0], fz = fwd[2];
     const float fl = std::sqrt(fx * fx + fz * fz);
     if (fl < 1e-3f) return;   // straight down (classic): no slabs
     fx /= fl; fz /= fl;
     const float day = 1.0f - w.night;
     const int level = (std::max)(0, (std::min)(kFogLevels - 1, static_cast<int>(day * (kFogLevels - 1) + 0.5f)));
-    remixapi_MaterialHandle mat = FogMaterial(g_fogMode, g_fogMode == 2 ? level : 0);
+    remixapi_MaterialHandle mat = g_fogMode == 3 ? FogDitherMaterial(level) : FogMaterial(g_fogMode, g_fogMode == 2 ? level : 0);
     if (!mat) return;
-    remixapi_MeshHandle quad = FogQuad(mat);
+    static unsigned frame = 0; ++frame;
+    remixapi_MeshHandle quad = FogQuad(mat, g_fogMode == 3 ? static_cast<int>(frame & 7) : 0);
     if (!quad) return;
     // The fog's colour: a pale grey-blue by day, a dark blue-grey at night (the slab's albedo, or its colour under emission).
     auto mix = [&](float d, float n) { return static_cast<int>(255.0f * (n + (d - n) * day) + 0.5f); };
@@ -1087,7 +1150,12 @@ void DrawFogProxy(float ex, float ey, float ez, float viewMix, const float fwd[3
         // The wet film's blend state (alpha from the texture factor alone), which renders under RR; DrawXf's
         // texture x factor alpha left the untextured slabs at 0 (fx1: no fog in any mode).
         const float xf[3][4] = {{ax[0], ay[0], az[0], o[0]}, {ax[1], ay[1], az[1], o[1]}, {ax[2], ay[2], az[2], o[2]}};
-        Draw(quad, 0, true, 3, 0, 1, a255, xf, fogRgb);
+        if (g_fogMode == 3) {
+            // opaque, alpha tested: texels whose noise is under the slab's coverage pass (texture alpha, ref = 255 x (1 - a))
+            Draw(quad, 0, false, 1, 0, 1, 255, xf, -1, (std::max)(1, 255 - a255));
+        } else {
+            Draw(quad, 0, true, 3, 0, 1, a255, xf, fogRgb);
+        }
     }
 }
 
