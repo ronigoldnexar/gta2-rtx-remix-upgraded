@@ -99,6 +99,10 @@ struct TimeOfDaySettings {
     float twilightAirglow = 0.14f;
     // Remix's global emissive scale by day (rtx.emissiveIntensity; 1 at night); 0 leaves rtx.conf's.
     float dayEmissive = 0.20f;
+    // The moon at full night: its light's share of the sun's (rtx.atmosphere.directionalLightRadianceScale) and its
+    // shadow softness in degrees (rtx.atmosphere.sunShadowSoftnessDeg), eased in through the twilight.
+    float nightMoonScale = 0.5f;
+    float nightMoonSoftDeg = 10.0f;
     float daySkyFill = 3.0f;
     float nightSkyFill = 1.0f;
 

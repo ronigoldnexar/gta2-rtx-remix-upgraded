@@ -199,8 +199,15 @@ void UpdateDayLook(float elevation) {
     // sun), 1 at night, eased with the same twilight ramp. 0 leaves the key to rtx.conf.
     if (s.dayEmissive > 0.0f) PushFloat("rtx.emissiveIntensity", 1.0f + (s.dayEmissive - 1.0f) * t);
     // WEATHER-V2 overcast: the sun's direct light dimmed and its shadows softened (live keys, gate 0).
-    PushFloat("rtx.atmosphere.directionalLightRadianceScale", 1.0f - 0.7f * g_overcast);
-    PushFloat("rtx.atmosphere.sunShadowSoftnessDeg", 0.4f + 5.0f * g_overcast);
+    // LIGHTING-V1 (gate B, owner: "the moon reads as a sun": crisp long shadows, bright even paving): at night the
+    // atmosphere's moon is the same distant light as the sun, so through the twilight it is dimmed to nightMoonScale and
+    // its shadows softened to nightMoonSoftDeg (a hazy moon: faint, diffuse shadows), composed with the weather's
+    // overcast (the same two keys, WEATHER-V2) by taking the dimmer light and the softer shadow.
+    const float night = 1.0f - t;
+    const float moonScale = 1.0f + (s.nightMoonScale - 1.0f) * night;
+    const float softDeg = 0.4f + (s.nightMoonSoftDeg - 0.4f) * night;
+    PushFloat("rtx.atmosphere.directionalLightRadianceScale", (1.0f - 0.7f * g_overcast) * moonScale);
+    PushFloat("rtx.atmosphere.sunShadowSoftnessDeg", (std::max)(0.4f + 5.0f * g_overcast, softDeg));
     const int state = t >= 1.0f ? 1 : (t <= 0.0f ? 0 : 2);
     // FIX-REMIX-NIGHT-10 (owner 11 Nov: "in the 3D view the night is dark but slightly lit; in first person the world gets
     // brighter"): the renderer pushes only a CAP on Remix's auto-exposure, and the meter then adapts to the frame: a

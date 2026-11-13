@@ -153,7 +153,7 @@ void LiftOutOfGround(float x, float* y, float z) {
 // the area ratio to give the power a lamp of the default size gives.
 // Where DrawProps moved the post off the lamp to a kerb or a wall (MapLampPosts),
 // the lamp itself is put out and the glow and the pool both go to the moved lantern.
-constexpr float kLampPoolEmitter = 0.05f;          // tiles; less on a short post
+constexpr float kLampPoolEmitter = 0.12f;          // tiles; less on a short post
 constexpr float kLampPoolGap = 0.01f;              // between the dish and the sphere
 // The pool's power over a default-size lamp's: it hangs 1-3 tiles over the paving where
 // the facade lamps sit half a tile from their wall, and at 1x (fxr_lamp_after) the post
@@ -1130,6 +1130,24 @@ void LightsSubmitMapLampsNear(const float* eye, float radius, int cap, float wei
     weight = weight < 0.0f ? 0.0f : (weight > 1.0f ? 1.0f : weight);
     g_farLampWeight = weight;
     memcpy(g_lastEye, eye, sizeof(g_lastEye)); g_haveEye = true;
+    {   // LIGHTING-V1 probe, GTA2DX9_LOG_REMIX_LAMPS=1: every 256 frames the game lights (lamps, lanterns, pools, far lamps)
+        // within 9 tiles of the eye as Remix gets them: why one lamp pools and another does not.
+        static const bool logLamps = [] { const char* e = getenv("GTA2DX9_LOG_REMIX_LAMPS"); return e && e[0] == '1'; }();
+        if (logLamps && (g_frame & 255u) == 7u) {
+            int n = 0;
+            for (const RemixTrackedLight& t : g_tracked) {
+                if (t.def.source != kLightSourceGame) continue;
+                const float dx = t.def.pos[0] - eye[0], dy = t.def.pos[1] - eye[1], dz = t.def.pos[2] - eye[2];
+                const float d = std::sqrt(dx * dx + dy * dy + dz * dz);
+                if (d > 9.0f || n >= 24) continue;
+                ++n;
+                Log("remix lamps: d %.1f at %.2f,%.2f,%.2f class %d rgb %.2f,%.2f,%.2f i %.3f r %.2f emitter %.3f spot %d cone %.0f day %.2f %s%s",
+                    d, t.def.pos[0], t.def.pos[1], t.def.pos[2], t.gameClass, t.def.rgb[0], t.def.rgb[1], t.def.rgb[2], t.def.intensity,
+                    t.def.radius, t.def.emitterRadius, t.def.spot ? 1 : 0, t.def.coneAngleDeg, LightDaylight(t), t.moving ? "moving " : "",
+                    t.drawn ? "drawn" : "not drawn");
+            }
+        }
+    }
     SubmitWindowLightsNear(eye, weight);   // FIX-REMIX-NIGHT-6: lit windows (own probe bit 9, key remix_window_pct)
     if ((g_probeMask >> 5) & 1) return;
     if (!g_settings.enabled || !g_settings.injectStatic || g_mapLampRecords.empty() || cap <= 0) {
@@ -1420,7 +1438,10 @@ void FitLampsToPosts() {
                 for (int k = 0; k < 3; ++k) pool.rgb[k] = kWarm[k] * luma / lumaWarm;
             }
         }
-        const float r = (std::min)(kLampPoolEmitter, 0.5f * head.glassRadius);
+        // LIGHTING-V1 (gate B: a lamp threw a crisp, long, sun-like shadow of a van across the plaza): the pool's emitter
+        // was capped by the lantern glass (0.018 block), a point source; it now sits under the dish at 0.12, so its
+        // shadows are soft. Its power is kept by the (reference / r)^2 term below.
+        const float r = kLampPoolEmitter;
         pool.emitterRadius = r;
         pool.pos[0] = head.centre.x;
         pool.pos[1] = head.dishBottom - r - kLampPoolGap;
