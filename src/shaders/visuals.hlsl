@@ -302,8 +302,16 @@ float4 ps_light(LightOut i, float2 vpos : VPOS) : COLOR0 {
     float cone = 1.0;
     if (i.spot.w > -1.5) {   // a spot: w is cos of the half angle
         float c = dot(-l, i.spot.xyz);
-        cone = saturate((c - i.spot.w) / max(1.0 - i.spot.w, 1e-3) * 2.5);
-        cone *= cone;
+        // LIGHTING-V1 (qav120: a head-lamp pool on a close wall ended in a ruler-straight edge, 1.8x in two rows): the
+        // cone used to reach full strength 40 % of the way in from its edge and was squared, a step a few pixels wide
+        // where a near wall cuts the cone; now a smoothstep across the whole cone, so the edge is a falloff.
+        float u = saturate((c - i.spot.w) / max(1.0 - i.spot.w, 1e-3));
+        cone = u * u * (3.0 - 2.0 * u);
+        // LIGHTING-V1 (qav111: a head lamp a block from a facade clipped it to a flat white lobe): the near field of a
+        // beam is held back (a real lamp's pattern throws its light ahead, not onto a wall at the bumper): 40 % at the
+        // lamp, full from 1.6 blocks out.
+        float nearF = saturate(dist / 1.6);
+        att *= 0.40 + 0.60 * nearF * nearF;
     }
     float fog = 1.0 - saturate((p.z - cLight.z) * cLight.w);
     return float4(i.colour.rgb * (att * ndl * cone * fog), 0);

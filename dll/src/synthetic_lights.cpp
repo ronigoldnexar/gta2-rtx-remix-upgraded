@@ -1773,6 +1773,12 @@ void SyntheticLightsLoad(const char* path) {
     if (!f) return;   // first run
 
     int section = -1;
+    // LIGHTING-V1 (gate B: the sirens' compiled defaults and the live ini disagreed - a 43-radiance 18.7 deg beam from
+    // the v1.1 effects ini every install carries, against LIGHTBAR's 10 at 40 deg - so a test of one was not a test of
+    // the other). A [Sirens] section is read only from a file whose [general] says SirensVersion=2 (written by this
+    // build's Save); the v1.1 file's tuning is ignored and the compiled defaults stand. Its Enabled line still counts.
+    bool sirensCurrent = false;
+    int sirensIgnored = 0;
     char line[512];
     while (fgets(line, sizeof(line), f)) {
         char* s = TrimInPlace(line);
@@ -1799,7 +1805,8 @@ void SyntheticLightsLoad(const char* path) {
         char* value = TrimInPlace(eq + 1);
 
         if (section == -2) {
-            if (_stricmp(key, "Enabled") == 0) g_settings.enabled = atoi(value) != 0;
+            if (_stricmp(key, "SirensVersion") == 0) sirensCurrent = atoi(value) >= 2;
+            else if (_stricmp(key, "Enabled") == 0) g_settings.enabled = atoi(value) != 0;
             else if (_stricmp(key, "PerModelBeams") == 0) g_settings.perModelBeams = atoi(value) != 0;
             else if (_stricmp(key, "DrivenNeedsDriver") == 0) g_settings.drivenNeedsDriver = atoi(value) != 0;
             else if (_stricmp(key, "DrivenAllowsMovement") == 0) g_settings.drivenAllowsMovement = atoi(value) != 0;
@@ -1826,6 +1833,7 @@ void SyntheticLightsLoad(const char* path) {
             continue;
         }
         if (section < 0) continue;
+        if (section == kSynthSiren && !sirensCurrent && _stricmp(key, "Enabled") != 0) { ++sirensIgnored; continue; }
         SyntheticCategorySettings& c = g_settings.category[section];
         if (_stricmp(key, "Enabled") == 0) c.enabled = atoi(value) != 0;
         else if (_stricmp(key, "Color") == 0) sscanf(value, "%f %f %f", &c.rgb[0], &c.rgb[1], &c.rgb[2]);
@@ -1874,7 +1882,8 @@ void SyntheticLightsLoad(const char* path) {
     }
     fclose(f);
     g_dirty = false;
-    Log("synthetic lights: loaded %s", g_path);
+    Log("synthetic lights: loaded %s%s", g_path,
+        sirensIgnored ? " ([Sirens] tuning from a pre-SirensVersion=2 file ignored: the compiled siren defaults stand)" : "");
 }
 
 void SyntheticLightsSave() {
@@ -1899,6 +1908,7 @@ void SyntheticLightsSave() {
     fprintf(f, "; vehicle list.\n");
 
     fprintf(f, "\n[general]\n");
+    fprintf(f, "SirensVersion=2\n");   // LIGHTING-V1: this file's [Sirens] is read back (see SyntheticLightsLoad)
     fprintf(f, "Enabled=%d\n", g_settings.enabled ? 1 : 0);
     fprintf(f, "DrivenWindowMs=%u\n", g_settings.drivenWindowMs);
     fprintf(f, "DrivenMinMovement=%.5f\n", g_settings.drivenMinMovement);

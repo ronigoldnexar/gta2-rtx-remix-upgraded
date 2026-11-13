@@ -193,6 +193,11 @@ void UpdateDayLook(float elevation) {
         bump = bump * bump * (3.0f - 2.0f * bump);
         PushFloat("rtx.atmosphere.nightSkyBrightness", (s.nightAirglow + (s.twilightAirglow - s.nightAirglow) * bump) * (1.0f - 0.6f * g_overcast));
     }
+    // LIGHTING-V1 (gate B: car tail-lamp lenses glowed at noon under Remix): every emissive in the mod (car lamp lenses,
+    // lit signs, windows) is baked at its night strength and Remix has no per-material clock, so the runtime's global
+    // emissive scale (rtx.emissiveIntensity) follows the daylight: dayEmissive by day (a lens reads as coloured glass in the
+    // sun), 1 at night, eased with the same twilight ramp. 0 leaves the key to rtx.conf.
+    if (s.dayEmissive > 0.0f) PushFloat("rtx.emissiveIntensity", 1.0f + (s.dayEmissive - 1.0f) * t);
     // WEATHER-V2 overcast: the sun's direct light dimmed and its shadows softened (live keys, gate 0).
     PushFloat("rtx.atmosphere.directionalLightRadianceScale", 1.0f - 0.7f * g_overcast);
     PushFloat("rtx.atmosphere.sunShadowSoftnessDeg", 0.4f + 5.0f * g_overcast);
@@ -349,6 +354,13 @@ void PollClockDevtools(const LARGE_INTEGER& now) {
             Log("devtools: clock %s at %05.2f", run ? "running" : "stopped", g_hour);
         }
         lastRun = run;
+    }
+    // set_clock_minutes=N: the clock to N minutes after midnight whenever the value changes (set_hour_tenths has 6 min steps).
+    static int lastMinutes = -1;
+    const int minutes = GetPrivateProfileIntA("devtools", "set_clock_minutes", -1, ini);
+    if (minutes != lastMinutes) {
+        if (minutes >= 0) { TimeOfDaySetHour(static_cast<float>(minutes) / 60.0f); Log("devtools: clock set to %02d:%02d", (minutes / 60) % 24, minutes % 60); }
+        lastMinutes = minutes;
     }
     const int rate = GetPrivateProfileIntA("devtools", "clock_rate_tenths", -1, ini);
     if (rate != lastRate) {

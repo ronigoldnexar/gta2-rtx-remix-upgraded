@@ -3755,7 +3755,7 @@ int CarBodiesDrawn() { return g_drawn; }
 int g_lampMode = 1;
 bool g_lampDark = false;
 IDirect3DTexture9* g_glow = nullptr;
-struct Motion { float x, z, speed; uint32_t frame; float brake; };
+struct Motion { float x, z, speed; uint32_t frame; float brake; float gameBrake = 0.0f; };
 std::map<uintptr_t, Motion> g_motion;
 
 // The beacon bulb under Remix: the glow with its colour in the texels. Remix drops the
@@ -3905,7 +3905,23 @@ void DrawLamps(IDirect3DDevice9* device, const CarBodyUse& use, const gta2::Mat4
     const bool lit = g_lampMode == 2 || (gta2::SkyConfig().followClock && TimeOfDay().enabled ? CarLampsDaylight(use.object) > 0.5f
                                                                                                 : g_lampDark);
     const bool useFeel = feel && feel->on;
-    const float brake = useFeel ? feel->brake : mo.brake;
+    // LIGHTING-V1 (gate B: two brake sources disagreed): the brake lamps follow the game's own brake delta (5, mirrored
+    // 22) on the vehicle, the same bit the classic view draws and the Remix brake lights (synthetic_lights.cpp
+    // SubmitBrakeLights) read, eased on and off so a tap is a blink, not a one-frame flash. The deceleration estimate
+    // (vehicle_fx feel, the body's own motion) only stands in when the vehicle cannot be read.
+    // GTA2DX9_BRAKE_ESTIMATE=1: the estimate alone, as before.
+    static const int brakeEstimate = [] { const char* e = getenv("GTA2DX9_BRAKE_ESTIMATE"); return e && e[0] == '1' ? 1 : 0; }();
+    float brake = useFeel ? feel->brake : mo.brake;
+    if (!brakeEstimate) {
+        const uint8_t* object = reinterpret_cast<const uint8_t*>(use.object);
+        const uint8_t* car = object ? *reinterpret_cast<const uint8_t* const*>(object + 0x08) : nullptr;   // sprite owner -> vehicle
+        if (car && game::PlausiblePointer(car)) {
+            const uint32_t vmask = *reinterpret_cast<const uint32_t*>(car + 0x08);
+            const float want = (vmask & (game::kBrakeLightDeltaA | game::kBrakeLightDeltaB)) ? 1.0f : 0.0f;
+            mo.gameBrake += (want - mo.gameBrake) * (want > mo.gameBrake ? 0.6f : 0.25f);
+            brake = mo.gameBrake;
+        }
+    }
     const float reverse = useFeel ? feel->reverse : 0.0f;
     if (lit && useFeel) VehicleFxQueueHeadlamps(carToWorld, length, width);
     if (!lit && brake < 0.05f && reverse < 0.05f) return;
@@ -4106,8 +4122,10 @@ void DrawBeacons(IDirect3DDevice9* device, const CarBodyUse& use, const gta2::Ma
         case 12: case 52: colA = 0xFFFF2010u; colB = 0xFF1040FFu; along = -0.05f; break;   // police: red, blue
         case 34: colA = 0xFFFF2010u; colB = 0xFFFFF4E0u; kindB = kSirenWhite; along = 0.30f; break;   // ambulance: red, white, over the cab
         case 17: colA = 0xFFFF2010u; colB = 0xFFFF7010u; kindB = kSirenAmber; along = 0.36f; break;   // fire truck: red, amber, over the cab
-        default: return;
+        case 84: colA = 0xFF1040FFu; colB = 0xFF1040FFu; kindA = kSirenBlue; along = 0.10f; break;   // LIGHTING-V1: FBI car, blue
+        default: colA = 0xFFFF2010u; colB = 0xFF1040FFu; along = -0.05f; break;   // LIGHTING-V1: any other model whose sprite lights its siren deltas
     }
+    const bool knownSirenModel = modelNumber == 12 || modelNumber == 52 || modelNumber == 34 || modelNumber == 17 || modelNumber == 84;
     uint32_t mask = 0;
     uintptr_t vehicle = use.object;
     {
@@ -4119,7 +4137,8 @@ void DrawBeacons(IDirect3DDevice9* device, const CarBodyUse& use, const gta2::Ma
         }
     }
     const uint32_t sirenBits = (0xFu << 15) | (0xFu << (15 + 17));   // deltas 15..18 and their mirrored copies
-    const bool on = (mask & sirenBits) != 0 || g_forceSirens != 0;
+    // A model outside the list only by the game's own bits (force_sirens lights the known siren models only).
+    const bool on = (mask & sirenBits) != 0 || (g_forceSirens != 0 && knownSirenModel);
     if (!on) return;
     const bool remix = RemixApiAvailable();
     IDirect3DTexture9* glow = GlowTexture(device);

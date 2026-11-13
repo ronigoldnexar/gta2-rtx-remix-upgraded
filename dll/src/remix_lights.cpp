@@ -42,6 +42,7 @@ int g_probeMask = 0;              // [devtools] remix_lights_probe (see GameClas
 int g_trafficLiftMilli = 650;     // [devtools] remix_traffic_lift_milli (FIX-REMIX-NIGHT-5; default 650 since FIX-REMIX-NIGHT-6, frn6_p6)
 int g_lowBounceWarm = 1;          // [devtools] remix_low_bounce_warm (FIX-REMIX-NIGHT-5)
 int g_wideNeonTenths = -1;       // [devtools] remix_wide_neon_tenths (-1 = the setting wideNeonRadius, 0 = off)
+int g_poolGainPct = -1;          // LIGHTING-V1 [devtools] remix_pool_gain_pct: the lamp pools' strength, % of kLampPoolGain (-1 = kPoolGainDefaultPct)
 int g_poolCone = -1;             // [devtools] remix_pool_cone: PoolConeDegrees, live (-1 = the setting, 0 = sphere)
 int g_nightFillMilli = -1;       // [devtools] remix_night_fill_milli: NightSkyFill x1000, live (-1 = the setting)
 int g_dayFillMilli = -1;        // [devtools] remix_day_fill_milli: DayBounceFill x1000, live (-1 = the setting, 0 = off)
@@ -158,6 +159,8 @@ constexpr float kLampPoolGap = 0.01f;              // between the dish and the s
 // the facade lamps sit half a tile from their wall, and at 1x (fxr_lamp_after) the post
 // was lit and the paving under it barely.
 constexpr float kLampPoolGain = 4.0f;
+// LIGHTING-V1 (gate B, owner: "the street lamps barely make pools"): the pools at this share of kLampPoolGain by default.
+constexpr int kPoolGainDefaultPct = 350;   // lt_b1_rmx: 100 / 200 / 350 / 350 + sodium 150; 350 lays a clear warm pool round each post
 int g_lampPoolsLastFrame = 0;
 
 std::vector<RemixLightDesc>            g_working;     // forward: FitLampsToPosts works on this frame's set
@@ -620,9 +623,10 @@ void ApplyAmbientFill() {
     // classic view keeps the old fill at every hour.
     // [devtools] remix_moon_fill_milli=0: the NIGHT-6 fill at night too (A/B); remix_moon_rgb=R,G,B (x1000) live.
     static const float kDuskSky[3] = {0.78f, 0.86f, 1.0f};
-    // LIGHTING-V1 (gate A: Remix nights read murky): 0.20, with the night hold at x3.5; probe lt_probe1 variant f (0.28)
+    // LIGHTING-V1: gate A raised it to 0.20 (nights read murky); gate B 0.12 for contrast (owner: "an evenly lit dim
+    // day"), with stronger lamp pools carrying the light. Probe lt_probe1 variant f (0.28)
     // lifted the shade between lamps most, 0.20 keeps the lamp pools the brighter thing on the street.
-    const float moonFill = g_moonFillMilli >= 0 ? static_cast<float>(g_moonFillMilli) / 1000.0f : 0.20f;
+    const float moonFill = g_moonFillMilli >= 0 ? static_cast<float>(g_moonFillMilli) / 1000.0f : 0.12f;
     float nightRgb[3];
     for (int i = 0; i < 3; ++i) nightRgb[i] = night * kDuskSky[i];
     // Street views only: the classic view's night light list is as before.
@@ -1421,7 +1425,8 @@ void FitLampsToPosts() {
         pool.pos[0] = head.centre.x;
         pool.pos[1] = head.dishBottom - r - kLampPoolGap;
         pool.pos[2] = head.centre.z;
-        pool.intensity = lampIntensity * kLampPoolGain * (reference / r) * (reference / r);
+        pool.intensity = lampIntensity * kLampPoolGain * static_cast<float>(g_poolGainPct >= 0 ? g_poolGainPct : kPoolGainDefaultPct) / 100.0f *
+                         (reference / r) * (reference / r);
         {
             // Shining down (see poolConeDeg in remix_lights.h).
             const float cone = g_poolCone >= 0 ? static_cast<float>(g_poolCone) : g_settings.poolConeDeg;
@@ -1476,6 +1481,8 @@ void LightsReconcile() {
             if (mask != g_probeMask) { g_probeMask = mask; Log("devtools: remix lights probe mask %d", mask); }
             const int cone = GetPrivateProfileIntA("devtools", "remix_pool_cone", -1, ini);
             if (cone != g_poolCone) { g_poolCone = cone; Log("devtools: lamp pools in a %d deg cone", cone); }
+            const int gainPct = GetPrivateProfileIntA("devtools", "remix_pool_gain_pct", -1, ini);
+            if (gainPct != g_poolGainPct) { g_poolGainPct = gainPct; g_reliftPending = true; Log("devtools: lamp pools at %d%% (-1: %d%%)", gainPct, kPoolGainDefaultPct); }
             const int fill = GetPrivateProfileIntA("devtools", "remix_night_fill_milli", -1, ini);
             if (fill != g_nightFillMilli) { g_nightFillMilli = fill; Log("devtools: night sky fill %d/1000 (-1: the setting %.3f)", fill, g_settings.nightSkyFill); }
             const int tOld = GetPrivateProfileIntA("devtools", "remix_traffic_old", 0, ini);

@@ -97,6 +97,8 @@ struct TimeOfDaySettings {
     // The night sky's airglow (rtx.atmosphere.nightSkyBrightness) at night and at the blue hour; 0 leaves rtx.conf's.
     float nightAirglow = 0.008f;
     float twilightAirglow = 0.14f;
+    // Remix's global emissive scale by day (rtx.emissiveIntensity; 1 at night); 0 leaves rtx.conf's.
+    float dayEmissive = 0.20f;
     float daySkyFill = 3.0f;
     float nightSkyFill = 1.0f;
 

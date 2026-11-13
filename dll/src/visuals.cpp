@@ -236,7 +236,10 @@ void ProvideLights(std::vector<gta2::VisualLight>* out) {
                 static const float kSodiumDeep[3] = {1.0f, 0.64f, 0.28f};
                 const float* kSodium = deep ? kSodiumDeep : kSodiumFw20;
                 deepSodium = deep;
-                const float lum = 0.2126f * d.rgb[0] + 0.7152f * d.rgb[1] + 0.0722f * d.rgb[2];
+                // LIGHTING-V1 (gate B: the plain posts at the plaza and the wil courtyards read unlit at night): many map
+                // lamps carry a dim colour (#804020-ish, luminance ~0.2), and the hue was kept at that luminance, so the lamp
+                // drew a 0.38,0.18,0.08 light that left the post dark. A street lamp is lit at least to 0.45.
+                const float lum = (std::max)(0.45f, 0.2126f * d.rgb[0] + 0.7152f * d.rgb[1] + 0.0722f * d.rgb[2]);
                 const float sl = 0.2126f * kSodium[0] + 0.7152f * kSodium[1] + 0.0722f * kSodium[2];
                 for (int i = 0; i < 3; ++i) l.rgb[i] = 0.1f * d.rgb[i] + 0.9f * kSodium[i] * lum / sl;
             }
@@ -298,8 +301,10 @@ void ProvideLights(std::vector<gta2::VisualLight>* out) {
         if (d.source == kLightSourceGame && !l.spot && d.radius >= 2.5f) {
             gta2::VisualLight pool = l;
             pool.pos[1] -= 1.0f;
-            pool.radius = 3.6f;
-            pool.intensity = (fittedLamp ? (deepSodium ? 0.60f : 0.50f) : 0.30f) * (di < 1.5f ? di : 1.5f);
+            // LIGHTING-V1 (gate B, owner: clear warm pools under each lamp, darker gaps between): a fitted lamp's pool is
+            // stronger and a little wider (0.60 -> 0.95 at 3.6 -> 4.2 blocks); the bounded sum keeps it from clipping.
+            pool.radius = fittedLamp ? 4.2f : 3.6f;
+            pool.intensity = (fittedLamp ? (deepSodium ? 0.95f : 0.80f) : 0.30f) * (di < 1.5f ? di : 1.5f);
             out->push_back(pool);
         }
     }

@@ -586,6 +586,7 @@ void LoadConfig() {
     tod.twilightMaxExposure = GetPrivateProfileIntA("timeofday", "remix_twilight_max_exposure_tenths", 50, ini) / 10.0f;
     tod.dayTargetYf = IniIntRange("timeofday", "remix_day_target_yf_milli", 130, 10, 900, ini) / 1000.0f;
     tod.nightTargetYf = IniIntRange("timeofday", "remix_night_target_yf_milli", 600, 10, 2000, ini) / 1000.0f;
+    tod.dayEmissive = IniIntRange("timeofday", "remix_day_emissive_percent", 20, 0, 100, ini) / 100.0f;
     tod.nightAirglow = GetPrivateProfileIntA("timeofday", "remix_night_airglow_milli", 8, ini) / 1000.0f;
     tod.twilightAirglow = GetPrivateProfileIntA("timeofday", "remix_twilight_airglow_milli", 140, ini) / 1000.0f;
     tod.nightLookBelowDeg = IniIntRange("timeofday", "remix_night_look_below_tenths", -120, -180, -10, ini) / 10.0f;
