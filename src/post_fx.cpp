@@ -1519,8 +1519,10 @@ void PostFx::Resolve() {
             c[5][3] = static_cast<float>(std::fmod(weather.seconds, 512.0));
             c[6][0] = skyZenith_.x; c[6][1] = skyZenith_.y; c[6][2] = skyZenith_.z; c[6][3] = weather.reflection;
             c[7][0] = frame_.fogStart; c[7][1] = 1.0f / std::max(1.0f, frame_.fogEnd - frame_.fogStart);
-            // More of the street under water the wetter it is.
-            c[7][2] = 0.78f - 0.22f * std::min(1.0f, weather.wet); c[7][3] = weather.rain;
+            // More of the street under water the wetter it is - but puddles, not a flooded street (WEATHER-V2:
+            // 0.78 - 0.22 wet put ~40 % of the road under the mirror at full wetness, a glass sheet).
+            c[7][2] = (cfg.debug & 128) ? 0.78f - 0.22f * std::min(1.0f, weather.wet) : 0.80f - 0.10f * std::min(1.0f, weather.wet);
+            c[7][3] = weather.rain;
             // c[8].z: a ray that ends in the frame without a hit takes the scene there (qav9); [visuals] debug 64 = the old sky fallback.
             c[8][0] = 0.5f; c[8][1] = 1.0f; c[8][2] = (cfg.debug & 64) ? 0.0f : 1.0f; c[8][3] = 1.0e6f;
             c[9][0] = 1.5f; c[9][1] = 0.15f; c[9][2] = 1.25f; c[9][3] = 0.05f;
@@ -1531,7 +1533,9 @@ void PostFx::Resolve() {
             c[11][0] = wetOld ? 0.0f : 0.005f; c[11][1] = wetOld ? 0.0f : 0.035f;
             c[11][2] = wetOld ? 1.0f : 0.5f;   c[11][3] = wetOld ? 0.0f : 2.0f;
             c[12][0] = wetOld ? 0.0f : 1.0f;   c[12][1] = wetOld ? 0.0f : 0.007f;
-            c[12][2] = wetOld ? 0.40f : 0.25f; c[12][3] = wetOld ? 0.85f : 0.70f;
+            // Fresnel floor: 0.12 (WEATHER-V2; 0.25 mirrored the street even seen from above): wet asphalt keeps a sheen
+            // at grazing angles, the puddles their mirror (c12.w).
+            c[12][2] = wetOld ? 0.40f : 0.12f; c[12][3] = wetOld ? 0.85f : 0.70f;
             // qav28 (FIX-WORLD-15): a floor with a surface drawn a block above it (the pit floor under
             // the Downtown plaza grates) is covered and takes no mirror; [visuals] debug 256 = before.
             c[13][0] = (cfg.debug & 256) ? -1.0f : 0.30f;

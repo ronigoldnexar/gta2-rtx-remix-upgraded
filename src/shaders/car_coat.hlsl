@@ -89,7 +89,7 @@ float4 ps_coat(CoatPsIn i) : COLOR0 {
     float fr = cTune.x + (1.0 - cTune.x) * pow(1.0 - saturate(ndv), 5.0);
     fr = saturate(fr + edge * 0.06);
     // Wet paint (WEATHER-V2): a film of water on the coat - more reflection at every angle.
-    fr = saturate(fr + cWet.x * 0.22 * (1.0 - fr));
+    fr = saturate(fr + cWet.x * 0.30 * (1.0 - fr));
     float3 r = reflect(-v, n);
     float up = r.y;
     float bearing = atan2(r.x, r.z) * 3.0;   // ~19 blocks of skyline around the compass
@@ -130,7 +130,7 @@ float4 ps_coat(CoatPsIn i) : COLOR0 {
     float texelPx = length(fwidth(i.uvd.xy) / max(cTex.xy, 1e-6));
     float gap = saturate((lap - cTex.w) * 4.0) * cTex.z * saturate(2.0 - texelPx);
 
-    float keep = (1.0 - fr * weight) * (1.0 - crease * 0.55 * paint) * (1.0 - 0.45 * gap) * (1.0 - cWet.x * 0.15 * paint * weight);
+    float keep = (1.0 - fr * weight) * (1.0 - crease * 0.55 * paint) * (1.0 - 0.45 * gap) * (1.0 - cWet.x * 0.06 * paint * weight);
     add *= weight * (1.0 - gap);
 
     // The fixed-function frame under it is fogged (table fog, linear in view depth): fog the coat's own

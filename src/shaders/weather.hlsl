@@ -152,7 +152,7 @@ float4 ps_wet(WetIn i) : COLOR0 {
     // few percent; a floor keeps the wet sheen readable, puddles reflect most.
     float cosv = saturate(dot(-v, n));
     float f = 0.04 + 0.96 * pow(1.0 - cosv, 5.0);
-    float gloss = wet * flat * lerp(0.28, cK4.w, puddle) * cZenith.w * (0.5 + 0.5 * near);
+    float gloss = wet * flat * lerp(0.10, cK4.w, puddle) * cZenith.w * (0.5 + 0.5 * near);
     float amount = saturate(gloss * (cK4.z + (1.0 - cK4.z) * f));
     col = lerp(col, reflCol, amount);
     // the sky: left as it is (no branches in this compiler); its test re-reads the depth here instead of
