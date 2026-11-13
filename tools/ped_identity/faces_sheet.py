@@ -16,6 +16,7 @@ for n in names:
     cells = [('plain', [], {})]
     for k in r['accessories']:
         sw = {f'acc_{k}.tga': f'acc_{k}~c1.tga'} if k in ('cap', 'beanie', 'flatcap') else {}
+        if k in ('cap', 'beanie', 'flatcap') and op: sw[op[0]] = 'acc_clear.tga'   # as the DLL: no hair cards under headwear
         cells.append((k, [A + f'{n}~{k}.mesh'], sw))
     for i, c in enumerate(r['hair'], 1):
         sw = {head_tex: head_tex[:-4] + f'~hc{i}.tga', f'{n}~hair.tga': f'{n}~hair~hc{i}.tga', f'{n}~stubble.tga': f'{n}~stubble~hc{i}.tga'}
