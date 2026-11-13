@@ -72,17 +72,40 @@ not stuck-on boxes: **extrude the art, do not paint over it**.
 
 ## 3. Verification (POC)
 
-Plain renderer on Tokyo (GPU 0), private stage `stage_districts`, capture runs `dk_*`: see the contact sheets
-(`districts/` in the session scratchpad) and the report. Classic view: kit batches are street-only and skipped in
-the classic draw; vreg `spawn_classic` run on the stage (result in the report). Remix: `/gta2/dist` on
-gta2-rtx6000, `runremix_dist.sh` + `keys_districts_remix.sh` (queued for a quiet window when the weather agent's
-runs hold the GPU).
+Plain renderer on Tokyo (GPU 0), private stage `stage_districts`, capture runs `dk_wil5`, `dk_ste5`, `dk_bil5`
+(day and night x street / graze / across / roof fixed poses, third and first person, the move in and out; every
+pair the same frame with `district_kit_show` 1/0), 0 FAULT in every run. Frame time (`dk_perf1`: a 66k-triangle kit
+of the 46 buildings round the Downtown spawn, the same pose held 20 s on / 20 s off twice): world draw 1.8-2.1 ms
+with the kit, 1.8-2.0 ms without, frame wait unchanged: no measurable cost at this size. Memory: the kit adds its
+vertex and index arrays (66k triangles: +4.1 MB vertices, +0.8 MB indices, and the same again in the vertex
+buffer; the three POC kits: 1.1, 0.4 and 0.3 MB); the largest free block stayed 2047.9 MB at level load.
+Known capture gap: third/first-person frames face the street, not the building (the turn-to-face helper); the
+fixed poses carry the comparison. Classic view: kit batches are street-only and skipped in
+the classic draw; vreg (`tools/vreg/vreg.sh stage`, run `dk_vreg1`) captured with a kit of the 46 buildings round
+the spawn (66k triangles) loaded: `spawn_classic` PASS, 0 changed tiles. The 3D shots all FAIL against the current
+goldens (rev b89b95a), uniformly, including shots far from any kit (brightness 0.33 vs 0.21 at the bank): the
+goldens predate HEAD's lighting changes; a same-HEAD baseline is needed for a kit-only 3D diff. Remix: staged, not run. `/gta2/dist/stage` on gta2-rtx6000 holds this build and
+the kit, `/gta2/dist/runremix_dist.sh` (the shipped `runremix_dlss.sh` pointed at it) and
+`/gta2/gamerun/keys_districts_remix.sh` take the same frames:
+`DK_POINTS="$(cat <frame_plan json>)" KEYS=/work/keys_districts_remix.sh /gta2/dist/runremix_dist.sh dist_wil 900`
+(reboot first, only when no weather run is going). The 6000 was busy with the weather agent's back-to-back runs,
+then this session's gcloud credentials expired (IAP needs an interactive re-login).
 
 ## 4. Running it on every building
 
-Measured on this branch (all three levels, every non-structure building, current kit):
-see the table in the report and `districts_work/<lvl>_all.log`. Kit generation is ~10-25 s per level and QA
-~75-80 s per level on one CPU, so the whole city regenerates in a few minutes; the cost is in the budget:
+Measured on this branch (every non-structure building of each level, the POC kit, one CPU, `--all`):
+
+| Level | Buildings in catalogue | Kitted | Triangles | Kit file | Kit build | QA run | Flagged by QA |
+|---|---|---|---|---|---|---|---|
+| Downtown | 1 216 | 1 027 | 2.06 M | 153 MB | 20 s | 142 s | 452 / 878 (51 %) |
+| Residential | 1 340 | 1 057 | 1.19 M | 88 MB | 12 s | 81 s | 316 / 780 (41 %) |
+| Industrial | 1 807 | 1 469 | 1.16 M | 86 MB | 12 s | 76 s | 405 / 1 126 (36 %) |
+
+Flag classes (a building can have several): low-contrast recesses 701 (the grounding called something a window
+that the art does not show as an opening: blinds, louvres, panels), coplanar overlaps 495 (a kit element at the
+same depth as another: generator rule fixes, not per-building edits), plinths below the street level 114 (faces
+whose foot is lower than the building's street), kit faces in a wall plane 39, over 12k triangles 22. So the whole
+city regenerates in about 6 minutes; the cost is in the runtime budget:
 
 - Whole-level kits are 1.2-2.2 M triangles (85-170 MB as written). Loading that at level load is not an option in
   a 32-bit process with ~1.5 GB largest free block. Plan: **stream per 16x16-cell chunk** (the kit file gets a
@@ -102,9 +125,12 @@ see the table in the report and `districts_work/<lvl>_all.log`. Kit generation i
   - budget: > 12k triangles for one building.
   The in-game half of QA reuses `frame_plan.py` + `districts_capture.py` on every flagged building and a sample
   of the passed ones (5 %), with an image diff on/off per pose as the "did anything change, where" signal.
-- Expected review load: the first full run flags roughly half the buildings (see report); most flags are three
-  rule classes (corner overlaps at stepped roofs, plinths on sub-street faces, low-contrast grounding), each a
-  generator fix rather than a per-building edit. After those, the target is < 10 % flagged.
+- Review load: the first full run flags 36-51 % of the buildings, but in five rule classes; each is a generator or
+  threshold fix (skip recesses below the contrast floor instead of flagging them, distinct depths for every
+  proud element, plinth from the face's own foot) rather than a per-building edit. Two rounds of that took the
+  Industrial flags from 59 % to 36 % in this POC (corner overhang clamp, trims kept on their own face, rib and
+  frieze depths). Target after the remaining rules: < 10 % flagged, i.e. ~300 buildings for a human to look at
+  on their QA sheets (elevation + in-game on/off frames), about a day of review.
 
 ## 5. Per-district style tables (keyed by the district map)
 

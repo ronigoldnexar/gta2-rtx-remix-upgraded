@@ -52,6 +52,34 @@ def ini_set(key, val):
     open(T.INI, "w", encoding="latin-1").write(t)
 
 
+def ini_sec(section, key, val):
+    """set key=val inside [section] only (several sections share key names: enabled=, ...)"""
+    lines = open(T.INI, encoding="latin-1").read().split("\n")
+    cur, done = None, False
+    for i, l in enumerate(lines):
+        m = re.match(r"^\[([^\]]+)\]", l)
+        if m:
+            if cur == section and not done:
+                lines.insert(i, f"{key}={val}"); done = True; break
+            cur = m.group(1).strip().lower()
+            continue
+        if cur == section and re.match(rf"^{key}=", l):
+            lines[i] = f"{key}={val}" + ("\r" if l.endswith("\r") else ""); done = True; break
+    open(T.INI, "w", encoding="latin-1").write("\n".join(lines))
+
+
+def clock(tod):
+    """day: the renderer's own fixed sun (the [weather] clock off, as shipped); night: the [weather] time of day on,
+    dry and clear, the clock held at 22:30 (lamps, neon and lit windows on)"""
+    if tod == "day":
+        ini_sec("weather", "enabled", 0)
+    else:
+        for k, v in (("rain_percent", 0), ("cloud_percent", 0), ("fog_percent", 0), ("wet_percent", 0), ("time_of_day", 1),
+                     ("hour_hhmm", 2230), ("clock_paused", 1), ("enabled", 1)):
+            ini_sec("weather", k, v)
+    time.sleep(3.0)
+
+
 def kit(on):
     n0 = len(Q.log_text())
     ini_set("district_kit_show", 1 if on else 0)
@@ -83,10 +111,9 @@ cam("off")
 D.start()
 s = D.wait_state(40)
 say("start:", T.words(s) if s else "no state")
-ini_set("clock_paused", 1)
 for p in POINTS:
     for tod, hhmm in (("day", 1230), ("night", 2230)):
-        ini_set("hour_hhmm", hhmm); time.sleep(2.0)
+        clock(tod)
         T.warp(p["x"], p["y"], int(p["z"]), why=f"districts {p['name']}")
         time.sleep(2.0)
         Q.set_view("classic", settle=1.5)
