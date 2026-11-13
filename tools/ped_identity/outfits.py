@@ -60,6 +60,18 @@ def outfit(seed, female, formal=False, jumpsuit=False):
     return None
 
 
+DETAIL_SALT = 0x2c1b3c6d
+DETAIL_SUFFIX = ['_dy', '_ds', '_db']   # yoke, sleeve or cuff, band (garment_detail.py)
+
+
+def detail_pick(seed, n):
+    """identity.cpp DetailPick: of n detail variants, the one this seed wears, or -1 (about 38 in 100)."""
+    if n <= 0: return -1
+    h = mix((seed ^ DETAIL_SALT) & 0xffffffff)
+    if h % 100 >= 38: return -1
+    return (h >> 8) % n
+
+
 # ---- The DLL's derivation of a crowd member (identity.cpp DerivePed + CrowdVariety, model_store.cpp) ----
 OUTFIT_SALT = 0x632be5ab
 
@@ -73,7 +85,7 @@ def pool_model(seed, pool, remap):
     return pool[((seed + scramble(remap + 1)) & 0xffffffff) % len(pool)] if pool else None
 
 
-def crowd(seed, remap, model, entry, sprite_outfit, civilian=True):
+def crowd(seed, remap, model, entry, sprite_outfit, civilian=True, models=None):
     """The record's colours for a crowd member: dict(kind, top, bottom, label, zone=[t, b] multipliers or None,
     paint=multiplier or None, height, width). entry: the model's 'imported' manifest entry; sprite_outfit: the
     remap's ped_outfits row (9 numbers) or None (a type without tint)."""
@@ -90,7 +102,11 @@ def crowd(seed, remap, model, entry, sprite_outfit, civilian=True):
         own = [entry.get('zone_rgb_t') or [ref] * 3, entry.get('zone_rgb_b') or [ref] * 3]
         cols = [o[0][1], o[1][1]] if o else own
         out.update(kind='outfit' if o else 'own', label=(o[0][0] + ' / ' + o[1][0]) if o else 'own colours',
-                   zone=[[max(0.0, min(2.0, s * c / ref)) for c in cols[k]] for k in range(2)])
+                   zone=[[max(0.0, min(2.0, s * c / ref)) for c in cols[k]] for k in range(2)], model=model)
+        if o and 'business' not in model and models is not None:   # PEDS-VARIETY-3: a detail variant (DetailPick)
+            vs = [model + x for x in DETAIL_SUFFIX if model + x in models]
+            k = detail_pick(seed, len(vs))
+            if k >= 0: out['model'] = vs[k]; out['label'] += ' ' + vs[k][-3:]
         return out
     if zoned and sprite_outfit is not None:   # PedZoneTints (the type has tint 1), then the full shade
         own = [entry.get('zone_rgb_t') or [ref] * 3, entry.get('zone_rgb_b') or [ref] * 3]

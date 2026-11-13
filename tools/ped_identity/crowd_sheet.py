@@ -40,7 +40,8 @@ for row, r in enumerate(remaps):
         seed = a.first + i
         n = pool_model(seed, t['models'], r)
         e = imported[n]
-        rec = crowd(seed, r, n, e, sprite, civilian)
+        rec = crowd(seed, r, n, e, sprite, civilian, models=imported)
+        n = rec.get('model', n)   # PEDS-VARIETY-3: a detail variant
         counts[rec['kind']] = counts.get(rec['kind'], 0) + 1
         def tints(tex, node, rec=rec):
             if rec['zone'] is not None:

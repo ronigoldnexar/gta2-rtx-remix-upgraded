@@ -341,3 +341,31 @@ change.
   GPU-only textures 399.6 -> 435.6 MB, model heap 182 -> 187.5 MB, buffers 110.8 -> 113.1 MB; private commit at
   load +30 MB, free address space 2489 -> 2456 MB (largest free block unchanged, 2048 MB); warm-up to "cars ready"
   5.0 -> 5.7 s. Every avatar is warmed whatever the pools say, so the pool size itself costs nothing.
+
+## Garment detail (PEDS-VARIETY-3, 13 Nov 2026; on branch peds-variety-3, not shipped)
+
+- **Variants.** `tools/ped_identity/garment_detail.py <models> <out> <avatar>:<variant>,... --manifest <manifest>` bakes
+  detail into a zoned avatar's clothing maps and writes `<avatar>_dy` (yoke: the shoulders a darker tone of the
+  shirt colour, an off-white piping), `_ds` (two-tone long sleeves below a clean elbow plane with an off-white
+  stripe, or on a hoodie a darker cuff only) and `_db` (hoodies, tracksuits, zip jackets: a narrow chest band a
+  darker tone with graphite piping). Tone changes stay in the tinted paint half (they follow the outfit colour);
+  the fixed neutrals move to the untinted rest half. Each variant is a copy of the avatar's `.mesh` whose body and
+  body_paint references name its own two maps; the head and hair maps stay shared. Its `models` / `imported`
+  entries are copies of the avatar's (`detail_of`).
+- **Eligible (judged on `detail_variants.jpg`).** Jackets, shirts and sweatshirts get the yoke; long sleeves the
+  two-tone sleeves; hoodies the cuff and the band. 35 variants on 18 avatars: male_04, 07, 10, adult_06, 08, 12, 18,
+  20; female_01, adult_02, 04, 07, 09, 12, 14, 15. Not: t-shirts, tank tops, blouses with prints, dresses, formal
+  wear (business_*), the polo and the argyle sweater (the yoke vanished in their pattern).
+- **Engine.** `identity.cpp CrowdVariety`: a dressed civilian (not formal) whose avatar has variants wears one of
+  them when `DetailPick(seed, n)` says so (about 38 in 100; own hash): `r->model` becomes the variant, so the
+  fingerprint and the log name it (`-> human_male_07_ds`). `outfits.py detail_pick` is the same;
+  `outfit_parity.py` checks it with the outfits (400 000 lines, 0 mismatches).
+- **Cost (qa_pedsvar6 -> qa_pedsvar8, same scenario).** 290 -> 325 models; heap after the models are read
+  352.6 -> 471.9 MB (+119 MB: each variant carries its own copy of the mesh and the clips, about 3.4 MB);
+  managed textures 546.6 -> 616.6 MB and GPU-only 435.6 -> 505.6 MB (+70 MB: two 512x512 maps per variant);
+  warm-up to "cars ready" 5.7 -> 5.8 s. At one minute: private commit 997 -> 1127 MB, free address space
+  2022 -> 1900 MB, **largest free block 1433 -> 622 MB**. Under Remix each variant's pair is one more bake-cache
+  key (figure bakes are LRU since FIX-REMIX-BAKE-LRU); not measured with Remix.
+- **Open before shipping.** The heap cost is the copied meshes: a variant could borrow the avatar's meshes and clips
+  and override two texture names (engine work in `model_store.cpp`, where textures are looked up by the mesh's
+  name in several places), which would leave about 70 MB of textures.

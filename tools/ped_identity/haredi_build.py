@@ -19,6 +19,8 @@ if tie:
     mx = a.max(2); sat = (mx - a.min(2)) / np.maximum(mx, 1)
     sel = (rect(0.33, 0.82, 0.63, 0.985) & ((sat > 0.12) | (lum > 90)) & (lum > 30)) | (rect(0.42, 0.40, 0.58, 0.64) & (lum > 55))
     shade = np.clip(lum / max(1.0, np.percentile(lum[sel], 90)), 0.62, 1.04)
+    tie = rect(0.33, 0.82, 0.63, 0.985) & sel
+    shade[tie] = np.clip(shade[tie], 0.93, 1.0)         # the tie (kept as geometry on one variant): flat shirt white
     a[sel] = np.array([226, 226, 222])[None] * shade[sel][:, None]
     Image.fromarray(a.clip(0, 255).astype(np.uint8)).save(bt)
     print('tie and shirt texels repainted', int(sel.sum()))
@@ -37,6 +39,25 @@ if 'legs' in sys.argv[4:] and os.path.exists(glb + '.legs.npy'):
     a[skin] = np.array([46, 42, 46])[None] * shade[skin][:, None]
     Image.fromarray(a.clip(0, 255).astype(np.uint8)).save(bt)
     print('stocking texels', int(skin.sum()))
+if 'neck' in sys.argv[4:] and os.path.exists(glb + '.chest.npy'):
+    # a closed neckline: the skin of the open collar (the head map's neck and upper chest, below the throat) painted as
+    # a dark shell top under the blouse, so it reads as a high neck with every muted blouse; the necklace stays
+    polys = np.load(glb + '.chest.npy')
+    ht = [t for t in glob.glob(d + '/*_head_color.tga')][0]
+    im = Image.open(ht).convert('RGB'); W, Hh = im.size
+    mask = Image.new('L', im.size, 0); dr = ImageDraw.Draw(mask)
+    for p in polys: dr.polygon([(u * W, (1 - v) * Hh) for u, v in p], fill=255)
+    a = np.asarray(im).astype(np.float32); m = np.asarray(mask) > 0
+    r, g, b = a[..., 0], a[..., 1], a[..., 2]; mx = a.max(2); sat = (mx - a.min(2)) / np.maximum(mx, 1)
+    skin = m & (r > g) & (g > b) & (sat > 0.12) & (sat < 0.7) & (r > 60)
+    lum = a @ np.array([0.3, 0.59, 0.11])
+    if skin.any():
+        shade = np.clip(lum / max(1.0, np.percentile(lum[skin], 80)), 0.6, 1.1)
+        a[skin] = np.array([38, 38, 42])[None] * shade[skin][:, None]
+    Image.fromarray(a.clip(0, 255).astype(np.uint8)).save(ht)
+    print('neckline (shell top) texels', int(skin.sum()), 'of', int(m.sum()))
+if 'bootsocks' in sys.argv[4:] and os.path.exists(glb + '.legs.npy'):
+    pass
 src = open(H + 'make_ped_manifest.py').read(); head = src[:src.index('folders = sorted(')]
 dummy = '/tmp/peds3_dummy.json'; json.dump({'models': []}, open(dummy, 'w'))
 ns = {'__file__': H + 'make_ped_manifest.py'}; sys_argv = sys.argv; sys.argv = ['x', dummy]

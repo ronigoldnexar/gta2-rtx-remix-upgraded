@@ -143,6 +143,20 @@ bool CivilianOutfit(uint32_t seed, bool female, bool formal, bool jumpsuit, Garm
 }
 constexpr uint32_t kOutfitSalt = 0x632be5abu;   // the outfit's hash apart from the build's and the pool's
 
+// PEDS-VARIETY-3: garment detail. An avatar may have detail variants, models named <avatar>_dy (a darker yoke with
+// piping), _ds (two-tone sleeves, or a hoodie's darker cuffs) and _db (a narrow darker chest band): copies of its
+// mesh whose clothing maps carry the detail, still tinted by the outfit (tools/ped_identity/garment_detail.py).
+// DetailPick: of n available variants (in that order), the one this seed wears, or -1 (the plain garment), about
+// 38 in 100 of the dressed; a hash of its own. tools/ped_identity/outfits.py detail_pick is the same.
+constexpr uint32_t kDetailSalt = 0x2c1b3c6du;
+constexpr const char* kDetailSuffix[] = {"_dy", "_ds", "_db"};
+int DetailPick(uint32_t seed, int n) {
+    if (n <= 0) return -1;
+    const uint32_t h = Mix(seed ^ kDetailSalt);
+    if (h % 100 >= 38) return -1;
+    return static_cast<int>((h >> 8) % static_cast<uint32_t>(n));
+}
+
 // The crowd's variety, from the record's seed (was CrowdLookFor in live_geometry.cpp, seeded by
 // the sprite object's address): a build (height +-6%, width +-5%), a shade of a zoned outfit
 // (+-12%), and for a civilian without zones three times in four an everyday clothes colour.
@@ -179,6 +193,13 @@ void CrowdVariety(IdentityRecord* r) {
         r->zoneHair = false;
         r->tinted = false;
         r->clothes = dressed;
+        if (dressed && model.name.find("business") == std::string::npos) {   // formal wear stays plain
+            const Model* v[3]; int n = 0;
+            for (const char* suf : kDetailSuffix)
+                if (const Model* m = ModelByName((model.name + suf).c_str())) v[n++] = m;
+            const int k = DetailPick(r->seed, n);
+            if (k >= 0) r->model = v[k];       // same zones and zone reference as the avatar (a copy of it)
+        }
         return;
     }
     if (r->zoned) {

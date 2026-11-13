@@ -39,36 +39,81 @@ H = np.array([v.co[:] for f in bm.faces if f.material_index == head_mi for v in 
 top = H[:, 2].max(); mid = H[np.abs(H[:, 1]) < 0.012]; nose = mid[np.argmin(mid[:, 0])]; nx, nz = nose[0], nose[2]
 print('landmarks top %.3f nose x %.3f z %.3f' % (top, nx, nz))
 
-# ---- the head covering: a smooth cloth shell round the skull (an ellipsoid fitted to the scalp), open at the face;
-# hair outside it (a ponytail, a bun, long hair) is removed; a snood adds a soft bag at the nape, a tichel a knot
+# ---- the head covering. Hair outside the skull goes first (a ponytail, a bun, long hair); then a cloth shell is
+# shrink-wrapped onto what is left of the head (it follows the skull, so the forehead edge lies on the skin: no
+# rim), with soft diagonal folds. A tichel adds a knot and two tails at the nape; a snood a soft gathered bag.
 F = H[(H[:, 0] - nx < 0.20)]
 crown = F[np.abs(F[:, 1]) < 0.03]; top_z = crown[:, 2].max()
 side = F[np.abs(F[:, 2] - (nz + 0.05)) < 0.015]; half_w = np.abs(side[:, 1]).max()
 cx, cz = nx + 0.098, nz + 0.030
-rx, ry, rz = 0.118, half_w + 0.014, (top_z - cz) + 0.014
+rx, ry, rz = 0.118, min(half_w + 0.014, 0.100), (top_z - cz) + 0.014   # (a wide mane must not widen the skull)
 def inside(p, m=0.0):
     return ((p[0] - cx) / (rx + m)) ** 2 + (p[1] / (ry + m)) ** 2 + ((p[2] - cz) / (rz + m)) ** 2 <= 1.0
 def covered(p):
     x, y, z = p; depth = x - nx
-    if depth < 0.050: return z > nz + 0.066                        # the forehead line
-    if depth < 0.105: return z > nz + 0.066 - 0.75 * (depth - 0.050)   # down over the temples and the ears
-    return z > nz - 0.075                                          # the back of the head to the nape
-bpy.ops.mesh.primitive_uv_sphere_add(segments=48, ring_count=32, radius=1.0, location=(0, 0, 0))
+    if depth < 0.050: return z > nz + 0.066
+    if depth < 0.105: return z > nz + 0.066 - 0.75 * (depth - 0.050)
+    return z > nz - 0.075
+hair = [f for f in bm.faces if f.material_index == head_mi and any((v.co.x - nx > 0.03) and not inside(v.co, 0.004)
+        and (v.co.z > nz - 0.03 or v.co.x - nx > 0.19 or abs(v.co.y) > 0.066) and v.co.z > nz - 0.30 for v in f.verts)]
+hair_set = set(hair)
+# the shrink-wrap target: the head without the hair
+tb = bmesh.new(); tmap = {}
+for f in bm.faces:
+    if f.material_index != head_mi or f in hair_set: continue
+    vs = []
+    for v in f.verts:
+        if v.index not in tmap: tmap[v.index] = tb.verts.new(v.co.copy())
+        vs.append(tmap[v.index])
+    try: tb.faces.new(vs)
+    except ValueError: pass
+tme = bpy.data.meshes.new('skull'); tb.to_mesh(tme); tb.free()
+target = bpy.data.objects.new('skull', tme); bpy.context.collection.objects.link(target)
+bpy.ops.mesh.primitive_uv_sphere_add(segments=64, ring_count=40, radius=1.0, location=(0, 0, 0))
 sph = bpy.context.object
 sb = bmesh.new(); sb.from_mesh(sph.data)
 for v in sb.verts: v.co = Vector((cx + rx * v.co.x, ry * v.co.y, cz + rz * v.co.z))
-if cover == 'snood':      # the bag: a second, softer ellipsoid at the back of the head, low
-    bag = bmesh.ops.create_uvsphere(sb, u_segments=32, v_segments=20, radius=1.0)
-    for v in bag['verts']: v.co = Vector((cx + 0.072 + 0.075 * v.co.x, 0.072 * v.co.y, cz - 0.085 + 0.09 * v.co.z))
-else:                     # the knot of the tichel at the back
-    knot = bmesh.ops.create_uvsphere(sb, u_segments=16, v_segments=10, radius=1.0)
-    for v in knot['verts']: v.co = Vector((cx + rx + 0.006 + 0.022 * v.co.x, 0.03 * v.co.y, cz - 0.035 + 0.026 * v.co.z))
 bmesh.ops.delete(sb, geom=[v for v in sb.verts if not covered(v.co)], context='VERTS')
 sb.to_mesh(sph.data); sb.free()
+sw = sph.modifiers.new('wrap', 'SHRINKWRAP'); sw.target = target; sw.wrap_method = 'NEAREST_SURFACEPOINT'; sw.offset = 0.009
+bpy.context.view_layer.objects.active = sph; sph.select_set(True); bpy.ops.object.modifier_apply(modifier='wrap'); sph.select_set(False)
+sb = bmesh.new(); sb.from_mesh(sph.data); sb.normal_update()
+import heapq
+sb.verts.ensure_lookup_table()
+dist = {v: (0.0 if v.is_boundary else 1e9) for v in sb.verts}
+pq = [(0.0, i, v) for i, v in enumerate(sb.verts) if v.is_boundary]; heapq.heapify(pq); cnt = len(pq)
+while pq:
+    dd, _, v = heapq.heappop(pq)
+    if dd > dist[v]: continue
+    for e in v.link_edges:
+        w = e.other_vert(v); nd = dd + e.calc_length()
+        if nd < dist[w]: dist[w] = nd; cnt += 1; heapq.heappush(pq, (nd, cnt, w))
+for v in sb.verts:   # soft folds running diagonally round the head, fading out toward the face edge (no rim)
+    th = math.atan2(v.co.y, v.co.x - cx); ph = (v.co.z - cz) / rz
+    k = min(1.0, dist[v] / 0.025)
+    v.co += v.normal * (0.0016 * math.sin(6 * th + 4 * ph) + 0.002) * k - v.normal * 0.004 * (1 - k)
+if cover == 'snood':   # the bag: an ellipsoid at the back of the head, low, gathered into pleats toward its top
+    bag = bmesh.ops.create_uvsphere(sb, u_segments=40, v_segments=24, radius=1.0)
+    for v in bag['verts']:
+        th = math.atan2(v.co.y, v.co.x); k = 0.5 + 0.5 * v.co.z
+        g = 1 + 0.06 * math.sin(14 * th) * (0.3 + 0.7 * k)
+        v.co = Vector((cx + 0.080 + 0.075 * v.co.x * g, 0.074 * v.co.y * g, cz - 0.080 + 0.088 * v.co.z))
+else:                  # the knot and two tails
+    knot = bmesh.ops.create_uvsphere(sb, u_segments=16, v_segments=10, radius=1.0)
+    for v in knot['verts']: v.co = Vector((cx + rx + 0.004 + 0.020 * v.co.x, 0.028 * v.co.y, cz - 0.040 + 0.022 * v.co.z))
+    for sy in (-1, 1):
+        x0, z0 = cx + rx - 0.004, cz - 0.05
+        for face_side in (1, -1):                         # both sides of the cloth (its own vertices each)
+            quad = []
+            for t in (0.0, 1.0):
+                L = 0.15 * t
+                for w in (-0.011, 0.011):
+                    quad.append(sb.verts.new(Vector((x0 + 0.012 * t + 0.0008 * face_side, sy * (0.012 + 0.03 * t) + w * (1 - 0.3 * t), z0 - L))))
+            sb.faces.new((quad[0], quad[1], quad[3], quad[2]) if face_side > 0 else (quad[2], quad[3], quad[1], quad[0]))
+sb.to_mesh(sph.data); sb.free()
+bpy.data.objects.remove(target)
 sph.name = 'cover'; sph.data.materials.append(mat('haredi_cover', cover_rgb))
 bpy.ops.object.shade_smooth(); skin_to(sph, 'Bip01 Head')
-# hair outside the shell goes (only behind the face, never the face itself)
-hair = [f for f in bm.faces if f.material_index == head_mi and any((v.co.x - nx > 0.06) and not inside(v.co, 0.004) and (v.co.z > nz - 0.03 or v.co.x - nx > 0.19 or abs(v.co.y) > 0.066) and v.co.z > nz - 0.30 for v in f.verts)]
 print('cover: skull rx %.3f ry %.3f rz %.3f, hair faces removed %d' % (rx, ry, rz, len(hair)))
 
 # ---- no hair cards (they would poke through the covering); the eyelashes go with them
@@ -87,9 +132,10 @@ if hem and ext > 0:
     defl = bm.verts.layers.deform.active
     r = bmesh.ops.extrude_edge_only(bm, edges=hem)
     newv = [g for g in r['geom'] if isinstance(g, bmesh.types.BMVert)]
-    for v in newv:
+    hem_low = min(v.co.z for e in hem for v in e.verts)
+    for v in newv:                                         # down to one level (a straight hem), flaring a little
         d = Vector((v.co.x - pelvis.x, v.co.y - pelvis.y, 0))
-        v.co += d * 0.05 + Vector((0, 0, -ext))           # down, flaring a little
+        v.co += d * 0.05; v.co.z = hem_low - ext
     # the new faces take UVs from the skirt just above the hem (the hem's own texels are its shadowed edge)
     uvl = bm.loops.layers.uv.active
     hem_vs = {v for e in hem for v in e.verts}
@@ -123,6 +169,15 @@ if hem_z is not None:
         c = f.calc_center_median()
         if c.z < hem_z - 0.02 and c.z > calf - 0.42 and math.hypot(c.x - pelvis.x, c.y - pelvis.y) < 0.20:
             q = [tuple(l[uvl].uv) for l in f.loops]; legs.append((q + [q[-1]] * 8)[:8])
+neck = arm.matrix_world @ arm.data.bones['Bip01 Neck'].head_local
+chest = []
+for f in bm.faces:
+    if f.material_index != head_mi: continue        # the open collar's skin is the head map's (neck and upper chest)
+    c = f.calc_center_median()
+    if c.z < neck.z - 0.022 and abs(c.y) < 0.10 and c.x < neck.x + 0.02:
+        q = [tuple(l[uvl].uv) for l in f.loops]; chest.append((q + [q[-1]] * 8)[:8])
+np.save(out + '.chest.npy', np.array(chest, np.float32).reshape(-1, 8, 2))
+print('chest polys', len(chest))
 np.save(out + '.legs.npy', np.array(legs, np.float32).reshape(-1, 8, 2))
 print('leg polys', len(legs))
 bm.transform(mwi); bm.to_mesh(body.data); bm.free()

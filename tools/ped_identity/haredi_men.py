@@ -6,6 +6,7 @@ import bpy, bmesh, sys, math, numpy as np
 from mathutils import Vector
 a = sys.argv[sys.argv.index('--') + 1:]
 src, out, beard_rgb, hat, peyot = a[0], a[1], [int(x) / 255 for x in a[2].split(',')], a[3], a[4] == '1'
+drop_tie = len(a) < 6 or a[5] != 'keeptie'   # keeptie: the tie stays as geometry, painted as the white shirt
 bpy.ops.wm.read_factory_settings(use_empty=True)
 bpy.ops.import_scene.gltf(filepath=src)
 arm = [o for o in bpy.data.objects if o.type == 'ARMATURE'][0]
@@ -31,47 +32,68 @@ def skin_to_head(o):
     vg = o.vertex_groups.new(name='Bip01 Head'); vg.add(list(range(len(o.data.vertices))), 1.0, 'REPLACE')
     md = o.modifiers.new('Armature', 'ARMATURE'); md.object = arm
 
-# ---- beard: the lower face's faces, pushed out along their normals, fuller toward the chin; a strand texture
+# ---- beard: the lower face's faces, pushed out along their normals, fuller toward the chin, tapering to nothing at
+# its border; strand cards: the texture's alpha thins to scattered strands toward the border (alpha test), so the
+# beard feathers into the cheeks and jaw instead of ending in a hard edge
 def in_beard(p):
     x, y, z = p
-    depth = x - nx                                  # 0 at the nose tip, grows toward the back
+    depth = x - nx
     if depth > 0.13: return False
-    if abs(y) < 0.020 and nz - 0.046 < z < nz - 0.024 and depth < 0.035: return False                # the lips
-    if z > nz - 0.014:                              # above the moustache line: only the sideburns, in front of the ears
+    if abs(y) < 0.021 and nz - 0.046 < z < nz - 0.031 and depth < 0.035: return False                # the lower lip
+    if z > nz - 0.008:                              # above the moustache: the sideburns, in front of the ears
         return z < nz + 0.045 and 0.085 < depth < 0.13 and abs(y) > 0.05
-    if z > nz - 0.030 and depth < 0.075 and abs(y) > 0.034: return False                           # the cheeks' bare front
+    if z > nz - 0.030 and depth < 0.070 and abs(y) > 0.036: return False                           # the cheeks' bare front
     return True
 bm = bmesh.new(); bm.from_mesh(body.data); bm.transform(mw); bm.normal_update()
 bm.faces.ensure_lookup_table()
 keep = [f for f in bm.faces if f.material_index == head_mi and sum(in_beard(v.co) for v in f.verts) >= len(f.verts) - 1]
-bm2 = bmesh.new(); vmap = {}
-uv_src = bm.loops.layers.uv.active; uv_dst = bm2.loops.layers.uv.new('UVMap')
+bm2 = bmesh.new(); vmap = {}; base = {}
 for f in keep:
     vs = []
     for v in f.verts:
         if v.index not in vmap:
-            low = max(0.0, (nz - 0.03) - v.co.z)          # below the mouth: fuller and longer
-            co = v.co + v.normal * (0.008 + 0.12 * low)
-            co.z -= 0.45 * low
-            vmap[v.index] = bm2.verts.new(co)
+            vmap[v.index] = bm2.verts.new(v.co.copy()); base[vmap[v.index]] = (v.co.copy(), v.normal.copy())
         vs.append(vmap[v.index])
-    try:
-        nf = bm2.faces.new(vs)
-        for l_src, l_dst in zip(f.loops, nf.loops): l_dst[uv_dst].uv = l_src[uv_src].uv
+    try: bm2.faces.new(vs)
     except ValueError: pass
+bm2.verts.ensure_lookup_table(); bm2.edges.ensure_lookup_table()
+import heapq
+dist = {v: (0.0 if v.is_boundary else 1e9) for v in bm2.verts}
+pq = [(0.0, i, v) for i, v in enumerate(bm2.verts) if v.is_boundary]; heapq.heapify(pq); cnt = len(pq)
+while pq:
+    dd, _, v = heapq.heappop(pq)
+    if dd > dist[v]: continue
+    for e in v.link_edges:
+        w = e.other_vert(v); nd = dd + e.calc_length()
+        if nd < dist[w]: dist[w] = nd; cnt += 1; heapq.heappush(pq, (nd, cnt, w))
+FEATHER = 0.016
+for v in bm2.verts:
+    co, n = base[v]; k = min(1.0, dist[v] / FEATHER)
+    low = max(0.0, (nz - 0.03) - co.z)
+    p = co + n * ((0.002 + 0.007 * k) + 0.12 * low * k)
+    p.z -= 0.45 * low * k
+    p.y *= 1.0 - 0.9 * low                                   # the beard narrows toward its point
+    v.co = p
 for _ in range(3): bmesh.ops.smooth_vert(bm2, verts=bm2.verts, factor=0.5, use_axis_x=True, use_axis_y=True, use_axis_z=True)
+uvl = bm2.loops.layers.uv.new('UVMap')
+for f in bm2.faces:
+    for l in f.loops:
+        v = l.vert; k = min(1.0, dist[v] / FEATHER)
+        l[uvl].uv = (0.5 + math.atan2(v.co.y, v.co.x - (nx + 0.10)) / (2 * math.pi) * 6.0, 0.02 + 0.96 * k)
 me = bpy.data.meshes.new('beard'); bm2.to_mesh(me); bm2.free(); bm.free()
 beard = bpy.data.objects.new('beard', me); bpy.context.collection.objects.link(beard)
-# strand texture: the beard colour with fine vertical streaks (no flat plastic)
-N = 128; rng = np.random.default_rng(7)
-streak = np.repeat(rng.normal(0, 1, (1, N)), N, 0) * 0.6 + rng.normal(0, 1, (N, N)) * 0.4
-streak = np.clip(1 + 0.18 * streak, 0.7, 1.3)
-px = np.zeros((N, N, 4), np.float32); px[..., 3] = 1
+N = 256; rng = np.random.default_rng(7)
+col = rng.random(N); jitter = rng.random((N, N)) * 0.25
+vv = np.linspace(0, 1, N)[:, None]
+alpha = ((col[None, :] + jitter) < vv * 1.9).astype(np.float32)
+streak = np.clip(1 + 0.18 * (np.repeat(rng.normal(0, 1, (1, N)), N, 0) * 0.6 + rng.normal(0, 1, (N, N)) * 0.4), 0.7, 1.3)
+px = np.zeros((N, N, 4), np.float32); px[..., 3] = alpha
 for k in range(3): px[..., k] = np.clip(beard_rgb[k] * streak, 0, 1)
-img = bpy.data.images.new('haredi_beard_tex', N, N); img.pixels = px.ravel(); img.pack()
-bm_mat = mat('haredi_beard', beard_rgb)
+img = bpy.data.images.new('haredi_beard_tex', N, N, alpha=True); img.pixels = px.ravel(); img.pack()
+bm_mat = mat('haredi_beard', beard_rgb); bm_mat.blend_method = 'CLIP'
 tex = bm_mat.node_tree.nodes.new('ShaderNodeTexImage'); tex.image = img
-bm_mat.node_tree.links.new(tex.outputs['Color'], bm_mat.node_tree.nodes['Principled BSDF'].inputs['Base Color'])
+bsdf = bm_mat.node_tree.nodes['Principled BSDF']
+bm_mat.node_tree.links.new(tex.outputs['Color'], bsdf.inputs['Base Color']); bm_mat.node_tree.links.new(tex.outputs['Alpha'], bsdf.inputs['Alpha'])
 beard.data.materials.append(bm_mat)
 skin_to_head(beard)
 print('beard faces', len(me.polygons))
@@ -80,9 +102,9 @@ print('beard faces', len(me.polygons))
 hx = H[:, 0].min() * 0.5 + H[:, 0].max() * 0.5; hy = 0.0
 crown_r = 0.5 * (H[:, 1].max() - H[:, 1].min()) * 1.06
 base_z = top - 0.072
-bpy.ops.mesh.primitive_cylinder_add(vertices=40, radius=crown_r + (0.062 if hat == 'fedora' else 0.055), depth=0.008, location=(hx, hy, base_z))
+bpy.ops.mesh.primitive_cylinder_add(vertices=40, radius=crown_r + 0.070, depth=0.008, location=(hx, hy, base_z))
 brim = bpy.context.object
-bpy.ops.mesh.primitive_cylinder_add(vertices=40, radius=crown_r, depth=0.105, location=(hx, hy, base_z + 0.0525))
+bpy.ops.mesh.primitive_cylinder_add(vertices=40, radius=crown_r, depth=0.128, location=(hx, hy, base_z + 0.064))
 crown = bpy.context.object
 for o in (brim, crown): o.scale = (1.12, 0.95, 1.0)   # longer front to back, as a head is
 bpy.ops.object.select_all(action='DESELECT')
@@ -90,16 +112,14 @@ bpy.ops.object.select_all(action='DESELECT')
 bm = bmesh.new(); bm.from_mesh(crown.data)
 for v in bm.verts:
     if v.co.z > 0.0:
-        v.co.x *= 0.90; v.co.y *= 0.90
-        if hat == 'homburg': v.co.z -= 0.022 * max(0.0, 1 - abs(v.co.x) / (crown_r * 0.9))
-        else: v.co.z -= 0.025 * max(0.0, 1 - abs(v.co.y) / (crown_r * 0.5)) * (0.6 + 0.4 * (v.co.x > 0))
+        v.co.x *= 0.92; v.co.y *= 0.92
+        r = crown_r * 0.92
+        v.co.z -= 0.026 * max(0.0, 1 - abs(v.co.y) / (r * 0.45))           # the centre crease, front to back
+        if v.co.x < 0:                                                      # the pinch: two dents at the front
+            for sy in (-1, 1):
+                d = math.hypot((v.co.x + 0.55 * r) / (0.35 * r), (v.co.y - sy * 0.5 * r) / (0.3 * r))
+                if d < 1: v.co.y -= sy * 0.012 * (1 - d); v.co.z -= 0.010 * (1 - d)
 bm.to_mesh(crown.data); bm.free()
-if hat == 'homburg':
-    bm = bmesh.new(); bm.from_mesh(brim.data)
-    for v in bm.verts:
-        r = math.hypot(v.co.x, v.co.y)
-        if r > crown_r + 0.03: v.co.z += 0.010 * (r - crown_r - 0.03) / 0.025
-    bm.to_mesh(brim.data); bm.free()
 bpy.ops.mesh.primitive_cylinder_add(vertices=40, radius=crown_r * 1.012, depth=0.022, location=(hx, hy, base_z + 0.014))
 band = bpy.context.object; band.scale = (1.12, 0.95, 1.0)
 felt = mat('haredi_hat', (0.035, 0.035, 0.04)); ribbon = mat('haredi_band', (0.015, 0.015, 0.018), 0.5)
@@ -122,6 +142,22 @@ if peyot:
         o.data.materials.append(bpy.data.materials['haredi_beard'])
         skin_to_head(o)
 
+# ---- tzitzit: four thin white strings at each hip, from under the jacket hem, swinging with the thigh
+pel = arm.matrix_world @ arm.data.bones['Bip01 Pelvis'].head_local
+thigh = arm.matrix_world @ arm.data.bones['Bip01 L Thigh'].head_local
+hip_w = abs(thigh.y) + 0.082                      # the hip joint's offset and the thigh's girth under the trousers
+white = mat('haredi_tzitzit', (0.86, 0.86, 0.84), 0.8)
+for side, bone in ((-1, 'Bip01 L Thigh'), (1, 'Bip01 R Thigh')):
+    for k in range(4):
+        x0 = pel.x - 0.025 + 0.016 * k; y0 = side * (hip_w + 0.004); z0 = pel.z - 0.07
+        L = 0.11 + 0.012 * ((k * 7) % 3)
+        bpy.ops.mesh.primitive_cylinder_add(vertices=5, radius=0.0016, depth=L, location=(x0, y0, z0 - L / 2))
+        o = bpy.context.object; o.data.materials.append(white)
+        mwo = o.matrix_world.copy(); o.parent = arm; o.matrix_world = mwo
+        o.vertex_groups.new(name=bone).add(list(range(len(o.data.vertices))), 1.0, 'REPLACE')
+        md = o.modifiers.new('Armature', 'ARMATURE'); md.object = arm
+print('tzitzit at hip half-width %.3f' % hip_w)
+
 # ---- the tie / shirt-front region in UV space (faces of the body material in a narrow band of the chest front)
 body_mi = [i for i, m in enumerate(body.data.materials) if m.name.endswith('_body')][0]
 neck = arm.matrix_world @ arm.data.bones['Bip01 Neck'].head_local
@@ -141,7 +177,9 @@ for f in bm.faces:
     if f.material_index != body_mi: continue
     u = sum(l[uvl2].uv.x for l in f.loops) / len(f.loops); v = sum(l[uvl2].uv.y for l in f.loops) / len(f.loops)
     if 0.33 < u < 0.63 and 0.015 < v < 0.18: dead.append(f)
-bmesh.ops.delete(bm, geom=dead, context='FACES'); bm.to_mesh(body.data); bm.free()
+if drop_tie: bmesh.ops.delete(bm, geom=dead, context='FACES')
+else: dead = []
+bm.to_mesh(body.data); bm.free()
 print('tie faces removed', len(dead))
 for o in [o for o in bpy.data.objects if o.name.startswith('Icosphere')]: bpy.data.objects.remove(o)
 bpy.ops.export_scene.gltf(filepath=out, export_format='GLB', export_animations=False, export_skins=True, export_apply=False)
