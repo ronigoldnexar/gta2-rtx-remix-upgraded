@@ -47,6 +47,7 @@ struct Settings {
     bool wetRoads = true;
     bool remixStreaks = false;
     int remixRain = 2;
+    bool remixScreenRain = true;
     float reflection = 1.0f;
     int wetPercent = -1;
 };
@@ -104,6 +105,7 @@ void ReadSettings() {
     s.wetRoads = ReadInt("wet_roads", 1) != 0;
     s.remixStreaks = ReadInt("remix_streaks", 0) != 0;
     s.remixRain = ReadInt("remix_rain", 2);
+    s.remixScreenRain = ReadInt("remix_screen_rain", 1) != 0;
     s.reflection = ReadInt("reflection_percent", 100) / 100.0f;
     s.wetPercent = ReadInt("wet_percent", -1);
     if (!g_haveSet || memcmp(&s, &g_set, sizeof s) != 0) {
@@ -148,6 +150,7 @@ void Step(double dt) {
     w.wetRoads = g_set.wetRoads;
     w.remixStreaks = g_set.remixStreaks || g_set.remixRain == 1;
     w.remixRainApi = g_set.remixRain == 2 && !g_set.remixStreaks;
+    w.remixScreenRain = g_set.remixScreenRain;
     w.drops = g_set.drops;
     w.reflection = g_set.reflection;
     if (!g_set.enabled) {

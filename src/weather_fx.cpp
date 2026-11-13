@@ -21,7 +21,8 @@ Vec3 g_eye{128.0f, 3.0f, 128.0f};
 float g_fogHere = 0.0f;     // this frame's fog at the eye (the bank noise applied)
 float g_overcast = 0.0f;
 float g_blend = 0.0f;
-gta2::WeatherCoverFn g_cover = nullptr;      // the view transition's weight, from the shading
+gta2::WeatherCoverFn g_cover = nullptr;
+std::vector<gta2::ScreenRainLight> g_srLights;      // the view transition's weight, from the shading
 
 float Clamp01(float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); }
 Vec3 Lerp(const Vec3& a, const Vec3& b, float t) { return a + (b - a) * t; }
@@ -307,6 +308,7 @@ void WeatherFx::DrawRain(const WorldShading& shading) {
 
 
 void SetWeatherCover(WeatherCoverFn fn) { g_cover = fn; }
+void SetScreenRainLights(const std::vector<ScreenRainLight>& lights) { g_srLights = lights; }
 bool WeatherCovered(float x, float y, float z) { return g_cover && g_cover(x, y, z); }
 
 void WeatherFx::SetRemixFrame(const Mat4& view, const Mat4& proj, const Vec3& eye, float blend) {
@@ -563,6 +565,90 @@ void WeatherFx::DrawLensDrops(int width, int height, float weight, IDirect3DSurf
     device_->DrawPrimitiveUP(D3DPT_TRIANGLELIST, static_cast<UINT>(v.size() / 3), v.data(), sizeof(V));
     device_->SetTexture(0, nullptr);
     device_->SetTexture(1, nullptr);
+    if (saved_) saved_->Apply();
+}
+
+
+void WeatherFx::DrawScreenRain(int width, int height, float weight) {
+    const WeatherState& w = g_now;
+    if (!device_ || !remix_ || !haveCamera_ || !w.active || !w.remixScreenRain || w.rain < 0.05f || weight < 0.5f) return;
+    if (WeatherCovered(eye_.x, eye_.y + 0.3f, eye_.z)) return;
+    const float R = 3.0f, H = 4.0f, speed = 7.5f;
+    const int count = static_cast<int>(420.0f * w.rain);
+    const float t = static_cast<float>(std::fmod(w.seconds, 3600.0));
+    const float windX = w.windDir[0] * w.wind * 3.5f, windZ = w.windDir[1] * w.wind * 3.5f;
+    const Vec3 dir = Normalize(Vec3{windX, -speed, windZ});
+    auto wrap = [](float v, float L) { return v - L * std::floor(v / L + 0.5f); };
+    auto project = [&](const Vec3& p, float* sx, float* sy, float* sw) {
+        // row vectors: p * view * proj
+        float q[4], c[4];
+        const float in[4] = {p.x, p.y, p.z, 1.0f};
+        for (int k = 0; k < 4; ++k) q[k] = in[0] * view_.m[0][k] + in[1] * view_.m[1][k] + in[2] * view_.m[2][k] + in[3] * view_.m[3][k];
+        for (int k = 0; k < 4; ++k) c[k] = q[0] * proj_.m[0][k] + q[1] * proj_.m[1][k] + q[2] * proj_.m[2][k] + q[3] * proj_.m[3][k];
+        if (c[3] < 0.05f) return false;
+        *sx = (c[0] / c[3] * 0.5f + 0.5f) * width; *sy = (0.5f - c[1] / c[3] * 0.5f) * height; *sw = c[3];
+        return true;
+    };
+    struct V { float x, y, z, rhw; DWORD c; };
+    std::vector<V> v;
+    v.reserve(static_cast<size_t>(count) * 6);
+    for (int i = 0; i < count; ++i) {
+        const uint32_t s0 = static_cast<uint32_t>(i) * 5u + 91u;
+        const float sp = speed * (0.85f + 0.3f * Hash01(s0 + 2));
+        const float fall = std::fmod(Hash01(s0 + 1) * H + t * sp, H);
+        const float bx = Hash01(s0) * 2.0f * R + windX * t * 0.8f, bz = Hash01(s0 + 7777u) * 2.0f * R + windZ * t * 0.8f;
+        const Vec3 p{eye_.x + wrap(bx - eye_.x, 2.0f * R), eye_.y + H * 0.5f - fall, eye_.z + wrap(bz - eye_.z, 2.0f * R)};
+        const Vec3 d = p - eye_;
+        const float dist = std::sqrt(Dot(d, d));
+        if (dist < 0.6f || dist > R) continue;
+        // Light caught: the nearby lights, by distance (a streak by a lamp or in a head lamp glints).
+        Vec3 lit{0.0f, 0.0f, 0.0f};
+        for (const ScreenRainLight& L : g_srLights) {
+            const float dx = p.x - L.pos[0], dy = p.y - L.pos[1], dz = p.z - L.pos[2];
+            const float dd = std::sqrt(dx * dx + dy * dy + dz * dz), r = std::max(1.0f, L.radius);
+            if (dd > r) continue;
+            float k = 1.0f - dd / r; k *= k * L.intensity;
+            lit = lit + Vec3{L.rgb[0], L.rgb[1], L.rgb[2]} * k;
+        }
+        const float li = std::min(1.0f, (lit.x + lit.y + lit.z) / 3.0f);
+        const float fade = Clamp01((R - dist) / 1.0f) * Clamp01((dist - 0.6f) / 0.4f);
+        const float a = (0.05f + 0.30f * li) * fade * weight * (0.6f + 0.4f * w.rain);
+        if (a < 0.01f) continue;
+        const Vec3 top = p - dir * (0.35f + 0.15f * Hash01(s0 + 5));
+        float x0, y0, w0, x1, y1, w1;
+        if (!project(p, &x0, &y0, &w0) || !project(top, &x1, &y1, &w1)) continue;
+        float nx = y1 - y0, ny = x0 - x1;
+        const float nl = std::sqrt(nx * nx + ny * ny);
+        if (nl < 1.0f) continue;
+        nx *= 0.75f / nl; ny *= 0.75f / nl;   // 1.5 px wide
+        const float cr = std::min(1.0f, 0.75f + lit.x), cg = std::min(1.0f, 0.78f + lit.y), cb = std::min(1.0f, 0.84f + lit.z);
+        const DWORD c0 = D3DCOLOR_ARGB(static_cast<int>(a * 255.0f), static_cast<int>(cr * 255.0f), static_cast<int>(cg * 255.0f), static_cast<int>(cb * 255.0f));
+        const DWORD c1 = c0 & 0x00FFFFFFu;
+        const V q[4] = {{x0 - nx, y0 - ny, 0, 1, c0}, {x0 + nx, y0 + ny, 0, 1, c0}, {x1 - nx, y1 - ny, 0, 1, c1}, {x1 + nx, y1 + ny, 0, 1, c1}};
+        v.push_back(q[0]); v.push_back(q[1]); v.push_back(q[2]); v.push_back(q[2]); v.push_back(q[1]); v.push_back(q[3]);
+    }
+    if (v.empty()) return;
+    if (!saved_ && FAILED(device_->CreateStateBlock(D3DSBT_ALL, &saved_))) saved_ = nullptr;
+    if (saved_) saved_->Capture();
+    device_->SetVertexShader(nullptr);
+    device_->SetPixelShader(nullptr);
+    device_->SetFVF(D3DFVF_XYZRHW | D3DFVF_DIFFUSE);
+    device_->SetRenderState(D3DRS_LIGHTING, FALSE);
+    device_->SetRenderState(D3DRS_ZENABLE, D3DZB_FALSE);
+    device_->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+    device_->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+    device_->SetRenderState(D3DRS_FOGENABLE, FALSE);
+    device_->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
+    device_->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+    device_->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
+    device_->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+    device_->SetTexture(0, nullptr);
+    device_->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+    device_->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_DIFFUSE);
+    device_->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+    device_->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_DIFFUSE);
+    device_->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+    device_->DrawPrimitiveUP(D3DPT_TRIANGLELIST, static_cast<UINT>(v.size() / 3), v.data(), sizeof(V));
     if (saved_) saved_->Apply();
 }
 

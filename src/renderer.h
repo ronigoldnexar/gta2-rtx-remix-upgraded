@@ -126,6 +126,7 @@ public:
     int PreloadWetVariants();
     // WEATHER-V2: the rain's camera and view weight on a Remix device (see WeatherFx::SetRemixFrame).
     void SetRemixWeatherFrame(const Camera& camera, float blend);
+    void DrawScreenRain(float streetWeight) { weather_.DrawScreenRain(width_, height_, streetWeight); }
     void DrawLensDrops(float firstPersonWeight) { weather_.DrawLensDrops(width_, height_, firstPersonWeight, remixDevice_ ? nullptr : savedTarget_); }
 
     // GTA2 animates a tile - ceiling fans, screens, water - by changing the

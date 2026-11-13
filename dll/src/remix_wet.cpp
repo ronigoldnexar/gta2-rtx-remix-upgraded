@@ -968,6 +968,22 @@ void RemixWetFrame(const gta2::Map& map, float eyeX, float eyeY, float eyeZ, flo
     DrawRemixRain(eyeX, eyeY, eyeZ, viewMix);
     DrawRainProxies(eyeX, eyeY, eyeZ, viewMix);
     {
+        // The lights near the eye, for the screen-space rain (weather_fx DrawScreenRain).
+        std::vector<gta2::ScreenRainLight> sl;
+        for (const RemixTrackedLight& t : LightsTracked()) {
+            if (!t.drawn || t.def.intensity <= 0.02f) continue;
+            const float dx = t.def.pos[0] - eyeX, dy = t.def.pos[1] - eyeY, dz = t.def.pos[2] - eyeZ;
+            const float reach = (std::min)(4.0f, (std::max)(1.0f, t.def.radius * 0.6f));
+            if (dx * dx + dy * dy + dz * dz > (reach + 3.0f) * (reach + 3.0f)) continue;
+            gta2::ScreenRainLight L;
+            for (int k = 0; k < 3; ++k) { L.pos[k] = t.def.pos[k]; L.rgb[k] = t.def.rgb[k]; }
+            L.intensity = t.def.intensity; L.radius = reach;
+            sl.push_back(L);
+            if (sl.size() >= 24) break;
+        }
+        gta2::SetScreenRainLights(sl);
+    }
+    {
         Settings e = g_dev;
         if (e.mode < 0) {
             // Production (WEATHER-V2 A): the darkening film follows the wetness; by night a

@@ -38,7 +38,8 @@ struct WeatherState {
     bool streaks = true;
     bool wetRoads = true;
     bool remixStreaks = false;         // WEATHER-V2: the D3D9 streaks on a Remix device ([weather] remix_rain=1)
-    bool remixRainApi = false;         // WEATHER-V2: Remix API water drops ([weather] remix_rain=2, the default)
+    bool remixRainApi = false;
+    bool remixScreenRain = true;      // WEATHER-V2: near-field rain in the UI layer under Remix ([weather] remix_screen_rain)         // WEATHER-V2: Remix API water drops ([weather] remix_rain=2, the default)
     int drops = 1600;                  // streaks at full rain
     double seconds = 0.0;
 };
@@ -53,6 +54,9 @@ void WeatherPoll();
 using WeatherCoverFn = bool (*)(float x, float y, float z);
 void SetWeatherCover(WeatherCoverFn fn);
 bool WeatherCovered(float x, float y, float z);
+// WEATHER-V2: lights near the eye for the screen-space rain under Remix (set by the DLL each frame).
+struct ScreenRainLight { float pos[3]; float rgb[3]; float intensity; float radius; };
+void SetScreenRainLights(const std::vector<ScreenRainLight>& lights);
 
 // The sky and the world's light under this weather (both no-ops when inactive).
 void WeatherAdjustSky(SkyColours* colours, SkySettings* settings);
@@ -92,6 +96,8 @@ public:
     // (both renderers: screen space, never path traced). weight: the first-person view's share (0 none).
     // scene: the frame under the UI (plain renderer: the drops refract it), or null (Remix: a shaded drop).
     void DrawLensDrops(int width, int height, float weight, IDirect3DSurface9* scene = nullptr);
+    // Under Remix: rain near the eye (0.6-3 blocks) drawn in screen space into the UI layer, lit by nearby lights.
+    void DrawScreenRain(int width, int height, float weight);
 private:
     struct LensDrop { float x, y, r, born, life, slide, vy; };
     std::vector<LensDrop> lensDrops_;
