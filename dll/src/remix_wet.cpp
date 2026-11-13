@@ -20,6 +20,7 @@
 
 #include "log.h"
 #include "remix_api.h"
+#include "remix_lights.h"
 
 #include "time_of_day.h"
 
@@ -720,6 +721,243 @@ void DrawRemixRain(float ex, float ey, float ez, float viewMix) {
         }
     }
 }
+
+// ---- WEATHER-V2: rain proxies Ray Reconstruction keeps (emissive) --------------------------------------------
+// With RR on the path-traced drops and the volumetric fog are not seen (docs/weather.md). Emissive surfaces are, so
+// rain is shown where light would catch it: clusters of thin emissive streaks round each nearby lamp and along each
+// head lamp's beam (brightness by distance to the light), and a soft emissive haze cone in each head lamp in the
+// rain. Only while it rains and the sun is down; [weather] remix_rain_proxies=0 turns all of it off.
+constexpr int kStreakLevels = 4, kStreakClusterDrops = 70;
+remixapi_MaterialHandle g_streakMat[kStreakLevels] = {};
+remixapi_MeshHandle g_streakMesh[kStreakLevels] = {};
+remixapi_MaterialHandle g_hazeMat = nullptr;
+remixapi_MeshHandle g_hazeMesh = nullptr;
+std::wstring g_hazePath;
+
+remixapi_MaterialHandle EmissiveMaterial(uint64_t hash, float intensity, const wchar_t* tex, bool blendTex) {
+    remixapi_MaterialInfoOpaqueEXT op = {};
+    op.sType = REMIXAPI_STRUCT_TYPE_MATERIAL_INFO_OPAQUE_EXT;
+    op.albedoConstant = {0.0f, 0.0f, 0.0f};
+    op.opacityConstant = 1.0f;
+    op.roughnessConstant = 1.0f;
+    op.useDrawCallAlphaState = blendTex ? 1 : 0;
+    remixapi_MaterialInfo info = {};
+    info.sType = REMIXAPI_STRUCT_TYPE_MATERIAL_INFO; info.pNext = &op; info.hash = hash;
+    info.emissiveColorConstant = {0.95f, 0.93f, 0.88f};
+    info.emissiveIntensity = intensity;
+    info.albedoTexture = tex;
+    info.emissiveTexture = tex;
+    info.filterMode = 1; info.wrapModeU = 2; info.wrapModeV = 2;
+    remixapi_MaterialHandle h = nullptr;
+    const remixapi_ErrorCode rc = RemixApi()->CreateMaterial(&info, &h);
+    Log("rain proxies: emissive material %.2f%s -> %d", intensity, tex ? " (haze texture)" : "", static_cast<int>(rc));
+    return rc == REMIXAPI_ERROR_CODE_SUCCESS ? h : nullptr;
+}
+
+// A unit cluster: streaks spread through a sphere of radius 1 and a fall height of 2 (y -1..1).
+remixapi_MeshHandle StreakCluster(int level, remixapi_MaterialHandle mat) {
+    std::vector<remixapi_HardcodedVertex> verts;
+    std::vector<uint32_t> idx;
+    for (int d = 0; d < kStreakClusterDrops; ++d) {
+        float x, y, z;
+        do { x = Hash2(d, level * 11 + 1) * 2 - 1; y = Hash2(d, level * 11 + 2) * 2 - 1; z = Hash2(d, level * 11 + 3) * 2 - 1; } while (x * x + z * z > 1.0f);
+        const float len = 0.10f + 0.06f * Hash2(d, level * 11 + 4), w = 0.006f;   // cluster units: ~1-2 px at 1080p once scaled
+        for (int q = 0; q < 2; ++q) {
+            const float dx = q == 0 ? w : 0.0f, dz = q == 0 ? 0.0f : w;
+            const uint32_t b = static_cast<uint32_t>(verts.size());
+            const float px[4] = {x - dx, x + dx, x + dx, x - dx}, pz[4] = {z - dz, z + dz, z + dz, z - dz}, py[4] = {y, y, y + len, y + len};
+            for (int k = 0; k < 4; ++k) {
+                remixapi_HardcodedVertex v = {};
+                v.position[0] = px[k]; v.position[1] = py[k]; v.position[2] = pz[k];
+                v.normal[0] = q == 0 ? 0.0f : 1.0f; v.normal[2] = q == 0 ? 1.0f : 0.0f;
+                v.color = 0xFFFFFFFFu;
+                verts.push_back(v);
+            }
+            const uint32_t t[6] = {0, 1, 2, 0, 2, 3};
+            for (uint32_t k : t) idx.push_back(b + k);
+        }
+    }
+    remixapi_MeshInfoSurfaceTriangles surface = {};
+    surface.vertices_values = verts.data(); surface.vertices_count = verts.size();
+    surface.indices_values = idx.data(); surface.indices_count = idx.size();
+    surface.skinning_hasvalue = 0; surface.material = mat;
+    remixapi_MeshInfo mesh = {};
+    mesh.sType = REMIXAPI_STRUCT_TYPE_MESH_INFO; mesh.hash = 0x5354524B00000100ull + level;
+    mesh.surfaces_values = &surface; mesh.surfaces_count = 1;
+    remixapi_MeshHandle h = nullptr;
+    return RemixApi()->CreateMesh(&mesh, &h) == REMIXAPI_ERROR_CODE_SUCCESS ? h : nullptr;
+}
+
+// The haze: a cone along +z (apex at 0, length 1, radius 1 at z=1), a texture whose alpha and emission fade along
+// the beam (v) and to the sides (u): no edges.
+bool WriteHazeDds(const std::wstring& path) {
+    const int n = 64;
+    std::vector<uint8_t> px(static_cast<size_t>(n) * n * 4);
+    for (int y = 0; y < n; ++y) for (int x = 0; x < n; ++x) {
+        const float u = (x + 0.5f) / n, v = (y + 0.5f) / n;   // u round the cone, v along it
+        const float across = std::sin(u * 3.14159265f);        // 0 at the seam edges of the visible half
+        const float along = std::pow(1.0f - v, 1.6f) * (std::min)(1.0f, v * 8.0f);
+        const float a = across * across * along;
+        uint8_t* q = &px[(static_cast<size_t>(y) * n + x) * 4];
+        const uint8_t l = static_cast<uint8_t>(a * 255.0f + 0.5f);
+        q[0] = l; q[1] = l; q[2] = l; q[3] = static_cast<uint8_t>(a * 0.35f * 255.0f + 0.5f);
+    }
+    uint32_t header[32] = {};
+    header[0] = 0x20534444; header[1] = 124; header[2] = 0x100F; header[3] = n; header[4] = n; header[5] = n * 4;
+    header[19] = 32; header[20] = 0x41; header[22] = 32;
+    header[23] = 0x00FF0000; header[24] = 0x0000FF00; header[25] = 0x000000FF; header[26] = 0xFF000000; header[27] = 0x1000;
+    FILE* f = _wfopen(path.c_str(), L"wb");
+    if (!f) return false;
+    const bool ok = fwrite(header, 4, 32, f) == 32 && fwrite(px.data(), 1, px.size(), f) == px.size();
+    fclose(f);
+    return ok;
+}
+
+remixapi_MeshHandle HazeCone(remixapi_MaterialHandle mat) {
+    std::vector<remixapi_HardcodedVertex> verts;
+    std::vector<uint32_t> idx;
+    const int seg = 16, rings = 8;
+    for (int r = 0; r <= rings; ++r) for (int sgm = 0; sgm <= seg; ++sgm) {
+        const float v = static_cast<float>(r) / rings, a = static_cast<float>(sgm) / seg * 6.2831853f;
+        remixapi_HardcodedVertex vx = {};
+        vx.position[0] = std::cos(a) * v; vx.position[1] = std::sin(a) * v; vx.position[2] = v;
+        vx.normal[0] = std::cos(a); vx.normal[1] = std::sin(a);
+        vx.texcoord[0] = std::fabs(static_cast<float>(sgm) / seg * 2.0f - 1.0f) * 0.5f + 0.25f;   // brightest along the middle
+        vx.texcoord[1] = v;
+        vx.color = 0xFFFFFFFFu;
+        verts.push_back(vx);
+    }
+    for (int r = 0; r < rings; ++r) for (int sgm = 0; sgm < seg; ++sgm) {
+        const uint32_t a = r * (seg + 1) + sgm, b = a + seg + 1;
+        const uint32_t t[6] = {a, b, a + 1, a + 1, b, b + 1};
+        for (uint32_t k : t) idx.push_back(k);
+    }
+    remixapi_MeshInfoSurfaceTriangles surface = {};
+    surface.vertices_values = verts.data(); surface.vertices_count = verts.size();
+    surface.indices_values = idx.data(); surface.indices_count = idx.size();
+    surface.skinning_hasvalue = 0; surface.material = mat;
+    remixapi_MeshInfo mesh = {};
+    mesh.sType = REMIXAPI_STRUCT_TYPE_MESH_INFO; mesh.hash = 0x48415A4500000001ull;
+    mesh.surfaces_values = &surface; mesh.surfaces_count = 1;
+    remixapi_MeshHandle h = nullptr;
+    return RemixApi()->CreateMesh(&mesh, &h) == REMIXAPI_ERROR_CODE_SUCCESS ? h : nullptr;
+}
+
+void DrawXf(remixapi_MeshHandle mesh, const float ax[3], const float ay[3], const float az[3], const float o[3], bool blend, int alpha255) {
+    remixapi_InstanceInfo inst = {};
+    inst.sType = REMIXAPI_STRUCT_TYPE_INSTANCE_INFO;
+    inst.mesh = mesh; inst.doubleSided = 1;
+    remixapi_InstanceInfoBlendEXT b = {};
+    if (blend) {
+        b.sType = REMIXAPI_STRUCT_TYPE_INSTANCE_INFO_BLEND_EXT;
+        b.alphaBlendEnabled = 1; b.srcColorBlendFactor = 6; b.dstColorBlendFactor = 7;
+        b.srcAlphaBlendFactor = 1; b.dstAlphaBlendFactor = 7; b.writeMask = 0xFFFFFFFFu;
+        b.textureColorArg1Source = 1; b.textureColorOperation = 3;
+        b.textureAlphaArg1Source = 1; b.textureAlphaArg2Source = 3; b.textureAlphaOperation = 3;   // texture x factor
+        b.tFactor = (static_cast<uint32_t>(alpha255) << 24) | 0x00FFFFFFu;
+        inst.pNext = &b;
+    }
+    remixapi_Transform& T = inst.transform;
+    for (int r = 0; r < 3; ++r) { T.matrix[r][0] = ax[r]; T.matrix[r][1] = ay[r]; T.matrix[r][2] = az[r]; T.matrix[r][3] = o[r]; }
+    RemixApi()->DrawInstance(&inst);
+}
+
+void DrawRainProxies(float ex, float ey, float ez, float viewMix) {
+    const gta2::WeatherState& w = gta2::WeatherNow();
+    static int enabled = 0; static DWORD read = 0;
+    if (GetTickCount() - read >= 1000) { read = GetTickCount(); enabled = GetPrivateProfileIntA("weather", "remix_rain_proxies", 0, g_ini);   // px1-px2: not seen with RR on; default off }
+    if (!enabled || !w.active || w.rain < 0.05f || viewMix < 0.99f) return;
+    float el = 0.0f, az = 0.0f;
+    TimeOfDayAngles(&el, &az);
+    const float night = (std::max)(0.0f, (std::min)(1.0f, (-el + 2.0f) / 8.0f));   // 0 above +2 deg .. 1 below -6 deg
+    if (night < 0.02f) return;
+    if (!g_streakMat[0]) {
+        static const float kI[kStreakLevels] = {0.6f, 1.2f, 2.4f, 4.5f};
+        for (int l = 0; l < kStreakLevels; ++l) {
+            g_streakMat[l] = EmissiveMaterial(0x5354524B4D000000ull + l, kI[l], nullptr, false);
+            g_streakMesh[l] = g_streakMat[l] ? StreakCluster(l, g_streakMat[l]) : nullptr;
+        }
+        wchar_t exe[MAX_PATH] = {};
+        GetModuleFileNameW(nullptr, exe, MAX_PATH);
+        std::wstring dir = exe; dir = dir.substr(0, dir.find_last_of(L"\\/")) + L"\\gta2dx9_cache";
+        CreateDirectoryW(dir.c_str(), nullptr);
+        g_hazePath = dir + L"\\wx_haze.dds";
+        if (WriteHazeDds(g_hazePath)) { g_hazeMat = EmissiveMaterial(0x48415A454D415401ull, 1.2f, g_hazePath.c_str(), true); if (g_hazeMat) g_hazeMesh = HazeCone(g_hazeMat); }
+    }
+    // The nearest lights that reach the street: up to 20 point lamps and 12 head-lamp spots.
+    struct L { float d; const RemixLightDesc* desc; };
+    std::vector<L> pts, spots;
+    for (const RemixTrackedLight& t : LightsTracked()) {
+        if (!t.drawn || t.def.intensity <= 0.02f) continue;
+        const float dx = t.def.pos[0] - ex, dy = t.def.pos[1] - ey, dz = t.def.pos[2] - ez, d = std::sqrt(dx * dx + dy * dy + dz * dz);
+        if (d > 28.0f) continue;
+        (t.def.spot ? spots : pts).push_back({d, &t.def});
+    }
+    {
+        static DWORD logT = 0;
+        if (GetTickCount() - logT >= 5000) {
+            logT = GetTickCount();
+            int spotN = 0;
+            for (const RemixTrackedLight& tl : LightsTracked()) if (tl.drawn && tl.def.spot) ++spotN;
+            Log("rain proxies: %zu lamps and %zu spots within 28 (of %zu tracked, %d drawn spots), rain %.2f night %.2f",
+                pts.size(), spots.size(), LightsTracked().size(), spotN, w.rain, night);
+        }
+    }
+    std::sort(pts.begin(), pts.end(), [](const L& a, const L& b) { return a.d < b.d; });
+    std::sort(spots.begin(), spots.end(), [](const L& a, const L& b) { return a.d < b.d; });
+    if (pts.size() > 20) pts.resize(20);
+    if (spots.size() > 12) spots.resize(12);
+    const float t = static_cast<float>(std::fmod(w.seconds, 3600.0));
+    const float rainK = w.rain * night;
+    auto fall = [&](float scale) { return std::fmod(t * 7.5f / scale, 2.0f); };   // in cluster units
+    // Clusters are drawn in two layers offset by the fall height so the fall wraps unseen.
+    auto cluster = [&](int level, const float c[3], float sx, float sy, float sz) {
+        if (!g_streakMesh[level]) return;
+        const float f = fall(sy);
+        for (int layer = 0; layer < 2; ++layer) {
+            const float ax[3] = {sx, 0, 0}, ay[3] = {0, sy, 0}, azv[3] = {0, 0, sz};
+            const float o[3] = {c[0], c[1] - (f - layer * 2.0f) * sy, c[2]};
+            DrawXf(g_streakMesh[level], ax, ay, azv, o, false, 255);
+        }
+    };
+    for (const L& l : pts) {
+        const float k = l.desc->intensity * rainK * (1.0f - l.d / 28.0f);
+        if (k < 0.05f) continue;
+        const float* p = l.desc->pos;
+        const int lv = k > 0.6f ? 3 : k > 0.35f ? 2 : k > 0.15f ? 1 : 0;
+        cluster(lv, p, 0.7f, 0.7f, 0.7f);
+        cluster((std::max)(0, lv - 1), p, 1.5f, 1.5f, 1.5f);
+        cluster((std::max)(0, lv - 2), p, 2.6f, 2.6f, 2.6f);
+    }
+    for (const L& l : spots) {
+        const float k = l.desc->intensity * rainK * (1.0f - l.d / 28.0f);
+        if (k < 0.05f) continue;
+        float dir[3] = {l.desc->dir[0], l.desc->dir[1], l.desc->dir[2]};
+        const float dl = std::sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
+        if (dl < 1e-4f) continue;
+        for (float& v : dir) v /= dl;
+        const int lv = k > 0.5f ? 3 : k > 0.25f ? 2 : 1;
+        // Streaks along the beam: near (bright), mid, far (dim).
+        for (int s = 0; s < 3; ++s) {
+            const float along = 0.6f + 1.4f * s, c[3] = {l.desc->pos[0] + dir[0] * along, l.desc->pos[1] + dir[1] * along, l.desc->pos[2] + dir[2] * along};
+            cluster((std::max)(0, lv - s), c, 0.35f + 0.3f * s, 0.5f, 0.35f + 0.3f * s);
+        }
+        // The haze cone: along the beam, 5 blocks, the cone's half angle.
+        if (g_hazeMesh) {
+            const float len = 5.0f, rad = len * std::tan((std::max)(10.0f, (std::min)(40.0f, l.desc->coneAngleDeg > 0 ? l.desc->coneAngleDeg : 25.0f)) * 0.0174533f);
+            float up[3] = {0, 1, 0};
+            if (std::fabs(dir[1]) > 0.9f) { up[0] = 1; up[1] = 0; }
+            float sx[3] = {up[1] * dir[2] - up[2] * dir[1], up[2] * dir[0] - up[0] * dir[2], up[0] * dir[1] - up[1] * dir[0]};
+            const float sl = std::sqrt(sx[0] * sx[0] + sx[1] * sx[1] + sx[2] * sx[2]);
+            for (float& v : sx) v /= sl;
+            const float sy[3] = {dir[1] * sx[2] - dir[2] * sx[1], dir[2] * sx[0] - dir[0] * sx[2], dir[0] * sx[1] - dir[1] * sx[0]};
+            const float ax[3] = {sx[0] * rad, sx[1] * rad, sx[2] * rad}, ay[3] = {sy[0] * rad, sy[1] * rad, sy[2] * rad};
+            const float azv[3] = {dir[0] * len, dir[1] * len, dir[2] * len};
+            const int a = static_cast<int>((std::min)(1.0f, k) * 255.0f);
+            DrawXf(g_hazeMesh, ax, ay, azv, l.desc->pos, true, a);
+        }
+    }
+}
 }  // namespace
 
 void RemixWetFrame(const gta2::Map& map, float eyeX, float eyeY, float eyeZ, float viewMix) {
@@ -728,6 +966,7 @@ void RemixWetFrame(const gta2::Map& map, float eyeX, float eyeY, float eyeZ, flo
     if (!RemixApiHasInstances() || map.Empty() || viewMix < 0.01f) return;
     DrawProbeBoard(map, eyeX, eyeY, eyeZ);
     DrawRemixRain(eyeX, eyeY, eyeZ, viewMix);
+    DrawRainProxies(eyeX, eyeY, eyeZ, viewMix);
     {
         Settings e = g_dev;
         if (e.mode < 0) {
