@@ -41,6 +41,9 @@ namespace gta2dx9 {
 // stream every frame, so a change takes effect on the next one.
 constexpr float kDefaultSpriteLift = 0.075f;
 
+// WEATHER-V2: wetness level 0-3 for the car bodies under Remix (0 = dry materials exactly).
+void SetCarWetLevel(int level);
+
 void SetSpriteLift(float blocks);
 
 // Stand each sprite on the ground plane under it rather than at a fixed height

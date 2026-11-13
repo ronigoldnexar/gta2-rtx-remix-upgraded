@@ -4231,6 +4231,7 @@ void WorldView::RenderFrame() {
             const int level = g_presentStreet ? (forced >= 0 ? forced : wetLevel) : 0;
             if (level != renderer_.WetLevel()) Log("weather: Remix wet material level %d (wetness %.2f)", level, wet);
             renderer_.SetWetLevel(level);
+            SetCarWetLevel(level);
         }
         renderer_.EndWorldShading();
         // LIGHTING-V1: the plain classic view takes the hour too (the street views and the Remix classic view already

@@ -3426,6 +3426,104 @@ void StartCarJob(CarJob* j) {
     }
 }
 
+
+// ---- WEATHER-V2: wet car paint under Remix ----------------------------------------------
+// Every car body material's creation inputs are kept; at wetness levels 1-3 (the road's steps, set by the world
+// view, 0 with [weather] off) the body is drawn with a variant whose roughness is x0.75 / x0.55 / x0.40 - the
+// constant, or a scaled copy of the roughness map when that map is one of ours (uncompressed BGRA). The dry
+// material and everything else about the car are untouched; a map in another format keeps the car dry.
+struct CarMatParams {
+    uint64_t hash = 0;
+    std::wstring albedo, normal, rough, metal;
+    float roughC = 1.0f, metalC = 0.0f;
+    uint8_t filter = 1, wrapU = 2, wrapV = 2;
+};
+std::map<remixapi_MaterialHandle, CarMatParams> g_carMatParams;
+std::map<std::pair<remixapi_MaterialHandle, int>, remixapi_MaterialHandle> g_wetCarMats;
+int g_carWetLevel = 0;
+int g_wetCarMadeFrame = -1;
+
+void RecordCarMaterial(remixapi_MaterialHandle handle, const remixapi_MaterialInfo& info, const remixapi_MaterialInfoOpaqueEXT& opaque) {
+    if (!handle) return;
+    CarMatParams p;
+    p.hash = info.hash;
+    if (info.albedoTexture) p.albedo = info.albedoTexture;
+    if (info.normalTexture) p.normal = info.normalTexture;
+    if (opaque.roughnessTexture) p.rough = opaque.roughnessTexture;
+    if (opaque.metallicTexture) p.metal = opaque.metallicTexture;
+    p.roughC = opaque.roughnessConstant;
+    p.metalC = opaque.metallicConstant;
+    p.filter = info.filterMode; p.wrapU = info.wrapModeU; p.wrapV = info.wrapModeV;
+    g_carMatParams[handle] = p;
+}
+
+// A scaled copy of an uncompressed 32-bit roughness DDS (level 0 read, mips rebuilt), or "" when it is not one.
+std::wstring WetRoughCopy(const std::wstring& src, int level, float scale) {
+    const std::wstring out = src + (level == 1 ? L".wet1.dds" : level == 2 ? L".wet2.dds" : L".wet3.dds");
+    if (GetFileAttributesW(out.c_str()) != INVALID_FILE_ATTRIBUTES) return out;
+    FILE* f = _wfopen(src.c_str(), L"rb");
+    if (!f) return L"";
+    uint8_t h[128];
+    if (fread(h, 1, 128, f) != 128 || memcmp(h, "DDS ", 4) != 0) { fclose(f); return L""; }
+    const uint32_t height = *reinterpret_cast<uint32_t*>(h + 12), width = *reinterpret_cast<uint32_t*>(h + 16);
+    const uint32_t pfFlags = *reinterpret_cast<uint32_t*>(h + 80), bits = *reinterpret_cast<uint32_t*>(h + 88);
+    if ((pfFlags & 0x4) || bits != 32 || width == 0 || height == 0 || width > 4096 || height > 4096) { fclose(f); return L""; }
+    std::vector<uint8_t> px(static_cast<size_t>(width) * height * 4);
+    const bool ok = fread(px.data(), 1, px.size(), f) == px.size();
+    fclose(f);
+    if (!ok) return L"";
+    for (size_t i = 0; i < px.size(); i += 4)
+        for (int c = 0; c < 3; ++c) px[i + c] = static_cast<uint8_t>(px[i + c] * scale + 0.5f);
+    return WriteDds(out, width, height, px) ? out : L"";
+}
+
+remixapi_MaterialHandle WetCarMaterial(remixapi_MaterialHandle dry) {
+    if (!dry || g_carWetLevel <= 0) return dry;
+    const auto key = std::make_pair(dry, g_carWetLevel);
+    const auto found = g_wetCarMats.find(key);
+    if (found != g_wetCarMats.end()) return found->second ? found->second : dry;
+    const auto params = g_carMatParams.find(dry);
+    if (params == g_carMatParams.end()) return dry;
+    if (g_wetCarMadeFrame == static_cast<int>(g_carFrame)) return dry;   // one a frame, like the dry ones
+    g_wetCarMadeFrame = static_cast<int>(g_carFrame);
+    const CarMatParams& p = params->second;
+    static const float kScale[4] = {1.0f, 0.75f, 0.55f, 0.40f};
+    const float k = kScale[g_carWetLevel];
+    std::wstring rough;
+    if (!p.rough.empty()) {
+        rough = WetRoughCopy(p.rough, g_carWetLevel, k);
+        if (rough.empty()) {
+            static int logs = 0;
+            if (logs++ < 6) Log("wet car: roughness map not uncompressed 32-bit, the car stays dry");
+            g_wetCarMats[key] = nullptr;
+            return dry;
+        }
+    }
+    remixapi_MaterialInfoOpaqueEXT opaque = {};
+    opaque.sType = REMIXAPI_STRUCT_TYPE_MATERIAL_INFO_OPAQUE_EXT;
+    opaque.albedoConstant = {1.0f, 1.0f, 1.0f};
+    opaque.opacityConstant = 1.0f;
+    opaque.useDrawCallAlphaState = 1;
+    opaque.roughnessConstant = p.rough.empty() ? p.roughC * k : p.roughC;
+    opaque.metallicConstant = p.metalC;
+    opaque.roughnessTexture = rough.empty() ? nullptr : rough.c_str();
+    opaque.metallicTexture = p.metal.empty() ? nullptr : p.metal.c_str();
+    remixapi_MaterialInfo info = {};
+    info.sType = REMIXAPI_STRUCT_TYPE_MATERIAL_INFO;
+    info.pNext = &opaque;
+    info.hash = (p.hash ^ (0x57455443ull << 8) ^ static_cast<uint64_t>(g_carWetLevel)) | 1;
+    info.albedoTexture = p.albedo.empty() ? nullptr : p.albedo.c_str();
+    info.normalTexture = p.normal.empty() ? nullptr : p.normal.c_str();
+    info.emissiveColorConstant = {0.0f, 0.0f, 0.0f};
+    info.filterMode = p.filter; info.wrapModeU = p.wrapU; info.wrapModeV = p.wrapV;
+    remixapi_MaterialHandle handle = nullptr;
+    const remixapi_ErrorCode rc = RemixApi()->CreateMaterial(&info, &handle);
+    static int logs = 0;
+    if (logs++ < 8) Log("wet car: level %d material (roughness x%.2f%s) -> %d", g_carWetLevel, k, rough.empty() ? ", constant" : ", map", static_cast<int>(rc));
+    g_wetCarMats[key] = rc == REMIXAPI_ERROR_CODE_SUCCESS ? handle : nullptr;
+    return g_wetCarMats[key] ? g_wetCarMats[key] : dry;
+}
+
 remixapi_MaterialHandle CarMaterialFor(IDirect3DTexture9* art, int sprite) {
     if (!art || !RemixApiHasInstances()) return nullptr;
     CarMaterial& slot = g_carMaterials[{art, sprite}];
@@ -3566,6 +3664,7 @@ remixapi_MaterialHandle CarMaterialFor(IDirect3DTexture9* art, int sprite) {
             result == REMIXAPI_ERROR_CODE_SUCCESS ? "ok" : "refused");
     }
     if (result != REMIXAPI_ERROR_CODE_SUCCESS || !handle) return nullptr;
+    RecordCarMaterial(handle, info, opaque);
     slot.handle = handle;
     slot.failed = false;
     slot.born = g_carFrame;
@@ -3654,6 +3753,7 @@ void PumpCarJobs() {
                 result == REMIXAPI_ERROR_CODE_SUCCESS ? "ok" : "refused");
         }
         if (result == REMIXAPI_ERROR_CODE_SUCCESS && handle) {
+            RecordCarMaterial(handle, info, opaque);
             slot.handle = handle;
             slot.failed = false;
             slot.born = g_carFrame;
@@ -16550,7 +16650,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
             // own; the plain draw below is only the fallback.
             if (g_carMaterial) {
                 IDirect3DTexture9* matArt = shellMatArt[shellIndex] ? shellMatArt[shellIndex] : art;
-                const remixapi_MaterialHandle material = CarMaterialFor(matArt, shell.sprite);
+                const remixapi_MaterialHandle material = WetCarMaterial(CarMaterialFor(matArt, shell.sprite));
                 // Not yet loaded by Remix, and nothing earlier to stand in: the
                 // flat body is drawn this frame instead.
                 if (material && !shellWarm[shellIndex]) continue;
@@ -17133,5 +17233,7 @@ void LiveGeometryMemGauges() {
     MemGauge("lg.lamptex", static_cast<double>(g_lampTextures.size()));
     MemGauge("lg.puffs", static_cast<double>(g_fireSmoke.size() + g_flames.size() + g_embers.size() + g_gamePuffs.size()));
 }
+
+void SetCarWetLevel(int level) { g_carWetLevel = level < 0 ? 0 : (level > 3 ? 3 : level); }
 
 }  // namespace gta2dx9
