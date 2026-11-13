@@ -92,6 +92,12 @@ void WeatherAdjustShading(WorldShading* s, float blend) {
     end = end + (std::max(start + 6.0f, end * 0.55f) - end) * rain;
     s->fogStart = start;
     s->fogEnd = std::max(end, start + 4.0f);
+    // WEATHER-V2 phase 2: lightning lights the street from the sky (cool white), and the fog with it.
+    if (g_now.flash > 0.0f) {
+        const float f = std::min(1.5f, g_now.flash);
+        s->ambient = s->ambient + Vec3{0.50f, 0.54f, 0.62f} * f;
+        s->fogColour = s->fogColour + Vec3{0.30f, 0.32f, 0.38f} * f;
+    }
     // Eased in with the view transition, like the sky.
     s->sunColour = Lerp(before.sunColour, s->sunColour, g_blend);
     s->ambient = Lerp(before.ambient, s->ambient, g_blend);
@@ -112,6 +118,12 @@ void WeatherAdjustSky(SkyColours* c, SkySettings* settings) {
     c->zenith = Lerp(c->zenith, c->fog, g_fogHere * 0.8f);
     c->sunColour = c->sunColour * (1.0f - 0.92f * oc);
     c->ambient = Grey(c->ambient, 0.5f * oc);
+    if (g_now.flash > 0.0f) {   // WEATHER-V2 phase 2: the cloud deck lit from inside
+        const float f = std::min(1.0f, g_now.flash * 0.8f);
+        c->zenith = Lerp(c->zenith, Vec3{0.78f, 0.80f, 0.90f}, f);
+        c->horizon = Lerp(c->horizon, Vec3{0.70f, 0.72f, 0.82f}, f * 0.8f);
+        c->fog = Lerp(c->fog, Vec3{0.60f, 0.62f, 0.70f}, f * 0.6f);
+    }
     if (settings) {
         settings->cloudCover = std::max(settings->cloudCover, oc);
         settings->cloudShade = Clamp01(0.6f * oc + 0.4f * rain);

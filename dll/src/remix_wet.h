@@ -18,6 +18,6 @@ namespace gta2dx9 {
 // size x size ARGB texels (r: puddle value mapped to the plain wet pass's threshold, g: fine ripple noise).
 void BuildPuddleField(const gta2::Map& map, int size, std::vector<uint8_t>* out);   // plain: L8, size/256 texels per block
 
-void RemixWetFrame(const gta2::Map& map, float eyeX, float eyeY, float eyeZ, float viewMix);
+void RemixWetFrame(const gta2::Map& map, float eyeX, float eyeY, float eyeZ, float viewMix, const float fwd[3]);   // fwd: the camera's forward, world
 
 }  // namespace gta2dx9

@@ -34,6 +34,9 @@ struct WeatherState {
     float wind = 0.0f;      // slants the rain, drifts it
     float wet = 0.0f;       // the roads' wetness (lags the rain, dries after it)
     float night = 0.0f;     // WEATHER-V2: 0 day .. 1 night (sun from +2 down to -6 deg)
+    float storm = 0.0f;     // WEATHER-V2 phase 2: 0..1, heavy rain in a strong wind (lightning comes with it)
+    float flash = 0.0f;     // WEATHER-V2 phase 2: this frame's lightning, 0..~1.5 (a strike's pulses)
+    float flashDir[3] = {0.3f, -0.8f, 0.5f};   // unit, world: the light of the current strike, from the sky down
     float windDir[2] = {0.6f, 0.8f};   // unit, world x/z
     float reflection = 1.0f;           // wet-road reflection strength
     bool streaks = true;

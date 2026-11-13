@@ -4254,7 +4254,9 @@ void WorldView::RenderFrame() {
         // or in the classic view, the layer's alpha follows the street mix).
         if (renderer_.IsRemixDevice() && worldUploaded_ && !map_.Empty()) {
             const auto eye = camera_.Position();
-            RemixWetFrame(map_, eye.x, eye.y, eye.z, g_presentStreet ? g_presentMix : 0.0f);
+            const gta2::Mat4 wv = camera_.ViewMatrix();
+            const float fwd[3] = {wv.m[0][2], wv.m[1][2], wv.m[2][2]};
+            RemixWetFrame(map_, eye.x, eye.y, eye.z, g_presentStreet ? g_presentMix : 0.0f, fwd);
             renderer_.SetRemixWeatherFrame(camera_, g_presentStreet ? g_presentMix : 0.0f);
             // C: the stepped wet materials. The road/pavement lid tiles once per map; the level from the
             // wetness with hysteresis ([devtools] wx_wet_level forces one).

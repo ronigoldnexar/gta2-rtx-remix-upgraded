@@ -50,6 +50,8 @@ struct Settings {
     bool remixScreenRain = true;
     float reflection = 1.0f;
     int wetPercent = -1;
+    char spell[16];            // WEATHER-V2 phase 2: [weather] spell=clear|cloudy|drizzle|rain|storm|fog forces one ("" = none)
+    int lightningEvery = 0;    // seconds between strikes while it storms (0: at random, 5-20 s / storm)
 };
 
 char g_ini[MAX_PATH] = "";
@@ -75,8 +77,24 @@ const Spell kSpells[] = {
     {"storm", 1.00f, 1.00f, 0.20f, 0.90f, 1},
     {"fog", 0.0f, 0.50f, 0.85f, 0.10f, 1},
 };
+constexpr int kSpellCount = static_cast<int>(sizeof kSpells / sizeof kSpells[0]);
+// WEATHER-V2 phase 2: the weather only steps to a neighbour (no clear sky straight into a storm): clear - cloudy -
+// drizzle - rain - storm, and fog off the cloudy and clear skies.
+const int kNext[kSpellCount][3] = {
+    {1, 5, -1},    // clear  -> cloudy, fog
+    {0, 2, 5},     // cloudy -> clear, drizzle, fog
+    {1, 3, -1},    // drizzle -> cloudy, rain
+    {2, 4, -1},    // rain   -> drizzle, storm
+    {3, -1, -1},   // storm  -> rain
+    {1, 0, -1},    // fog    -> cloudy, clear
+};
 int g_spell = 0;
 double g_spellEnds = 0.0;
+// The eased values and their rates (a critically damped follow: no jump at the start or the end of a change).
+float g_vel[4] = {};
+// Lightning: the strike under way (start, azimuth) and the next one.
+double g_strikeAt = -1e9, g_nextStrike = 0.0;
+float g_strikeAz = 0.0f, g_strikeAmp[4] = {}, g_strikeT[4] = {};
 uint32_t g_seed = 0x9E3779B9u;
 float Rand01() { g_seed ^= g_seed << 13; g_seed ^= g_seed >> 17; g_seed ^= g_seed << 5; return (g_seed & 0xFFFFFF) / 16777215.0f; }
 
@@ -108,6 +126,8 @@ void ReadSettings() {
     s.remixScreenRain = ReadInt("remix_screen_rain", 1) != 0;
     s.reflection = ReadInt("reflection_percent", 100) / 100.0f;
     s.wetPercent = ReadInt("wet_percent", -1);
+    GetPrivateProfileStringA("weather", "spell", "", s.spell, sizeof s.spell, g_ini);
+    s.lightningEvery = ReadInt("lightning_every", 0);
     if (!g_haveSet || memcmp(&s, &g_set, sizeof s) != 0) {
         Log("weather: %s; time of day %s%s; rain %.0f%% cloud %.0f%% fog %.0f%% wind %.0f%%; cycle %s; streaks %d (%d drops), "
             "wet roads %d (reflection %.0f%%%s)",
@@ -159,15 +179,26 @@ void Step(double dt) {
         return;
     }
     float rain = g_set.rain, cloud = g_set.cloud, fog = g_set.fog, wind = g_set.wind;
-    if (g_set.cycle) {
+    int forced = -1;
+    for (int i = 0; i < kSpellCount && g_set.spell[0]; ++i)
+        if (_stricmp(g_set.spell, kSpells[i].name) == 0) forced = i;
+    if (forced >= 0) {
+        if (g_spell != forced) Log("weather: spell %s (forced)", kSpells[forced].name);
+        g_spell = forced;
+        const Spell& s = kSpells[g_spell];
+        rain = s.rain; cloud = s.cloud; fog = s.fog; wind = s.wind;
+    } else if (g_set.cycle) {
         if (g_clock >= g_spellEnds) {
             int total = 0;
-            for (const Spell& s : kSpells) total += s.weight;
-            int pick = static_cast<int>(Rand01() * total), next = 0;
-            for (int i = 0; i < static_cast<int>(sizeof kSpells / sizeof kSpells[0]); ++i) {
-                pick -= kSpells[i].weight;
-                if (pick < 0) { next = i; break; }
+            for (int j = 0; j < 3; ++j) if (kNext[g_spell][j] >= 0) total += kSpells[kNext[g_spell][j]].weight;
+            int pick = static_cast<int>(Rand01() * total), next = kNext[g_spell][0];
+            for (int j = 0; j < 3; ++j) {
+                const int c = kNext[g_spell][j];
+                if (c < 0) continue;
+                pick -= kSpells[c].weight;
+                if (pick < 0) { next = c; break; }
             }
+            if (g_spellEnds == 0.0) next = g_spell;   // the first spell is the one we start in
             g_spell = next;
             g_spellEnds = g_clock + g_set.cycleMinutes * 60.0 * (0.6 + 0.8 * Rand01());
             Log("weather: cycle -> %s for %.0f s", kSpells[g_spell].name, g_spellEnds - g_clock);
@@ -175,11 +206,55 @@ void Step(double dt) {
         const Spell& s = kSpells[g_spell];
         rain = s.rain; cloud = s.cloud; fog = s.fog; wind = s.wind;
     }
-    const float k = g_set.fadeSeconds <= 0.0f ? 1.0f : static_cast<float>((std::min)(1.0, dt / g_set.fadeSeconds));
-    w.rain += (rain - w.rain) * k;
-    w.cloud += (cloud - w.cloud) * k;
-    w.fog += (fog - w.fog) * k;
-    w.wind += (wind - w.wind) * k;
+    // Eased toward the targets, critically damped (WEATHER-V2 phase 2): a change starts and settles smoothly and is
+    // ~95% done after fade_seconds (the old first-order ease jumped at the start and crawled at the end).
+    {
+        float* v[4] = {&w.rain, &w.cloud, &w.fog, &w.wind};
+        const float t[4] = {rain, cloud, fog, wind};
+        if (g_set.fadeSeconds <= 0.0f) {
+            for (int i = 0; i < 4; ++i) { *v[i] = t[i]; g_vel[i] = 0.0f; }
+        } else {
+            const float om = 4.7f / g_set.fadeSeconds;
+            // sub-steps keep it stable through a long frame
+            const int n = 1 + static_cast<int>(dt * om / 0.2);
+            const float h = static_cast<float>(dt) / n;
+            for (int k = 0; k < n; ++k)
+                for (int i = 0; i < 4; ++i) {
+                    const float acc = -2.0f * om * g_vel[i] - om * om * (*v[i] - t[i]);
+                    g_vel[i] += acc * h;
+                    *v[i] = (std::max)(0.0f, (std::min)(1.0f, *v[i] + g_vel[i] * h));
+                }
+        }
+    }
+    // Storm and lightning (WEATHER-V2 phase 2): heavy rain in a strong wind. A strike is two to four pulses over
+    // half a second from one direction of the sky; both renderers light from w.flash.
+    w.storm = (std::max)(0.0f, (std::min)(1.0f, (w.rain - 0.8f) / 0.2f)) * (std::max)(0.0f, (std::min)(1.0f, (w.wind - 0.55f) / 0.3f));
+    if (w.storm > 0.3f && g_clock >= g_nextStrike) {
+        g_strikeAt = g_clock;
+        g_strikeAz = Rand01() * 6.2831853f;
+        const int pulses = 2 + static_cast<int>(Rand01() * 2.99f);
+        float t = 0.0f;
+        for (int i = 0; i < 4; ++i) {
+            g_strikeT[i] = t;
+            g_strikeAmp[i] = i < pulses ? (i == 0 ? 0.7f : 1.0f) * (0.6f + 0.4f * Rand01()) : 0.0f;
+            t += 0.06f + 0.14f * Rand01();
+        }
+        g_nextStrike = g_clock + (g_set.lightningEvery > 0 ? g_set.lightningEvery : (5.0 + 15.0 * Rand01()) / w.storm);
+        Log("weather: lightning (%d pulses, azimuth %.0f deg; storm %.2f)", pulses, g_strikeAz * 57.3f, w.storm);
+    } else if (w.storm <= 0.3f && g_nextStrike < g_clock) {
+        g_nextStrike = g_clock + 3.0;   // a storm coming in waits a few seconds before its first strike
+    }
+    {
+        const float ts = static_cast<float>(g_clock - g_strikeAt);
+        float f = 0.0f;
+        for (int i = 0; i < 4; ++i)
+            if (ts >= g_strikeT[i]) f += g_strikeAmp[i] * std::exp(-(ts - g_strikeT[i]) / 0.07f);
+        w.flash = ts < 2.0f ? f : 0.0f;
+        const float el = 0.75f;   // from ~40 deg up
+        w.flashDir[0] = -std::cos(g_strikeAz) * std::cos(el);
+        w.flashDir[1] = -std::sin(el);
+        w.flashDir[2] = -std::sin(g_strikeAz) * std::cos(el);
+    }
     {
         float el = 0.0f, az = 0.0f;
         TimeOfDayAngles(&el, &az);
@@ -209,7 +284,7 @@ void Step(double dt) {
         const float h = TimeOfDayHour();
         Log("weather: %02d:%02d sun %.1f deg; rain %.2f cloud %.2f fog %.2f wind %.2f wet %.2f%s%s",
             static_cast<int>(h), static_cast<int>((h - std::floor(h)) * 60.0f), el, w.rain, w.cloud, w.fog, w.wind, w.wet,
-            g_set.cycle ? ", spell " : "", g_set.cycle ? kSpells[g_spell].name : "");
+            (g_set.cycle || g_set.spell[0]) ? ", spell " : "", (g_set.cycle || g_set.spell[0]) ? kSpells[g_spell].name : "");
     }
 }
 

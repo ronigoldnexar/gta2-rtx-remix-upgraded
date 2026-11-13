@@ -234,7 +234,8 @@ remixapi_MeshHandle ChunkMesh(const gta2::Map& map, int chunkX, int chunkZ, int 
     return handle;
 }
 
-void Draw(remixapi_MeshHandle mesh, uint32_t categories, bool blend, int alphaArg1, int alphaArg2, int alphaOp, int alpha) {
+void Draw(remixapi_MeshHandle mesh, uint32_t categories, bool blend, int alphaArg1, int alphaArg2, int alphaOp, int alpha,
+          const float (*xf)[4] = nullptr) {   // xf: a 3x4 world transform (rows), null = identity
     // The instance state of the probe board's cubes that render (p1a): colour = texture modulate,
     // blend factors ONE/ZERO unless blending, alpha test on (ref 1) when not blending.
     remixapi_InstanceInfo instance = {};
@@ -267,7 +268,7 @@ void Draw(remixapi_MeshHandle mesh, uint32_t categories, bool blend, int alphaAr
     instance.mesh = mesh;
     instance.doubleSided = static_cast<remixapi_Bool>(Dev("wx_double_sided", 1));
     for (int r = 0; r < 3; ++r)
-        for (int c = 0; c < 4; ++c) instance.transform.matrix[r][c] = (r == c) ? 1.0f : 0.0f;
+        for (int c = 0; c < 4; ++c) instance.transform.matrix[r][c] = xf ? xf[r][c] : ((r == c) ? 1.0f : 0.0f);
     RemixApi()->DrawInstance(&instance);
 }
 
@@ -983,13 +984,139 @@ void DrawRainProxies(float ex, float ey, float ez, float viewMix) {
 }
 }  // namespace
 
-void RemixWetFrame(const gta2::Map& map, float eyeX, float eyeY, float eyeZ, float viewMix) {
+// ---- WEATHER-V2 phase 2: fog that Ray Reconstruction keeps, and lightning ----------------------------------------
+// Fog: the volumetric fog is not seen under RR (docs/weather.md). [weather] remix_fog_proxy draws it as a stack of
+// camera-facing slabs (12, from 1.5 to ~40 blocks), each alpha-blended so the stack's opacity at a distance d is
+// 1 - exp(-d / D) with D from the fog (a fog bank, D ~5 blocks); the world in front of a slab hides it, so the fog
+// sits behind whatever is near. 1: grey lit slabs (the scene's light falls on them), 2: emissive slabs in the fog's
+// colour (by the daylight), 0: off.
+constexpr int kFogSlabs = 12, kFogLevels = 8;
+remixapi_MeshHandle g_fogQuad = nullptr;
+remixapi_MaterialHandle g_fogMat[2][kFogLevels] = {};
+int g_fogMode = 0;
+
+remixapi_MaterialHandle FogMaterial(int mode, int level) {
+    remixapi_MaterialHandle& h = g_fogMat[mode - 1][level];
+    if (h) return h;
+    remixapi_MaterialInfoOpaqueEXT op = {};
+    op.sType = REMIXAPI_STRUCT_TYPE_MATERIAL_INFO_OPAQUE_EXT;
+    const float lit = mode == 1 ? 0.78f : 0.0f;
+    op.albedoConstant = {lit, lit, lit * 1.03f};
+    op.opacityConstant = 1.0f;
+    op.roughnessConstant = 1.0f;
+    op.useDrawCallAlphaState = 1;
+    remixapi_MaterialInfo info = {};
+    info.sType = REMIXAPI_STRUCT_TYPE_MATERIAL_INFO; info.pNext = &op;
+    info.hash = 0x464F470000000000ull | (static_cast<uint64_t>(mode) << 8) | static_cast<uint64_t>(level);
+    const float e = mode == 2 ? 0.02f + 1.2f * level / (kFogLevels - 1.0f) : 0.0f;
+    info.emissiveColorConstant = {0.80f, 0.82f, 0.86f};
+    info.emissiveIntensity = e;
+    info.filterMode = 1; info.wrapModeU = 2; info.wrapModeV = 2;
+    const remixapi_ErrorCode rc = RemixApi()->CreateMaterial(&info, &h);
+    Log("remix fog: slab material mode %d level %d (emissive %.2f) -> %d", mode, level, e, static_cast<int>(rc));
+    if (rc != REMIXAPI_ERROR_CODE_SUCCESS) h = nullptr;
+    return h;
+}
+
+remixapi_MeshHandle FogQuad(remixapi_MaterialHandle mat) {
+    // x -1..1, y 0..1, facing -z (the eye). The material is per instance? No: per surface, so one mesh per material
+    // would be needed; one quad mesh is made per (mode, level) and cached by the material.
+    static std::map<remixapi_MaterialHandle, remixapi_MeshHandle> meshes;
+    auto it = meshes.find(mat);
+    if (it != meshes.end()) return it->second;
+    remixapi_HardcodedVertex v[4] = {};
+    const float px[4] = {-1, 1, 1, -1}, py[4] = {0, 0, 1, 1};
+    for (int k = 0; k < 4; ++k) {
+        v[k].position[0] = px[k]; v[k].position[1] = py[k]; v[k].position[2] = 0.0f;
+        v[k].normal[2] = -1.0f; v[k].texcoord[0] = (px[k] + 1) * 0.5f; v[k].texcoord[1] = py[k]; v[k].color = 0xFFFFFFFFu;
+    }
+    uint32_t idx[6] = {0, 1, 2, 0, 2, 3};
+    remixapi_MeshInfoSurfaceTriangles surface = {};
+    surface.vertices_values = v; surface.vertices_count = 4;
+    surface.indices_values = idx; surface.indices_count = 6;
+    surface.skinning_hasvalue = 0; surface.material = mat;
+    remixapi_MeshInfo mesh = {};
+    mesh.sType = REMIXAPI_STRUCT_TYPE_MESH_INFO; mesh.hash = 0x464F475100000000ull ^ reinterpret_cast<uintptr_t>(mat);
+    mesh.surfaces_values = &surface; mesh.surfaces_count = 1;
+    remixapi_MeshHandle h = nullptr;
+    if (RemixApi()->CreateMesh(&mesh, &h) != REMIXAPI_ERROR_CODE_SUCCESS) h = nullptr;
+    meshes[mat] = h;
+    return h;
+}
+
+void DrawFogProxy(float ex, float ey, float ez, float viewMix, const float fwd[3]) {
+    const gta2::WeatherState& w = gta2::WeatherNow();
+    static DWORD read = 0;
+    if (GetTickCount() - read >= 1000) { read = GetTickCount(); g_fogMode = GetPrivateProfileIntA("weather", "remix_fog_proxy", 0, g_ini); }
+    if (g_fogMode < 1 || g_fogMode > 2 || !w.active || w.fog < 0.03f || viewMix < 0.5f) return;
+    // The fog length: the plain renderer's fog end eased the same way (fog 0.5 -> ~40 blocks, a bank -> ~12).
+    const float fe = 1.0f - (1.0f - w.fog) * (1.0f - w.fog);
+    const float end = 120.0f + (12.0f - 120.0f) * fe;
+    const float D = end / 2.6f;
+    float fx = fwd[0], fz = fwd[2];
+    const float fl = std::sqrt(fx * fx + fz * fz);
+    if (fl < 1e-3f) return;   // straight down (classic): no slabs
+    fx /= fl; fz /= fl;
+    const float day = 1.0f - w.night;
+    const int level = (std::max)(0, (std::min)(kFogLevels - 1, static_cast<int>(day * (kFogLevels - 1) + 0.5f)));
+    remixapi_MaterialHandle mat = FogMaterial(g_fogMode, g_fogMode == 2 ? level : 0);
+    if (!mat) return;
+    remixapi_MeshHandle quad = FogQuad(mat);
+    if (!quad) return;
+    float prev = 0.0f;
+    for (int k = 0; k < kFogSlabs; ++k) {
+        const float d = 1.5f * std::pow(1.36f, static_cast<float>(k));
+        const float a = (1.0f - std::exp(-(d - prev) / D)) * viewMix;
+        prev = d;
+        const int a255 = (std::max)(0, (std::min)(255, static_cast<int>(a * 255.0f + 0.5f)));
+        if (a255 < 2) continue;
+        const float halfW = d * 1.7f + 2.0f, bottom = ey - 8.0f, height = 8.0f + d * 0.9f + 3.0f;
+        const float ax[3] = {fz * halfW, 0.0f, -fx * halfW};   // right
+        const float ay[3] = {0.0f, height, 0.0f};
+        const float az[3] = {fx, 0.0f, fz};
+        const float o[3] = {ex + fx * d, bottom, ez + fz * d};
+        // The wet film's blend state (alpha from the texture factor alone), which renders under RR; DrawXf's
+        // texture x factor alpha left the untextured slabs at 0 (fx1: no fog in any mode).
+        const float xf[3][4] = {{ax[0], ay[0], az[0], o[0]}, {ax[1], ay[1], az[1], o[1]}, {ax[2], ay[2], az[2], o[2]}};
+        Draw(quad, 0, true, 3, 0, 1, a255, xf);
+    }
+}
+
+// Lightning under Remix: one distant light from the strike's direction, its radiance the flash (cool white).
+void* g_flashHandle = nullptr;
+void DrawLightning() {
+    const gta2::WeatherState& w = gta2::WeatherNow();
+    if (!w.active || w.flash < 0.01f) return;
+    static int scale = -1; static DWORD read = 0;
+    if (scale < 0 || GetTickCount() - read >= 1000) { read = GetTickCount(); scale = GetPrivateProfileIntA("weather", "remix_lightning_percent", 100, g_ini); }
+    const float r = (std::min)(1.5f, w.flash) * 3.5f * scale / 100.0f;   // fx1: 6 lit the night street like noon
+    remixapi_LightInfo info = {};
+    info.sType = REMIXAPI_STRUCT_TYPE_LIGHT_INFO;
+    info.hash = 0x4C49474854000001ull;
+    info.radiance = remixapi_Float3D{r * 0.86f, r * 0.90f, r * 1.0f};
+    info.isDynamic = 1;
+    remixapi_LightInfoDistantEXT distant = {};
+    distant.sType = REMIXAPI_STRUCT_TYPE_LIGHT_INFO_DISTANT_EXT;
+    distant.direction = remixapi_Float3D{w.flashDir[0], w.flashDir[1], w.flashDir[2]};
+    distant.angularDiameterDegrees = 70.0f;   // a lit cloud deck, not a point: fx1's 25 deg drew the rain drops' shadows as black lines
+    distant.volumetricRadianceScale = 1.0f;
+    info.pNext = &distant;
+    remixapi_LightHandle h = static_cast<remixapi_LightHandle>(g_flashHandle);
+    if (RemixApi()->CreateLight(&info, &h) == REMIXAPI_ERROR_CODE_SUCCESS) {
+        g_flashHandle = h;
+        RemixApi()->DrawLightInstance(h);
+    }
+}
+
+void RemixWetFrame(const gta2::Map& map, float eyeX, float eyeY, float eyeZ, float viewMix, const float fwd[3]) {
     const DWORD now = GetTickCount();
     if (!g_ini[0] || now - g_lastRead >= 1000) { g_lastRead = now; ReadSettings(); }
     if (!RemixApiHasInstances() || map.Empty() || viewMix < 0.01f) return;
     DrawProbeBoard(map, eyeX, eyeY, eyeZ);
     DrawRemixRain(eyeX, eyeY, eyeZ, viewMix);
     DrawRainProxies(eyeX, eyeY, eyeZ, viewMix);
+    DrawFogProxy(eyeX, eyeY, eyeZ, viewMix, fwd);
+    DrawLightning();
     {
         // The lights near the eye, for the screen-space rain (weather_fx DrawScreenRain).
         std::vector<gta2::ScreenRainLight> sl;
