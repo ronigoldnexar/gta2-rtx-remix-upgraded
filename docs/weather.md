@@ -232,3 +232,30 @@ DLSS super resolution back on (vf3 back_dlss2). Turning RR off live takes effect
 next upscaler change: vf2 RR on + TAA-U shows nothing; vf3 RR off then TAA-U shows them), so set it at launch.
 The frames with RR off are also much darker and noisier at night (the denoiser change, not the weather) - a LIGHTING
 question. Not yet checked on the Windows 5090 (native NVAPI): re-test there.
+
+## WEATHER-V2 handover (state 13 Nov 2026 ~16:30 UTC, branch weather-v2, local, not pushed)
+
+Worktree /mnt/gta2/gta2-linux/wt_weather (rebased on camera-modes 2146197b). Private stage stage_wx (~/wx/mkstage.sh
+rebuilds it from the worktree). 6000: /gta2/wx (runwx.sh NAME SECS, holds /gta2/remix.lock; env CASES, PROBE,
+WX_MOD=/gta2/wx/gta2hd_wet, RTX_MORE=/gta2/wx/wx_base.conf, HOURS, WX_TAG, WX_ENV); DLL ships via
+gs://nexar-generative-ai-gta2-xfer/wx/stage. Scenario scripts (gamerun/, both hosts): wx_probe.py (CASES
+tag:kind:payload, kinds cfg / gv / ini:section:k=v / view / wait / key), wx_plain.py (gate-1 matrix, WX_POP=1 pop
+sequence), wx_move.py, wx_car.py, wx_spray.py, wx_drops.py; all step 0.4 s after every warp (GHOST_STEP).
+Plain runs: gamerun/grun.sh NAME SECS keys_<x>.sh with STAGE=stage_wx GTA2_DIRECT_KEYS=1 INI_SED scene/warp keys.
+
+Done (each a commit): Remix ground layer (remix_wet.cpp: darkening film by wetness, puddles cut from a noise field
+biased to gutters/ruts, damp rim, water film off by night); stepped wet materials (3 texture-hash variants of 107
+road/pavement tiles at level load, only with [weather] on; tools/remix_wet_levels.py makes the gta2hd prims; layer
+/gta2/wx/gta2hd_wet); overcast via TimeOfDaySetOvercast (time_of_day.cpp composes the shared keys - see table above);
+Remix rain as API drop geometry (translucent; [weather] remix_rain, remix_drop_trans/ior, remix_rain_particle);
+plain wet road toned down (no glass sheet); plain wet paint (car_coat c14); sprite-car Remix wet variants; wet
+clothing (plain figures); road spray (both); lens drops (plain refraction, Remix shaded drop); rain under cover
+(code, untested); probe tools (wx_probe_board, wx_sprite_log, remix_game_value).
+
+Findings: Ray Reconstruction hides the Remix rain drops and volumetric fog (above); RR stays ON (orchestrator).
+Lane "ghosts" were the post-warp player sprite (pedestrian agent). Lighting agent owns day/night, exposure, lamps.
+
+Open, in order: emissive proxies under RR (backlit streaks near lights, headlight haze cones; one ini key);
+puddle ripples; plain night streaks; plain puddle parity; rain-under-cover test; gate-1 matrix retake (with the
+step); phase 2 (cycle, fog, storm, transitions video); phase 3 (perf both renderers, vreg same base, soak, 5090
+rtx.conf keys).
