@@ -600,7 +600,7 @@ def build(m, spec, src, log):
             continue
         log(f'  {kind} lamps: {len(found)} found on the shell')
         for (x, y, z, rr) in found:
-            rr = float(np.clip(rr * 1.05, 0.010, 0.032))
+            rr = float(np.clip(rr * 0.95, 0.010, 0.030))
             zs = surface_z_at(shell, x, y, end)
             lamp_lens(kc, 'lamp_' + kind, x, y, (zs if zs is not None else z), rr, end)
         lamps[kind] = found
@@ -782,14 +782,16 @@ def tex_lens(kind, size=128):
     cell = 0.16
     grid = ((np.abs(((xx / cell) % 1.0) - 0.5) > 0.42) | (np.abs(((yy / cell) % 1.0) - 0.5) > 0.42)) & (r > 0.32) & (r < 0.84)
     if kind == 'head':
-        core, lens, lip, rim = np.array([255, 248, 228.]), np.array([196, 198, 194.]), np.array([236, 236, 232.]), np.array([46, 46, 50.])
+        core, lens, lip, rim = np.array([255, 246, 222.]), np.array([118, 120, 118.]), np.array([200, 200, 196.]), np.array([34, 34, 38.])
     else:
-        core, lens, lip, rim = np.array([255, 92, 70.]), np.array([168, 22, 20.]), np.array([210, 50, 40.]), np.array([40, 10, 10.])
-    t = np.clip((r - 0.18) / 0.20, 0, 1)[..., None]
+        core, lens, lip, rim = np.array([255, 80, 60.]), np.array([120, 14, 12.]), np.array([170, 40, 32.]), np.array([30, 8, 8.])
+    # the core falls off over the inner third (the bulb's hot spot through clear glass), the prism lens stays well under
+    # it, a bright reflector lip and a wide dark bezel close it: the lens reads as glass over a bulb, not a flat disc
+    t = np.clip((r - 0.10) / 0.28, 0, 1)[..., None] ** 0.8
     c = core * (1 - t) + lens * t
-    c = np.where(grid[..., None], c * 0.80, c)
-    c = np.where(((r > 0.84) & (r < 0.92))[..., None], lip, c)
-    c = np.where((r >= 0.92)[..., None], rim, c)
+    c = np.where(grid[..., None], c * 0.78, c)
+    c = np.where(((r > 0.80) & (r < 0.86))[..., None], lip, c)
+    c = np.where((r >= 0.86)[..., None], rim, c)
     c += np.exp(-(((xx + 0.35) ** 2 + (yy + 0.40) ** 2) / 0.010))[..., None] * 50   # a glint
     return Image.fromarray(np.clip(c, 0, 255).astype(np.uint8))
 
@@ -830,7 +832,7 @@ def write(kc, out_src, name, info, livery):
 # Remix emission (tools/remix_model_pbr.py): factor, strength. The strength is the gain and the texture's own pattern is
 # the emission, so a lens shows a hot core, a dimmer prism lens and a dark rim (defect prxr1: flat white discs), at a
 # gain near 1 (the night exposure; [devtools] remix_day_emissive_percent dims every emitter by day).
-EMISSIVE = {'sign': ([1.0, 0.88, 0.62], 1.2), 'lamp_head': ([1.0, 0.94, 0.82], 1.0), 'lamp_tail': ([1.0, 0.30, 0.22], 1.3)}
+EMISSIVE = {'sign': ([1.0, 0.88, 0.62], 1.2), 'lamp_head': ([1.0, 0.94, 0.82], 0.35), 'lamp_tail': ([1.0, 0.30, 0.22], 0.8)}
 
 
 def write_glb(car_, path, order):
