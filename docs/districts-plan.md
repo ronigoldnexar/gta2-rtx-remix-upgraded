@@ -187,7 +187,7 @@ Decisions from the review and what was done:
 3. **Qwen3-VL for the generic class only** (`qwen_archetype.py`): each "block" building's longest street wall as an
    elevation, Qwen3-VL-8B-Instruct (Apache-2.0, host cache) picks one archetype + confidence; answers >= 0.6 replace
    "block" in analyze.py. Runtime on one L4 (shared GPU 0): 37 s model load, 3.2-3.3 s a building at batch 4-8;
-   ~1 250 generic buildings over the three levels is ~70 min, once per map. Downtown so far: 444 asked, 401
+   ~1 250 generic buildings over the three levels is ~70 min, once per map. Downtown (complete): 495 asked in 27.5 min, see the commit for the confident count; first 444:
    confident (255 brick tenement, 83 brownstone, 44 warehouse, 30 civic, 27 shopfront row, 5 office tower). The
    result is committed per level as `tools/districts/qwen/<lvl>.json` (ids and labels, no art).
 4. **Kit shadows fade with the kit**: the kit's triangles are a third set in the plain renderer's shadow pass that
