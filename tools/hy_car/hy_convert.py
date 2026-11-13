@@ -273,7 +273,10 @@ def wheel_style(R, zc, r, zsign, paint_rgb, ground_pad=0.01):
     return style
 
 
-def wheel_face(R, zc, r, zsign, ground_pad=0.01, size=128, sector=(210.0, 330.0)):
+HUB = 0.64   # the rim's edge, fraction of the tyre radius: the wheel face texture covers the hub disc inside it
+
+
+def wheel_face(R, zc, r, zsign, ground_pad=0.01, size=128, sector=(210.0, 330.0), rmax=HUB):
     """the shell's own wheel face as a disc texture: the lower third of the wheel as the side render shows it (never
     under the fender), in polar coordinates, repeated three times round the disc, so the new wheel wears the
     generated hubcap, rim, whitewall and tyre wall and its turning shows. Also the radial profile (32 bins, median
@@ -287,7 +290,7 @@ def wheel_face(R, zc, r, zsign, ground_pad=0.01, size=128, sector=(210.0, 330.0)
     span = sector[1] - sector[0]
     ths = np.radians(sector[0] + (th % span))
     uc = zsign * zc; yc = v0 + ground_pad + r
-    u = uc + np.cos(ths) * rho * r * 0.995; v = yc + np.sin(ths) * rho * r * 0.995
+    u = uc + np.cos(ths) * rho * r * rmax; v = yc + np.sin(ths) * rho * r * rmax
     j = np.clip(((u - u0) / res).astype(int), 0, W - 1); i = np.clip(((v1 - v) / res).astype(int), 0, H - 1)
     face = alb[i, j]
     # hubcaps and wheel faces are round: the generated face carries baked light (a highlight on one side) that a
@@ -328,35 +331,45 @@ def paint_band(prof, paint_rgb):
     m[int(0.74 * len(m)):] = False   # the tyre wall is never paint (016's brown tyres share the body's hue)
     if m.sum() < 3: return None
     idx = np.flatnonzero(m)
-    # the longest run
-    runs = np.split(idx, np.flatnonzero(np.diff(idx) > 1) + 1)
-    run = max(runs, key=len)
-    if len(run) < 3: return None
-    return (run[0] / 32.0, (run[-1] + 1) / 32.0)
+    # every run of paint bins (a painted hub centre and a painted rim ring are separate rings; 007): [(lo, hi), ...]
+    runs = [rn for rn in np.split(idx, np.flatnonzero(np.diff(idx) > 1) + 1) if len(rn) >= 2]
+    if not runs or max(len(rn) for rn in runs) < 3: return None
+    # a run from near the centre is the whole cap (its middle often reads off-hue under a baked highlight)
+    return [(0.0 if rn[0] < 8 else rn[0] / 32.0, (rn[-1] + 1) / 32.0) for rn in runs]
 
 
 def build_wheel(kc, nm, wh, face_mat, band):
-    """a period wheel: tyre with a rounded shoulder and tread, the face a shallow dish under the sampled face texture
-    (a body-colour band, when there is one, as its own ring under the neutral paint_wheel), a dark inner disc.
-    Profile (radius, offset along the axle outward) in fractions of r and of the width w."""
+    """a period wheel, sized as the shell's own: a tyre with a rounded, bulging sidewall and a tread, a whitewall a
+    third of the sidewall wide where the shell's wheel had one, a rim dished in from the bead and a domed hubcap
+    that wears the shell's own hub (the sampled face, made round, with lug nuts). A body-colour band on the hub
+    (band, fractions of r) is its own ring under the neutral paint_wheel. Profiles: (radius, offset along the axle
+    outward), fractions of r and of the width w."""
     r, w, s = wh['r'], wh['width'], wh['side']
     cx = s * (wh['outer'] - 0.5 * w)
-    face = [(0.0, 0.40), (0.10, 0.40), (0.20, 0.385), (0.32, 0.345), (0.46, 0.31), (0.58, 0.32), (0.66, 0.37),
-            (0.72, 0.43), (0.80, 0.48), (0.88, 0.50), (0.94, 0.49), (0.985, 0.44), (1.0, 0.32)]
-    if band is not None:
-        pts = sorted(set([p[0] for p in face] + [round(band[0], 4), round(band[1], 4)]))
-        face = [(q, float(np.interp(q, [p[0] for p in face], [p[1] for p in face]))) for q in pts]
-    prof = [(a * r, b * w) for a, b in face]
-    def mat_face(k):
-        a = 0.5 * (face[k][0] + face[k + 1][0])
-        if band is not None and band[0] <= a <= band[1]: return 'paint_wheel'
-        return face_mat
-    kc.revolve(prof, (cx, r, wh['zc']), (s, 0, 0), 28, mat_of=mat_face, uv_mode='disc')
-    kc.revolve([(r, 0.32 * w), (r * 1.0, -0.32 * w)], (cx, r, wh['zc']), (s, 0, 0), 32, default='tyre_tread', uv_mode='tyre')
-    kc.revolve([(r, -0.32 * w), (0.985 * r, -0.44 * w), (0.92 * r, -0.50 * w), (0.62 * r, -0.46 * w)], (cx, r, wh['zc']), (s, 0, 0), 28,
+    c = (cx, r, wh['zc']); ax = (s, 0, 0)
+    ww = wh['style'].get('whitewall', 0) > 0.5
+    # outer sidewall from the tread shoulder down to the bead, bulging out mid-wall
+    side = [(1.0, 0.33), (0.985, 0.43), (0.95, 0.49), (0.88, 0.52), (0.80, 0.52), (0.72, 0.49), (0.67, 0.45), (HUB, 0.42)]
+    if ww:   # the whitewall: 0.71..0.82 of r (a third of the 0.64..1.0 sidewall)
+        pts = sorted(set([p[0] for p in side] + [0.71, 0.82]), reverse=True)
+        side = [(q, float(np.interp(q, [p[0] for p in side][::-1], [p[1] for p in side][::-1]))) for q in pts]
+    kc.revolve([(a * r, b * w) for a, b in side], c, ax, 32,
+               mat_of=lambda k: 'whitewall' if ww and 0.71 <= 0.5 * (side[k][0] + side[k + 1][0]) <= 0.82 else 'tyre_side', uv_mode='tyre')
+    kc.revolve([(r, 0.33 * w), (1.0 * r, -0.33 * w)], c, ax, 32, default='tyre_tread', uv_mode='tyre')
+    kc.revolve([(r, -0.33 * w), (0.985 * r, -0.43 * w), (0.92 * r, -0.50 * w), (0.80 * r, -0.51 * w), (HUB * r, -0.44 * w)], c, ax, 28,
                default='tyre_side', uv_mode='tyre')
-    kc.revolve([(0.62 * r, -0.46 * w), (0.001, -0.40 * w)], (cx, r, wh['zc']), (s, 0, 0), 20, default='hubback', uv_mode='disc')
-    kc.marker(nm, (cx, r, wh['zc']))
+    # rim and hubcap: the rim dishes in from the bead, the cap domes out to the tyre's face
+    hub = [(HUB, 0.42), (0.60, 0.34), (0.52, 0.29), (0.46, 0.31), (0.40, 0.38), (0.30, 0.44), (0.18, 0.475), (0.06, 0.49), (0.0, 0.49)]
+    if band is not None:
+        pts = sorted(set([p[0] for p in hub] + [round(min(q, HUB), 4) for bd in band for q in bd]), reverse=True)
+        hub = [(q, float(np.interp(q, [p[0] for p in hub][::-1], [p[1] for p in hub][::-1]))) for q in pts]
+    def mat_hub(k):
+        a = 0.5 * (hub[k][0] + hub[k + 1][0])
+        if band is not None and any(lo <= a <= hi for lo, hi in band): return 'paint_wheel'
+        return face_mat
+    kc.revolve([(a * r, b * w) for a, b in hub], c, ax, 28, mat_of=mat_hub, uv_mode='disc')
+    kc.revolve([(HUB * r, -0.44 * w), (0.001, -0.38 * w)], c, ax, 20, default='hubback', uv_mode='disc')
+    kc.marker(nm, c)
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -482,9 +495,11 @@ def arch_parts(car_, wheel, side, angs, prof, hw):
     car_.part('underbody').add(W, -Nw, Tw, Fw[:, ::-1])
 
 
-def cut_wheel(V, F, UV, img, wheel, side):
+def cut_wheel(V, F, UV, img, wheel, side, paint_rgb=None):
     """faces of the fused tyre and hub: wholly inside 0.97 r of the axle (outboard of the inner wall), or wholly
-    inside 1.08 r and textured as tyre (dark, grey)"""
+    inside 1.10 r and textured as tyre (dark, grey). Not the body's own skin over the wheel: a fender skirt or lip in
+    the body's colour on the outer face (at or outboard of the tyre's face) stays, as the generator shaped it, and the
+    new wheel turns behind it (cutting those away showed whole wheels that read 25-30 % too big)."""
     zc, r = wheel['zc'], wheel['r']
     sx = side * V[:, 0]
     d = np.hypot(V[:, 1] - r, V[:, 2] - zc)
@@ -493,6 +508,13 @@ def cut_wheel(V, F, UV, img, wheel, side):
     c = tex_at(img, UV[F].mean(1))
     dark = (lum(c) < 0.20) & (sat(c) < 0.14)
     kill = in1[F].all(1) | (in2[F].all(1) & dark)
+    if paint_rgb is not None:
+        pr = np.array(paint_rgb, float) / 255
+        hue = lambda q: np.degrees(np.arctan2(math.sqrt(3) * (q[..., 1] - q[..., 2]), 2 * q[..., 0] - q[..., 1] - q[..., 2]))
+        body = (sat(c) > 0.15) & (np.abs((hue(c) - hue(pr) + 180) % 360 - 180) < 40) & ~dark
+        # a skirt hangs over the wheel's rim, never over its middle: a body-coloured hub (007) is still cut
+        skin = ((side * V[F][:, :, 0]).min(1) > wheel['outer'] - 0.006) & (d[F].min(1) > 0.75 * r)
+        kill &= ~(body & skin)
     return kill
 
 
@@ -502,9 +524,16 @@ def cut_wheel(V, F, UV, img, wheel, side):
 
 def build(m, spec, src, log):
     e = car(m)
-    V, F, UV, tex, mr = load(m, src)
+    V, F, UV, tex, mr = load(m, spec.get('src', src))   # specs "src": a re-picked generation (fix-list cars)
     if spec.get('nose', '+z') == '-z':
         V = turn(V)
+    if 'keep_z' in spec:
+        # specs "keep_z": [lo, hi] fractions of the length (nose +z = 1) to keep - a trailer generated with its tractor
+        # (066) loses the cab; what is left is stretched back to the sprite's length
+        z0, z1 = V[:, 2].min(), V[:, 2].max(); lo, hi = [z0 + q * (z1 - z0) for q in spec['keep_z']]
+        keep = ((V[F][:, :, 2] >= lo) & (V[F][:, :, 2] <= hi)).all(1)
+        F = F[keep]
+        V = V.copy(); V[:, 2] = z0 + (np.clip(V[:, 2], lo, hi) - lo) / (hi - lo) * (z1 - z0)
     F, dropped = drop_bits(V, F, UV)
     livery = m in LIVERY
     target = spec.get('faces', FACES_LIVERY if livery else FACES_SPLIT)
@@ -515,6 +544,8 @@ def build(m, spec, src, log):
     hw = float(np.abs(V[:, 0]).max()); height = float(V[:, 1].max()); L = float(V[:, 2].max() - V[:, 2].min())
 
     # texture edits (recolours) before anything samples the picture
+    if spec.get('smooth_chrome', True):
+        smooth_chrome(V, F, UV, img, log)
     img0 = img
     for rc in spec.get('recolour', []):
         img = recolour(img, rc)
@@ -526,7 +557,7 @@ def build(m, spec, src, log):
     kc = K.Car(name)
     wheels = []
     kill = np.zeros(len(F), bool)
-    if m not in STATIC_WHEELS:
+    if m not in STATIC_WHEELS and not spec.get('static_wheels'):   # 036: the body hides its wheels to the ground
         k = L / e['body_blocks'][1]
         hints = spec.get('axles') or [e['wheels_px']['front_offset'] / 64 * k, e['wheels_px']['rear_offset'] / 64 * k]
         renders = {+1: side_render(shell, 'side+'), -1: side_render(shell, 'side-')}
@@ -538,6 +569,12 @@ def build(m, spec, src, log):
                                       
                                        tyre_lum=spec.get('tyre_lum', 0.16), tyre_sat=spec.get('tyre_sat', 0.10))
             r = float(np.mean([f[1] for f in fits.values()])); zc = float(np.mean([f[2] for f in fits.values()]))
+            fix = (spec.get('wheel_fix') or [None] * len(hints))[ai]
+            if fix:
+                # specs "wheel_fix": [[zc, r] or null per axle], read off the shell's side grid where the fit takes a hub
+                # (045), a skirt (031) or a bus's arch (011) for the wheel
+                log(f'  axle {ai}: fit zc {zc:+.3f} r {r:.3f} overridden by the spec: zc {fix[0]:+.3f} r {fix[1]:.3f}')
+                zc, r = float(fix[0]), float(fix[1])
             for side, R in renders.items():
                 sc, _, _, dep = fits[side]
                 outer = float(hw + 0.01 - dep)
@@ -550,14 +587,27 @@ def build(m, spec, src, log):
                 st.update(spec.get('wheel_style', {}))
                 wh['style'] = st
                 fimg, fprof = wheel_face(fine[side], zc, r, 1 if side > 0 else -1)
+                if st.get('whitewall', 0) > 0.5:
+                    # a whitewall car wears chrome caps; a generated hub that reads as a dark hole (000) gets a
+                    # chrome dome (bright centre, darker toward the rim) with its lug nuts kept
+                    n_ = fimg.shape[0]; yy_, xx_ = np.mgrid[0:n_, 0:n_]
+                    rho_ = np.hypot((xx_ + 0.5) / n_ * 2 - 1, (yy_ + 0.5) / n_ * 2 - 1)
+                    mid = rho_ < 0.75
+                    if True:   # every whitewall car: the generated hubs read as dark holes (000) or target rings (070)
+                        base = np.clip(0.86 - 0.30 * rho_, 0.5, 0.9)[..., None] * np.array([1.0, 1.0, 1.02])
+                        ring = (np.abs(rho_ - 0.62) < 0.03)[..., None]
+                        cap = np.where(ring, 0.45, base)
+                        lugd = lum(fimg) / np.maximum(np.median(lum(fimg[mid])), 1e-3)
+                        cap = cap * np.clip(lugd, 0.45, 1.0)[..., None] ** 0.5
+                        fimg = np.where(mid[..., None], cap, fimg)
                 wh['band'] = None if livery else paint_band(fprof, paint_rgb)
                 wh['face_mat'] = f'hubface_{ai}{"r" if side > 0 else "l"}'
                 kc.materials[wh['face_mat']] = Image.fromarray((np.clip(fimg, 0, 1) * 255).astype(np.uint8))
                 wheels.append(wh)
-                kill |= cut_wheel(V, F, UV, img, wh, side)
+                kill |= cut_wheel(V, F, UV, img, wh, side, spec.get('body_rgb', paint_rgb))
                 arch_parts(kc, wh, side, angs, prof, hw)
             log(f'  axle {ai}: hint {zh:+.3f} -> zc {zc:+.3f} r {r:.3f} (scores {fits[1][0]:.2f} / {fits[-1][0]:.2f}), '
-                f'style {wheels[-1]["style"]["rim"]}/{wheels[-1]["style"]["cap"]} whitewall {wheels[-1]["style"]["whitewall"]:.0f}')
+                f'style {wheels[-1]["style"]["rim"]}/{wheels[-1]["style"]["cap"]} whitewall {wheels[-1]["style"]["whitewall"]:.0f} band {wheels[-1]["band"]}')
         log(f'  wheels: {int(kill.sum())} shell faces cut out')
 
     # lamps
@@ -610,6 +660,8 @@ def build(m, spec, src, log):
         kill |= lightbar(kc, V, F, UV, img0, spec['lightbar'], sty, spr, sw, sh, kx, kz, log, paint_img=img)
     if spec.get('roof_sign'):
         roof_sign(kc, shell, spec['roof_sign'], sty, spr, sw, sh, kx, kz, e, log)
+    if 'roof_gun' in spec:
+        roof_gun(kc, shell, spec['roof_gun'], log)
 
     # the shell
     keepF = F[~kill]
@@ -618,9 +670,14 @@ def build(m, spec, src, log):
     # trimesh hands glTF texture coordinates back flipped (v up); carkit writes them as glTF has them (v down)
     kc.part('shell').add(Vx, Nx, np.stack([UVx[:, 0], 1.0 - UVx[:, 1]], 1), Fx)
     tsz = spec.get('texture', TEX_LIVERY if livery else TEX_SPLIT)
+    kc.paint_force = None
+    if not livery and spec.get('flank_paint', True):
+        kc.paint_force = flank_paint_mask(V, keepF, UV, img, tsz, e, sty, spr, sw, sh, kx, kz, log)
     kc.materials['shell'] = Image.fromarray((img * 255).astype(np.uint8)).resize((tsz, tsz), Image.LANCZOS)
     if mr is not None:
         kc.mr = mr.resize((tsz, tsz), Image.LANCZOS)
+    if spec.get('decals'):
+        kc.materials['shell'] = apply_decals(kc.materials['shell'], V, keepF, UV, spec['decals'], log)
 
     # wheels (after the shell: their parts are their own)
     for wh in wheels:
@@ -629,6 +686,147 @@ def build(m, spec, src, log):
     set_materials(kc, wheels, paint_rgb, livery)
     return kc, dict(model=m, name=name, faces=int(len(keepF)), wheels=[{k: v for k, v in w.items()} for w in wheels],
                     lamps={k: [list(map(float, l)) for l in v] for k, v in lamps.items()}, livery=livery, mr=mr is not None)
+
+
+def decal_image(d, px_per_block=1600):
+    """an RGBA decal: "text" (bold sans, the colour, a thin outline) or "badge" (a gold six-point star shield)"""
+    from PIL import ImageFont
+    w = int((d['z'][1] - d['z'][0]) * px_per_block); h = int((d['y'][1] - d['y'][0]) * px_per_block)
+    im = Image.new('RGBA', (w, h), (0, 0, 0, 0)); dr = ImageDraw.Draw(im)
+    rgb = tuple(d.get('rgb', (24, 36, 110)))
+    if d['kind'] == 'text':
+        fs = h
+        for fp in ('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',):
+            if os.path.exists(fp):
+                while fs > 6:
+                    font = ImageFont.truetype(fp, fs)
+                    if dr.textlength(d['text'], font=font) <= w * 0.96: break
+                    fs -= 2
+        bb = dr.textbbox((0, 0), d['text'], font=font)
+        x = (w - (bb[2] - bb[0])) / 2 - bb[0]; y = (h - (bb[3] - bb[1])) / 2 - bb[1]
+        dr.text((x, y), d['text'], font=font, fill=rgb + (255,))
+    else:   # a shield with a star
+        cx, cy = w / 2, h / 2; R = min(w, h) * 0.46
+        shield = [(cx - R * 0.8, cy - R * 0.9), (cx + R * 0.8, cy - R * 0.9), (cx + R * 0.8, cy + R * 0.1), (cx, cy + R), (cx - R * 0.8, cy + R * 0.1)]
+        dr.polygon(shield, fill=(212, 170, 60, 255), outline=rgb + (255,))
+        star = []
+        for k in range(10):
+            a = -math.pi / 2 + k * math.pi / 5; rr = R * (0.5 if k % 2 == 0 else 0.22)
+            star.append((cx + rr * math.cos(a), cy - R * 0.15 + rr * math.sin(a)))
+        dr.polygon(star, fill=rgb + (255,))
+    return im
+
+
+def apply_decals(shell_img, V, F, UV, decals, log):
+    """decals painted into the shell's texture where the body's side faces carry them: each texel's surface point
+    (its triangle rasterised in UV space) inside a decal's z/y rectangle on that side takes the decal's colour,
+    read so the text runs nose-ward on the right side and tail-ward on the left (as seen from beside the car)"""
+    import texmap
+    size = shell_img.size[0]
+    pos, nrm, valid = texmap.texel_maps(V, F, UV, size)
+    out = np.asarray(shell_img.convert('RGB')).astype(np.float32)
+    hw = np.abs(V[:, 0]).max(); n_all = 0
+    for d in decals:
+        im = np.asarray(decal_image(d)).astype(np.float32) / 255; dh, dw = im.shape[:2]
+        for side in d.get('sides', [1, -1]):
+            m = valid & (side * nrm[..., 0] > 0.4) & (side * pos[..., 0] > 0.5 * hw)
+            z, y = pos[..., 2], pos[..., 1]
+            m &= (z >= d['z'][0]) & (z <= d['z'][1]) & (y >= d['y'][0]) & (y <= d['y'][1])
+            u = (z - d['z'][0]) / (d['z'][1] - d['z'][0])
+            if side > 0: u = 1 - u      # from the car's right side the nose is to the viewer's right... the text runs that way
+            v = (d['y'][1] - y) / (d['y'][1] - d['y'][0])
+            j = np.clip((u * dw).astype(int), 0, dw - 1); i = np.clip((v * dh).astype(int), 0, dh - 1)
+            a = im[i, j, 3] * m
+            out = out * (1 - a[..., None]) + im[i, j, :3] * 255 * a[..., None]
+            n_all += int((a > 0.5).sum())
+    log(f'  decals: {len(decals)} painted, {n_all} texels')
+    return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8))
+
+
+def flank_paint_mask(V, F, UV, img, size, e, sty, spr, sw, sh, kx, kz, log):
+    """the game recolours a remapped car's whole body; a generated body is often two-tone below the belt (000's navy
+    flanks under maroon). The texels of the body's side panels (facing sideways, between the sills and the belt)
+    that the sprite paints in body colour along that stretch of the car go to the paint half whatever their hue
+    (not black trim, chrome, lamps or glass). -> mask (size, size) bool, image rows as the texture's."""
+    import texmap
+    pos, nrm, valid = texmap.texel_maps(V, F, UV, size)
+    H = V[:, 1].max(); hw = np.abs(V[:, 0]).max()
+    c = np.asarray(Image.fromarray((img * 255).astype(np.uint8)).resize((size, size), Image.BILINEAR)).astype(np.float64) / 255
+    L = lum(c); S = sat(c)
+    # the belt: the lowest glass-like (dark blue-grey) texel band on the sides, else 0.55 of the height
+    belt = 0.55 * H
+    sidef = valid & (np.abs(nrm[..., 0]) > 0.55) & (np.abs(nrm[..., 1]) < 0.6)
+    panel = sidef & (pos[..., 1] > 0.06 * H) & (pos[..., 1] < belt) & (np.abs(pos[..., 0]) > 0.6 * hw)
+    # not chrome (bright, grey); a dark navy flank (000) is near black, so darkness alone does not exclude a texel
+    ok = panel & ~((L > 0.55) & (S < 0.14))
+    # the sprite: is the body's outer edge body colour at this z (its remap palette's paint)?
+    sp = Image.open(os.path.join(ASRC, 'cars', e['remaps'][0]['file_x4'])).convert('RGBA'); s4 = sp.width / sw
+    a = np.asarray(sp).astype(np.float64) / 255
+    pr = np.array(e['remaps'][0]['paint_rgb'], float) / 255
+    hue = lambda q: np.degrees(np.arctan2(math.sqrt(3) * (q[..., 1] - q[..., 2]), 2 * q[..., 0] - q[..., 1] - q[..., 2]))
+    rows = {}
+    for row in range(a.shape[0]):
+        al = a[row, :, 3] > 0.5
+        if al.sum() < 4: rows[row] = False; continue
+        # the outer quarter of the body on each side (past the 1-texel outline): sides seen from above
+        xs = np.flatnonzero(al); q = max(2, len(xs) // 4)
+        edge = np.concatenate([a[row, xs[1:1 + q], :3], a[row, xs[-1 - q:-1], :3]])
+        dh = np.abs((hue(edge) - hue(pr) + 180) % 360 - 180)
+        rows[row] = bool(((dh < 35) & (sat(edge) > 0.12)).mean() > 0.3)
+    zrow = ((pos[..., 2] / kz) * 64 + sh / 2) * s4   # model z -> sprite row (x4); nose +z = the sprite's bottom
+    ri = np.clip(zrow.astype(int), 0, a.shape[0] - 1)
+    body_row = np.vectorize(lambda r: rows.get(int(r), False))(ri)
+    m = ok & body_row
+    # whole panels, not a mosaic: close the gaps the texel raster and stray highlights leave
+    from scipy import ndimage
+    m = ndimage.binary_closing(m, iterations=3) & ndimage.binary_dilation(panel, iterations=2) & ~((L > 0.55) & (S < 0.14))
+    log(f'  flank paint: {int(m.sum())} texels of the side panels below the belt take the remap ({int(panel.sum())} panel texels, {int(ok.sum())} not trim, body rows {np.mean(list(rows.values())):.2f}, panel z->rows {ri[panel].min() if panel.any() else 0}-{ri[panel].max() if panel.any() else 0} of {a.shape[0]})')
+    return m
+
+
+def smooth_chrome(V, F, UV, img, log, iters=24, lam=0.5, mu=-0.53):
+    """the generator's bumpers and grilles come out lumpy ("melted" chrome) and their texture is speckled with
+    near-white blobs: Taubin smoothing (volume-keeping) on the bright-metal vertices at the car's ends below the belt,
+    welded across the UV seams, and a median clean-up of the chrome texels' luminance outliers"""
+    from scipy import ndimage
+    H = V[:, 1].max(); zl, zh = V[:, 2].min(), V[:, 2].max(); Lz = zh - zl
+    c = tex_at(img, UV)
+    pid = weld_key(V)
+    n = pid.max() + 1
+    P = np.zeros((n, 3)); np.add.at(P, pid, V); cnt = np.bincount(pid, minlength=n)[:, None]; P /= np.maximum(cnt, 1)
+    chrome_v = (lum(c) > 0.50) & (sat(c) < 0.14) & (V[:, 1] < 0.55 * H) & ((V[:, 2] < zl + 0.22 * Lz) | (V[:, 2] > zh - 0.22 * Lz))
+    sel = np.zeros(n, bool); sel[pid[chrome_v]] = True
+    # grow by one ring so the smoothing reaches the lumps' feet (068's wavy grille is the generator's, not this)
+    E = np.concatenate([pid[F[:, [0, 1]]], pid[F[:, [1, 2]]], pid[F[:, [2, 0]]]])
+    E = np.concatenate([E, E[:, ::-1]])
+    grow = np.zeros(n, bool); grow[E[sel[E[:, 0]], 1]] = True; sel |= grow
+    deg = np.bincount(E[:, 0], minlength=n)[:, None]
+    for it in range(iters):
+        for f in (lam, mu):
+            nb = np.zeros((n, 3)); np.add.at(nb, E[:, 0], P[E[:, 1]])
+            L = nb / np.maximum(deg, 1) - P
+            P[sel] += f * L[sel]
+    V[:] = P[pid]
+    # texture: chrome texels whose luminance stands out of their neighbourhood's median take the median
+    L = lum(img); S = sat(img)
+    m = (L > 0.45) & (S < 0.14)
+    # only the bumpers' and grilles' texels (the ends below the belt, as the vertices above): white paint elsewhere
+    # (012's doors, 027) keeps its detail
+    import texmap
+    pos, _, valid = texmap.texel_maps(V, F, UV, img.shape[0])
+    if pos.shape[:2] == m.shape:
+        m &= valid & (pos[..., 1] < 0.55 * H) & ((pos[..., 2] < zl + 0.22 * Lz) | (pos[..., 2] > zh - 0.22 * Lz))
+    med = ndimage.median_filter(np.where(m, L, np.nan_to_num(L)), size=7)
+    # near-white blobs on a chrome surface only (a grille's bright bars over dark gaps have a dark median: kept)
+    spk = m & (L - med > 0.16) & (med > 0.50)
+    img[spk] = img[spk] * (med[spk] / np.maximum(L[spk], 1e-3))[:, None]
+    # then the chrome's blotches (baked reflections read as snow patches in game, 000/012): its luminance is the
+    # chrome-only gaussian average (sigma 2.5 texels) blended 3:1 over its own, colour kept
+    L = lum(img); mm = m.astype(np.float64)
+    avg = ndimage.gaussian_filter(L * mm, 2.5) / np.maximum(ndimage.gaussian_filter(mm, 2.5), 1e-3)
+    Ln = np.where(m, 0.75 * avg + 0.25 * L, L)
+    img[m] = np.clip(img[m] * (Ln[m] / np.maximum(L[m], 1e-3))[:, None], 0, 1)
+    log(f'  chrome: {int(sel.sum())} vertices smoothed, {int(spk.sum())} speckle texels cleaned')
 
 
 def recolour(img, rc):
@@ -717,6 +915,46 @@ def tex_dome(rgb, size=64):
     c = np.array(rgb, float)[None, None] * b[..., None]
     c += np.exp(-(((xx + 0.3) ** 2 + (yy + 0.3) ** 2) / 0.03))[..., None] * 90
     return Image.fromarray(np.clip(c, 0, 255).astype(np.uint8))
+
+
+def roof_gun(kc, shell, spec, log):
+    """the armed Land Roamer's roof machine gun (022): the game draws it as a sprite of its own with its own heading,
+    which the renderer turns the model's turret by (TurretSplitFor cuts it off above the roof). A pedestal ring on
+    the roof, a receiver with an ammunition box and a barrel with a cooling jacket, its muzzle toward the nose (+z).
+    spec: {"z": fraction of the length from the tail to the pivot (default: the middle of the highest roof),
+    "scale": 1.0}. Gunmetal, untinted (not paint)."""
+    lo, hi = shell.bounds; Lz = hi[2] - lo[2]
+    zs = np.linspace(lo[2] + 0.1 * Lz, hi[2] - 0.1 * Lz, 41); ys = []
+    for z in zs:
+        loc = ray_hits(shell, np.array([0.0, 5.0, z]), np.array([0, -1.0, 0]))
+        ys.append(loc[:, 1].max() if len(loc) else -1.0)
+    ys = np.array(ys)
+    if 'z' in spec:
+        zc = lo[2] + float(spec['z']) * Lz
+    else:
+        top = zs[ys > ys.max() - 0.012]; zc = float(0.5 * (top.min() + top.max()))
+    yr = float(np.interp(zc, zs, ys)); k = float(spec.get('scale', 1.0))
+    c = np.array([0.0, yr, zc])
+    # pedestal: a short ring standing on the roof, then a post
+    kc.revolve([(0.050 * k, -0.004), (0.050 * k, 0.012 * k), (0.040 * k, 0.016 * k), (0.016 * k, 0.016 * k),
+                (0.014 * k, 0.040 * k), (0.0, 0.040 * k)], tuple(c), (0, 1, 0), 20, default='gun', uv_mode='disc')
+    y0 = yr + 0.040 * k
+    kc.box('gun', (-0.018 * k, y0, zc - 0.045 * k), (0.018 * k, y0 + 0.034 * k, zc + 0.040 * k))          # receiver
+    kc.box('gun_ammo', (0.018 * k, y0 - 0.004 * k, zc - 0.022 * k), (0.046 * k, y0 + 0.026 * k, zc + 0.016 * k))  # ammo box
+    kc.box('gun', (-0.006 * k, y0 + 0.034 * k, zc - 0.030 * k), (0.006 * k, y0 + 0.046 * k, zc - 0.008 * k))  # sight
+    yb = y0 + 0.020 * k
+    # barrel: cooling jacket then the bare barrel and a muzzle ring, along +z
+    kc.revolve([(0.0, 0.0), (0.013 * k, 0.0), (0.013 * k, 0.110 * k), (0.007 * k, 0.112 * k), (0.007 * k, 0.190 * k),
+                (0.010 * k, 0.192 * k), (0.010 * k, 0.205 * k), (0.0, 0.205 * k)], (0.0, yb, zc + 0.040 * k), (0, 0, 1), 16,
+               default='gun', uv_mode='disc')
+    # spade grips at the back
+    kc.box('gun', (-0.016 * k, yb - 0.010 * k, zc - 0.062 * k), (-0.010 * k, yb + 0.012 * k, zc - 0.045 * k))
+    kc.box('gun', (0.010 * k, yb - 0.010 * k, zc - 0.062 * k), (0.016 * k, yb + 0.012 * k, zc - 0.045 * k))
+    kc.materials['gun'] = K.tex_flat((52, 56, 50))
+    kc.materials['gun_ammo'] = K.tex_flat((70, 78, 48))
+    top = y0 + 0.046 * k
+    log(f'  roof gun: pivot z {zc:+.3f} on the roof at y {yr:.3f}, top {top:.3f} (roof/top {yr / top:.3f}; '
+        f'the shell top {hi[1]:.3f})')
 
 
 def roof_sign(kc, shell, spec, sty, spr, sw, sh, kx, kz, e, log):
@@ -817,6 +1055,8 @@ def write(kc, out_src, name, info, livery):
         if mt == 'shell': continue
         p = os.path.join(out_src, name, f'{mt}.png'); kc.materials[mt].save(p); tex[mt] = f'cars/models_hy/{name}/{mt}.png'
     kc.materials['shell'].save(os.path.join(out_src, name, 'shell.png'))
+    if getattr(kc, 'paint_force', None) is not None:
+        Image.fromarray((kc.paint_force * 255).astype(np.uint8)).save(os.path.join(out_src, name, 'paint_force.png'))
     if getattr(kc, 'mr', None) is not None:
         kc.mr.save(os.path.join(out_src, name, 'shell_mr.png'))
     e = car(info['model'])
@@ -858,6 +1098,29 @@ def write_glb(car_, path, order):
     return mats
 
 
+def apply_paint_force(models_dir, name, mask_png, log, level=None):
+    """the flank texels (flank_paint_mask) moved into the paint half, neutral: their fine detail over the paint
+    half's own level, so the remap colours them as the rest of the body"""
+    if not os.path.exists(mask_png): return
+    from car_paint_resplit import write_tga as wt
+    from scipy import ndimage
+    pp = os.path.join(models_dir, name + '_0_paint.tga'); rp = os.path.join(models_dir, name + '_0.tga')
+    P = np.asarray(Image.open(pp).convert('RGBA')).astype(np.float32); R = np.asarray(Image.open(rp).convert('RGBA')).astype(np.float32)
+    m = np.asarray(Image.open(mask_png).resize((P.shape[1], P.shape[0]), Image.NEAREST)) > 127
+    m &= P[..., 3] < 128            # not already paint
+    if not m.any(): return
+    pm = P[..., 3] >= 128
+    lev = level or float(np.median(P[pm][:, 0])) if pm.any() else 180.0
+    Lr = R[..., :3].mean(-1)
+    low = ndimage.gaussian_filter(np.where(m, Lr, 0), 4) / np.maximum(ndimage.gaussian_filter(m.astype(np.float32), 4), 1e-3)
+    detail = np.clip(Lr / np.maximum(low, 4.0), 0.6, 1.4)
+    g = np.clip(lev * detail, 0, 255)
+    for k in range(3): P[..., k] = np.where(m, g, P[..., k])
+    P[..., 3] = np.where(m, 255, P[..., 3]); R[..., 3] = np.where(m, 0, R[..., 3])
+    wt(P, pp); wt(R, rp)
+    log(f'  flank paint: {int(m.sum())} texels moved into {name}_0_paint.tga at level {lev:.0f}')
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('out'); ap.add_argument('models', nargs='+')
@@ -892,6 +1155,7 @@ def main():
         if not e.get('paint_split'): continue
         extra = specs[e['name'][:3]].get('resplit', ['--hue-tol', '42', '--min-sat', '0.12', '--flatten', '0.5'])
         subprocess.check_call([py, os.path.join(TOOLS, 'car_paint_resplit.py'), models_dir, '--only', e['name'][:3]] + list(extra))
+        apply_paint_force(models_dir, e['name'], os.path.join(out_src, e['name'], 'paint_force.png'), log)
     # the generator's shells face outward and the parts here are built facing the right way (the liners and the
     # wheel discs on both sides), so car_mesh_orient only checks (its patch rule would turn one copy of a two-sided
     # liner round onto the other)

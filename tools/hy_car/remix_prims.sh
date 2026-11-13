@@ -8,7 +8,7 @@ P=$1; L=$2; W=/mnt/gta2/gta2-linux/wt_cars3; PY=/mnt/gta2/ab_work/venv/bin/pytho
 cp $P/src/manifest.json $P/models/manifest.json
 rm -rf $P/rmx_a $P/rmx_b; mkdir -p $P/rmx_a $P/rmx_b
 cd $W
-flock /tmp/gta2-gen.lock taskset -c 0-4 nice -n 10 $PY tools/remix_model_materials.py $P/models $P/rmx_a --paint-roughness 0.12 --jobs 4 \
+REMIX_ATLAS_CHROME_ROUGHNESS=0.32 flock /tmp/gta2-gen.lock taskset -c 0-4 nice -n 10 $PY tools/remix_model_materials.py $P/models $P/rmx_a --paint-roughness 0.12 --jobs 4 \
   --pattern '^[0-9]{3}_.*_0(_paint)?\.tga$' 2>&1 | tail -1 | cut -c1-160
 flock /tmp/gta2-gen.lock taskset -c 0-4 nice -n 10 $PY tools/remix_model_materials.py $P/models $P/rmx_b --src $P/src --paint-roughness 0.12 --jobs 4 \
   --pattern '^[0-9]{3}_.*_(?!0(_paint)?\.tga$)[a-z].*\.tga$' 2>&1 | tail -1 | cut -c1-160

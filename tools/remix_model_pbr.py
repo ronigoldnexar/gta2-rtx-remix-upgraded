@@ -84,7 +84,7 @@ sys.path.insert(0, HERE)
 # frc1_a18 / frc1_a12b on 018, 019, 029 at 12:30 and 21:30; body grain unchanged on 018, lower on 019).
 PAINT_METALLIC, PAINT_ROUGHNESS = 0.05, 0.12
 PAINT_NORMAL_DAMP = 0.3
-CHROME_ROUGHNESS = 0.2
+CHROME_ROUGHNESS = float(os.environ.get("REMIX_ATLAS_CHROME_ROUGHNESS", "0.2"))   # CARS-V3: the converted shells take 0.32 (tools/hy_car/remix_prims.sh): a lumpy generated bumper does not mirror its lumps
 LAMP_INTENSITY = 6.0        # tail / brake lamps, emissiveFactor lamps
 HEADLAMP_INTENSITY = 3.0    # white head lamps on the baked cars (brighter colour, lower gain)
 HEADLAMP_RIM = 0.30         # FIX-FX-5: a car lamp island's emissive at its rim, over its core (1.0: the old flat discs)
