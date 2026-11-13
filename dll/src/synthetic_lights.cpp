@@ -1165,7 +1165,9 @@ void WalkVehicles() {
         }
         // Beams off in daylight. The car is still walked and still counted, so
         // the menu's model list does not empty out at noon.
-        const float daylight = DaylightGateFactor(c.gate);
+        // LIGHTING-V1: each car by its own dusk minute (CarLampsDaylight; the lenses in car_bodies.cpp take the same).
+        const float daylight = c.gate.enabled ? CarLampsDaylight(reinterpret_cast<uintptr_t>(game::Placement(entry, game::kVehiclePlacementPtr)))
+                                              : 1.0f;
         if (daylight <= kGateFloor) {
             continue;
         }

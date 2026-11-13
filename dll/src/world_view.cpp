@@ -25,6 +25,7 @@
 #include "../../src/gta2_style.h"
 #include "../../src/world_mesh.h"
 #include "../../src/post_fx.h"   // SetPostCockpitReach (FIX-COCKPIT-CAB-4)
+#include "../../src/weather_fx.h"   // LIGHTING-V1: follow_clock=auto
 #include "debug_overlay.h"
 #include "hud3d.h"
 #include "regress_cam.h"
@@ -3827,6 +3828,18 @@ void WorldView::RenderFrame() {
             sky.followClockAuto = false;
             sky.followClock = true;
             Log("sky: follow_clock=auto: RTX Remix runtime detected, the sun follows the clock (one sun with Remix's sky)");
+        }
+        // LIGHTING-V1: in the plain renderer the night has its lamps, neon, lit windows and car lamps once the [visuals]
+        // passes are on, so the day/night cycle runs there too: auto follows the clock while [visuals] is on (re-read
+        // live), and keeps the fixed [sky] sun with them off (v1.5's look, where nothing else goes dark at night).
+        if (sky.followClockAuto) {
+            // ([weather] on with time_of_day=1 forces it on by itself, weather.cpp ApplyClock: kept on then.)
+            const bool want = gta2::VisualsConfig().enabled || gta2::WeatherNow().active;
+            if (want != sky.followClock) {
+                sky.followClock = want;
+                Log("sky: follow_clock=auto: %s", want ? "[visuals] on, the street views' sun follows the clock (day/night cycle)"
+                                                      : "[visuals] off, the fixed [sky] sun");
+            }
         }
     }
     // Not conditional on that: when Remix is absent the menu is the thing that

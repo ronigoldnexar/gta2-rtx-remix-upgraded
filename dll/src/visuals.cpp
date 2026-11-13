@@ -74,6 +74,7 @@ void ReadSettings(bool first) {
     v.bloomStrength = ReadInt("bloom_strength_percent", 55) / 100.0f;
     v.bloomThreshold = ReadInt("bloom_threshold_percent", 80) / 100.0f;
     v.exposure = ReadInt("exposure_percent", 100) / 100.0f;
+    v.nightExposure = ReadInt("night_exposure_percent", 140) / 100.0f;
     v.saturation = ReadInt("saturation_percent", 110) / 100.0f;
     v.lightIntensity = ReadInt("light_intensity_percent", 100) / 100.0f;
     v.sunBoost = ReadInt("sun_boost_percent", 150) / 100.0f;
@@ -259,6 +260,9 @@ void ProvideLights(std::vector<gta2::VisualLight>* out) {
         // is a distance with a soft end, a little wider so a lamp makes a pool.
         // FIX-WORLD-22: the map's own lights (lamps, lanterns, signs, lit windows) ranked apart from moving ones.
         l.fixed = !t.moving && (d.source == kLightSourceGame || d.source == kLightSourceWindow);
+        // LIGHTING-V1: with the street views' sun on the clock, a map light comes on at its own staggered minute (the
+        // same minute as under Remix), not with the whole street at one sun height.
+        if (l.fixed && d.source == kLightSourceGame && gta2::SkyConfig().followClock) l.night = LightsTrackedDaylight(t);   // -1: ungated
         float r = d.radius * 1.35f;
         r = r < 1.5f ? 1.5f : (r > 6.0f ? 6.0f : r);
         l.radius = r;

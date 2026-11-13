@@ -1099,7 +1099,7 @@ void PostFx::Resolve() {
         const float tanY = std::tan(fovY_ * 0.5f), tanX = tanY * aspect_;
         for (size_t i = 0; i < lights_.size(); ++i) {
             const VisualLight& l = lights_[i];
-            if (std::max(night, l.day) <= 0.02f) continue;
+            if (std::max(l.night >= 0.0f ? l.night : night, l.day) <= 0.02f) continue;
             const float r = l.radius;
             const Vec3 v = XformPoint(view_, Vec3{l.pos[0], l.pos[1], l.pos[2]});
             if (v.z < -r || v.z - r > frame_.fogEnd) continue;
@@ -1109,7 +1109,7 @@ void PostFx::Resolve() {
         {   // FIX-FIGURE-16 (qav19): the same sum at the eye (ps_light's falloff, half-wrapped facing), bounded as ps_light_apply does.
             float L[3] = {0.0f, 0.0f, 0.0f};
             for (const VisualLight& l : lights_) {
-                const float wgt = std::max(night, l.day);
+                const float wgt = std::max(l.night >= 0.0f ? l.night : night, l.day);
                 if (wgt <= 0.02f || l.spot || l.radius <= 0.0f) continue;
                 const float dx = l.pos[0] - eye_.x, dy = l.pos[1] - eye_.y, dz = l.pos[2] - eye_.z;
                 const float x = std::sqrt(dx * dx + dy * dy + dz * dz) / l.radius;
@@ -1165,7 +1165,7 @@ void PostFx::Resolve() {
                     if (m.z < 0.5f) behind = 0.05f;
                 }
                 const float cover = std::min(1.0f, (l.radius * l.radius) / std::max(0.25f, d2));
-                p.score = l.intensity * std::max(night, l.day) * cover * behind;
+                p.score = l.intensity * std::max(l.night >= 0.0f ? l.night : night, l.day) * cover * behind;
                 // last frame's track: a fixed light at its own spot; a moving one at the nearest spot within 0.6 blocks
                 float best = l.fixed ? 0.0025f : 0.36f;
                 for (const LightTrack& t : lightTrack_) {
@@ -1282,7 +1282,7 @@ void PostFx::Resolve() {
             }
             LightVertex base = {};
             base.p[0] = v.x; base.p[1] = v.y; base.p[2] = v.z; base.p[3] = r;
-            const float k = l.intensity * cfg.lightIntensity * std::max(night, l.day) * frame_.blend * p.w;
+            const float k = l.intensity * cfg.lightIntensity * std::max(l.night >= 0.0f ? l.night : night, l.day) * frame_.blend * p.w;
             base.c[0] = l.rgb[0] * k; base.c[1] = l.rgb[1] * k; base.c[2] = l.rgb[2] * k;
             if (l.spot) {
                 const Vec3 d = Normalize(XformDir(view_, Vec3{l.dir[0], l.dir[1], l.dir[2]}));
@@ -1486,7 +1486,8 @@ void PostFx::Resolve() {
         // debug 1: the raw scene, 2: the shadow mask, 3: the shadow atlas
         sampler(2, cfg.debug == 2 && shadows ? static_cast<IDirect3DBaseTexture9*>(maskTex_) : (cfg.debug == 3 && shadows ? static_cast<IDirect3DBaseTexture9*>(shadowTex_) : sceneTex_), false);
         sampler(3, bloom2 ? static_cast<IDirect3DBaseTexture9*>(bloomTex_[3]) : blackTex_, true);
-        const float exposure = cfg.exposure * (1.0f + 0.12f * night);
+        // LIGHTING-V1 (gate A: the plain night read murky, luma 23-25 in the plaza): the eye's night lift is 1.40 (was 1.12).
+        const float exposure = cfg.exposure * (1.0f + (cfg.nightExposure - 1.0f) * night);
         const float fin[8] = {exposure, bloom ? cfg.bloomStrength : 0.0f, cfg.saturation, cfg.debug >= 1 && cfg.debug <= 3 ? 0.0f : frame_.blend,
                               0.78f, 0.10f, cfg.tonemap ? 1.0f : 0.0f, bloom2 ? cfg.bloomStrength * 0.6f : 0.0f};
         device_->SetPixelShaderConstantF(0, fin, 2);

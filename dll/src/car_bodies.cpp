@@ -3900,7 +3900,10 @@ void DrawLamps(IDirect3DDevice9* device, const CarBodyUse& use, const gta2::Mat4
     }
     mo.x = x; mo.z = z; mo.frame = frame;
     if (g_motion.size() > 2048) { const Motion keep = mo; g_motion.clear(); g_motion[use.object] = keep; }
-    const bool lit = g_lampMode == 2 || g_lampDark;
+    // LIGHTING-V1: on the clock, each car switches its lamps on at its own minute of the dusk (CarLampsDaylight, the
+    // same draw the Remix beams take), not every car in the city at one sun height.
+    const bool lit = g_lampMode == 2 || (gta2::SkyConfig().followClock && TimeOfDay().enabled ? CarLampsDaylight(use.object) > 0.5f
+                                                                                                : g_lampDark);
     const bool useFeel = feel && feel->on;
     const float brake = useFeel ? feel->brake : mo.brake;
     const float reverse = useFeel ? feel->reverse : 0.0f;

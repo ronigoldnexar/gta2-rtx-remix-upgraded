@@ -145,18 +145,54 @@ void UpdateDayLook(float elevation) {
         return;
     }
     const TimeOfDaySettings& s = g_settings;
-    float t = (elevation - (s.dayLookAboveDeg - kDayLookBandDeg)) / (2.0f * kDayLookBandDeg);
+    // LIGHTING-V1: the twilight runs from the sun nightLookBelowDeg (-12, nautical dusk) up to kDayLookBandDeg above
+    // dayLookAboveDeg (+6). FIX-REMIX-3's band (-6..+6) put the night look on at 18:30 already, so the blue hour
+    // rendered as a black night under the night cap (gate A baseline: 18:30, 20:00 and 23:00 the same frame).
+    const float low = (std::min)(s.nightLookBelowDeg, s.dayLookAboveDeg - 1.0f), high = s.dayLookAboveDeg + kDayLookBandDeg;
+    float t = (elevation - low) / (high - low);
     t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
     t = t * t * (3.0f - 2.0f * t);
-    // 1/50 of the ramp is a 2 % step of the exposure cap: below what the eye picks out.
-    if (g_dayT >= 0.0f && std::fabs(t - g_dayT) < 0.02f && !(t == 0.0f && g_dayT != 0.0f) && !(t == 1.0f && g_dayT != 1.0f))
+    // 1/50 of the ramp is a 2 % step of the exposure cap: below what the eye picks out. Leaving full night or full day,
+    // however small the step, is pushed (the night hold must be released the moment the sun is back over the line).
+    if (g_dayT >= 0.0f && std::fabs(t - g_dayT) < 0.02f && !(t == 0.0f && g_dayT != 0.0f) && !(t == 1.0f && g_dayT != 1.0f) &&
+        !(g_dayT == 0.0f && t > 0.0f) && !(g_dayT == 1.0f && t < 1.0f))
         return;
     const bool first = g_dayT < 0.0f;
     g_dayT = t;
-    const float exposure = s.nightMaxExposure + (s.dayMaxExposure - s.nightMaxExposure) * t;
+    // The exposure cap through the twilight: night cap below nightLookBelowDeg, up to twilightMaxExposure at the blue hour
+    // (the sun twilightPeakDeg, -4: the street lit by the sky alone and the first lamps; the eye opens up for it), then to
+    // the day cap by +6. 0 for the twilight value: the straight night-to-day ramp of FIX-REMIX-3.
+    float exposure = s.nightMaxExposure + (s.dayMaxExposure - s.nightMaxExposure) * t;
+    if (s.twilightMaxExposure > 0.0f) {
+        const float peak = s.twilightPeakDeg;
+        if (elevation <= peak) {
+            float u = (elevation - low) / (std::max)(0.5f, peak - low);
+            u = u < 0.0f ? 0.0f : (u > 1.0f ? 1.0f : u);
+            u = u * u * (3.0f - 2.0f * u);
+            exposure = s.nightMaxExposure + (s.twilightMaxExposure - s.nightMaxExposure) * u;
+        } else {
+            float u = (elevation - peak) / (std::max)(0.5f, high - peak);
+            u = u < 0.0f ? 0.0f : (u > 1.0f ? 1.0f : u);
+            u = u * u * (3.0f - 2.0f * u);
+            exposure = s.twilightMaxExposure + (s.dayMaxExposure - s.twilightMaxExposure) * u;
+        }
+    }
     const float fill = s.nightSkyFill + (s.daySkyFill - s.nightSkyFill) * t;
     if (s.dayMaxExposure > 0.0f && s.nightMaxExposure > 0.0f) PushFloat("rtx.autoExposure.maxExposure", exposure);
     if (s.daySkyFill > 0.0f && s.nightSkyFill > 0.0f) PushFloat("rtx.atmosphere.skyIndirectRadianceScale", fill * (1.0f + 0.8f * g_overcast));
+    // LIGHTING-V1: the blue hour. Remix's atmosphere goes near black within a few degrees of sunset (gate A, 18:30 at
+    // sun -5.8: the sky as black as at 23:00 even under a 4.8 cap), so the night sky's airglow (rtx.atmosphere.
+    // nightSkyBrightness, a blue tint) is raised through the twilight: from the night's value at nautical dusk up to
+    // twilightAirglow with the sun at twilightPeakDeg, back down as the sun clears the horizon. The sky and its fill
+    // on the street both read blue for the half hour after sunset. 0 leaves the key to rtx.conf.
+    if (s.twilightAirglow > 0.0f && s.nightAirglow > 0.0f) {
+        float bump = 0.0f;
+        if (elevation <= s.twilightPeakDeg) bump = (elevation - low) / (std::max)(0.5f, s.twilightPeakDeg - low);
+        else bump = (2.0f - elevation) / (std::max)(0.5f, 2.0f - s.twilightPeakDeg);
+        bump = bump < 0.0f ? 0.0f : (bump > 1.0f ? 1.0f : bump);
+        bump = bump * bump * (3.0f - 2.0f * bump);
+        PushFloat("rtx.atmosphere.nightSkyBrightness", (s.nightAirglow + (s.twilightAirglow - s.nightAirglow) * bump) * (1.0f - 0.6f * g_overcast));
+    }
     // WEATHER-V2 overcast: the sun's direct light dimmed and its shadows softened (live keys, gate 0).
     PushFloat("rtx.atmosphere.directionalLightRadianceScale", 1.0f - 0.7f * g_overcast);
     PushFloat("rtx.atmosphere.sunShadowSoftnessDeg", 0.4f + 5.0f * g_overcast);
@@ -282,6 +318,40 @@ void TimeOfDaySunAt(float hour, const TimeOfDaySettings& settings, float* elevat
     if (rotationDeg) *rotationDeg = azimuth;
 }
 
+namespace {
+// LIGHTING-V1: [devtools] clock_run (1 runs the clock, 0 stops it, -1 leaves [timeofday] paused) and
+// clock_rate_tenths (game minutes per real second x10, -1 leaves the ini's), re-read once a second, so a
+// scripted session can set an hour with set_hour_tenths and then let the day run (the time-lapse).
+LARGE_INTEGER g_lastDevPoll = {};
+void PollClockDevtools(const LARGE_INTEGER& now) {
+    if (g_lastDevPoll.QuadPart && Seconds(g_lastDevPoll, now) < 1.0) return;
+    g_lastDevPoll = now;
+    static char ini[MAX_PATH] = "";
+    if (!ini[0]) {
+        GetModuleFileNameA(nullptr, ini, MAX_PATH);
+        char* slash = strrchr(ini, '\\');
+        if (slash) strcpy(slash + 1, "gta2dx9.ini"); else strcpy(ini, "gta2dx9.ini");
+    }
+    static int lastRun = -1, lastRate = -1;
+    const int run = GetPrivateProfileIntA("devtools", "clock_run", -1, ini);
+    if (run != lastRun) {
+        if (run >= 0) {
+            g_settings.paused = run == 0;
+            Log("devtools: clock %s at %05.2f", run ? "running" : "stopped", g_hour);
+        }
+        lastRun = run;
+    }
+    const int rate = GetPrivateProfileIntA("devtools", "clock_rate_tenths", -1, ini);
+    if (rate != lastRate) {
+        if (rate >= 0) {
+            g_settings.minutesPerSecond = static_cast<float>(rate) / 10.0f;
+            Log("devtools: clock rate %.1f game minutes per real second", g_settings.minutesPerSecond);
+        }
+        lastRate = rate;
+    }
+}
+}  // namespace
+
 void TimeOfDayUpdate() {
     if (!g_frequency.QuadPart) QueryPerformanceFrequency(&g_frequency);
 
@@ -295,6 +365,7 @@ void TimeOfDayUpdate() {
     }
     const double delta = Seconds(g_lastTick, now);
     g_lastTick = now;
+    PollClockDevtools(now);
 
     UpdateSky(now);
 
@@ -391,6 +462,46 @@ float DaylightGateFactorAtHour(const DaylightGate& gate, float hour) {
     const float in = Smooth(sinceOn / fade);
     const float out = Smooth((lit - sinceOn) / fade);
     return (std::min)(in, out);
+}
+
+namespace {
+// A stable 0..1 from a light's key (splitmix64 finaliser), salted so the on and off draws differ.
+float KeyUnit(uint64_t key, uint64_t salt) {
+    uint64_t z = key + salt * 0x9E3779B97F4A7C15ULL;
+    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
+    z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
+    z ^= z >> 31;
+    return static_cast<float>(z >> 40) / static_cast<float>(1ULL << 24);
+}
+}  // namespace
+
+float DaylightGateFactorKeyedAtHour(const DaylightGate& gate, uint64_t key, float hour) {
+    const float spread = (std::max)(g_settings.lightsStaggerMinutes, 0.0f) / 60.0f;
+    if (!gate.enabled) return 1.0f;
+    if (key == 0 || spread <= 0.0f) return DaylightGateFactorAtHour(gate, hour);
+    // This light's own hours: on within [on - spread/4, on + 3 spread/4], off within [off - spread/2, off + spread/2].
+    const float on = g_settings.lightsOnHour - 0.25f * spread + KeyUnit(key, 1) * spread;
+    const float off = g_settings.lightsOffHour - 0.5f * spread + KeyUnit(key, 2) * spread;
+    // One light warms up (or goes out) over a few minutes, not the whole fade.
+    const float fade = (std::max)(3.0f, g_settings.lightsFadeMinutes / 3.0f) / 60.0f;
+    const float lit = HoursAfter(on, off);
+    const float sinceOn = HoursAfter(on, hour);
+    if (sinceOn >= lit) return 0.0f;
+    const float in = Smooth(sinceOn / fade);
+    const float out = Smooth((lit - sinceOn) / fade);
+    return (std::min)(in, out);
+}
+
+float DaylightGateFactorKeyed(const DaylightGate& gate, uint64_t key) {
+    if (!gate.enabled || !g_settings.enabled) return 1.0f;
+    if (RemixApiAvailable() && !RemixApiHasAtmosphere()) return 1.0f;
+    return DaylightGateFactorKeyedAtHour(gate, key, g_hour);
+}
+
+float CarLampsDaylight(uintptr_t object) {
+    DaylightGate gate;
+    gate.enabled = true;
+    return DaylightGateFactorKeyed(gate, object ? (static_cast<uint64_t>(object) * 0x2545F4914F6CDD1DULL) ^ 0xCA2CA2ULL : 0);
 }
 
 float DaylightGateFactor(const DaylightGate& gate) {

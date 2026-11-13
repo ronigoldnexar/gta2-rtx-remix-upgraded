@@ -46,6 +46,7 @@ struct VisualsSettings {
     float bloomStrength = 0.55f;
     float bloomThreshold = 0.80f;
     float exposure = 1.0f;
+    float nightExposure = 1.40f;   // LIGHTING-V1: the exposure's lift at full night ([visuals] night_exposure_percent; 112 before)
     float saturation = 1.10f;
     float lightIntensity = 1.0f;
     float sunBoost = 1.5f;    // the world's sun light, times this, while the post is on
@@ -68,6 +69,9 @@ struct VisualLight {
     float coneDeg;       // spot half angle
     float day;           // share kept in full daylight (0: a night light; a fire keeps some)
     bool fixed;          // FIX-WORLD-22: a map light that never moves (street lamp, lantern, sign, lit window): its own budget
+    // LIGHTING-V1: this light's own night share (0..1) at its staggered switching time, from the DLL's clock; negative
+    // takes the frame's night (from the sun's height), as before.
+    float night = -1.0f;
 };
 // The DLL side (dll/src/visuals.cpp) supplies the lights and re-reads the ini; the
 // renderer calls these once per street-view frame. Either may be null.

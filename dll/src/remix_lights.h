@@ -112,6 +112,11 @@ struct RemixLightDesc {
     // rather than by position or proximity. Headlights use it so a car's beams
     // keep one handle for as long as the car exists, however far it drives.
     uint64_t explicitId = 0;
+
+    // LIGHTING-V1: the key its own dusk/dawn switching time is drawn from (DaylightGateFactorKeyed). A map lamp's
+    // placement key, shared by the lamp, its lantern glow, its pool and its far-lamp stand-in, so they switch as one.
+    // 0: taken from the light's position (a static game light) or its tracked identity.
+    uint64_t stagger = 0;
 };
 
 // A user's per-light edits, persisted to gta2dx9_lights.ini beside the game.
@@ -145,6 +150,7 @@ struct RemixTrackedLight {
     unsigned updates = 0;
     uint32_t lastSeenFrame = 0;
     uint32_t firstFrame = 0;
+    float gateApplied = -1.0f;   // LIGHTING-V1: its own daylight factor as last sent to Remix
 };
 
 // What to do with one kind of the game's own lights.
@@ -329,6 +335,10 @@ void LightsDraw();
 // --- Menu support ---
 
 const std::vector<RemixTrackedLight>& LightsTracked();
+
+// LIGHTING-V1: a tracked game light's dusk/dawn share now (its class gate, at its own staggered time);
+// -1 for a light no daylight gate applies to (another source, an ungated class). Both renderers read it, so a lamp comes on at the same minute in either.
+float LightsTrackedDaylight(const RemixTrackedLight& t);
 float LightsAmbient();
 const char* LightsScene();
 

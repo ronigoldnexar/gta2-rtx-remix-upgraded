@@ -1945,7 +1945,12 @@ void Renderer::DrawWorld(const Camera& camera) {
         }
         // Lit windows: the room glow added on top, scaled by how low the sun
         // is (nothing at noon, full at dusk and night), in the street views only.
-        const float glowAmount = g_windowGlow && shading_.sun && !water ? std::min(1.0f, std::max(0.0f, (0.55f - shading_.sunDir.y) / 0.45f)) : 0.0f;
+        // LIGHTING-V1: staggered by the wall tile (a hashed share of the ramp), so a street's facades light up one
+        // kind of wall after another through the dusk rather than all at one sun height; all lit by the sun's 6 deg.
+        const float glowLead = batch.tile >= 0 ? static_cast<float>((static_cast<uint32_t>(batch.tile) * 2654435761u) >> 24) / 255.0f * 0.25f : 0.0f;
+        const float glowAmount = g_windowGlow && shading_.sun && !water
+                                     ? std::min(1.0f, std::max(0.0f, (0.55f - glowLead - shading_.sunDir.y) / (0.45f - glowLead)))
+                                     : 0.0f;
         // FIX-WORLD-7 (pm12): by day the same panes reflect the sky (windowSky_), faded out as the
         // night glow comes in (stage 2 takes the complement of the glow's factor); a dark pane right
         // beside a first-person eye no longer reads as a black hole. GTA2DX9_WINDOW_SKY=0: off.

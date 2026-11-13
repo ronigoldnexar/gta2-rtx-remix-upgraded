@@ -285,6 +285,7 @@ void ClearAll() {
 // Defined further down, next to the per-frame cache it reads; declared here
 // because Apply is the first thing that wants it.
 float GameClassDaylight(uint8_t klass);
+float LightDaylight(const RemixTrackedLight& t);   // LIGHTING-V1: per light, staggered
 
 // A sodium/amber lamp's colour: red leads and green is well up and clear of blue (#FF8000,
 // #FF8040, #FF9224, #FFFF00). A pure or pinkish red (#FF0000, #FF8080) is not.
@@ -410,7 +411,7 @@ void Describe(const RemixTrackedLight& t, float* pos, float* rgb, float* scaleOu
     if (ov) scale *= ov->intensity;
     // Dusk and dawn. Only the game's own lights are gated here; ours are scaled
     // where they are submitted, in synthetic_lights.cpp.
-    if (t.def.source == kLightSourceGame) scale *= GameClassDaylight(t.gameClass);
+    if (t.def.source == kLightSourceGame) scale *= LightDaylight(t);
 
     // A wide coloured map light: warm white at the same luminance (see
     // wideNeonRadius in remix_lights.h). An override's own colour wins.
@@ -619,7 +620,9 @@ void ApplyAmbientFill() {
     // classic view keeps the old fill at every hour.
     // [devtools] remix_moon_fill_milli=0: the NIGHT-6 fill at night too (A/B); remix_moon_rgb=R,G,B (x1000) live.
     static const float kDuskSky[3] = {0.78f, 0.86f, 1.0f};
-    const float moonFill = g_moonFillMilli >= 0 ? static_cast<float>(g_moonFillMilli) / 1000.0f : 0.14f;
+    // LIGHTING-V1 (gate A: Remix nights read murky): 0.20, with the night hold at x3.5; probe lt_probe1 variant f (0.28)
+    // lifted the shade between lamps most, 0.20 keeps the lamp pools the brighter thing on the street.
+    const float moonFill = g_moonFillMilli >= 0 ? static_cast<float>(g_moonFillMilli) / 1000.0f : 0.20f;
     float nightRgb[3];
     for (int i = 0; i < 3; ++i) nightRgb[i] = night * kDuskSky[i];
     // Street views only: the classic view's night light list is as before.
@@ -1027,7 +1030,11 @@ void SubmitWindowLightsNear(const float* eye, float weight) {
     DaylightGate gate;
     gate.enabled = true;
     const float night = DaylightGateFactor(gate);
-    if (night <= 0.001f) return;
+    // LIGHTING-V1: each window has its own switching time (DaylightGateFactorKeyed); the shared clock above is
+    // only the early-out (nothing lit until the first light of the stagger).
+    const float spreadH = TimeOfDay().lightsStaggerMinutes / 60.0f;
+    if (night <= 0.001f && DaylightGateFactorKeyedAtHour(gate, 0, TimeOfDayHour() + 0.25f * spreadH) <= 0.001f &&
+        DaylightGateFactorKeyedAtHour(gate, 0, TimeOfDayHour() - 0.5f * spreadH) <= 0.001f) return;
     struct Near { float d2; const WindowLight* w; };
     std::vector<Near> found;
     const float r2 = kWindowRadius * kWindowRadius;
@@ -1050,7 +1057,9 @@ void SubmitWindowLightsNear(const float* eye, float weight) {
         share = share < 0.5f ? 0.5f : (share > 1.3f ? 1.3f : share);
         RemixLightDesc d;
         memcpy(d.pos, n.w->pos, sizeof(d.pos));
-        const float level0 = std::floor(night * weight * 32.0f + 0.5f) / 32.0f;
+        const float own = DaylightGateFactorKeyed(gate, n.w->id);
+        if (own <= 0.001f) continue;
+        const float level0 = std::floor(own * weight * 32.0f + 0.5f) / 32.0f;
         if (n.w->lamp) {
             // The gantry lens: its own teal, a small dim sphere a few centimetres off the plate.
             static const float kTeal[3] = {0.45f, 1.0f, 0.90f};
@@ -1086,7 +1095,7 @@ void SubmitWindowLightsNear(const float* eye, float weight) {
         if (g_windowPct <= 0) continue;
         memcpy(d.rgb, kRoom, sizeof(d.rgb));
         // Quantised so the per-frame blend does not redefine 40 lights every frame.
-        const float level = std::floor(night * weight * 32.0f + 0.5f) / 32.0f;
+        const float level = level0;
         d.intensity = 0.45f * share * pct * level;   // frn6_p1: 0.25 lit the ledges +0.04 luma, 0.62 +0.09; 0.45 between
         d.radius = 2.0f;
         d.emitterRadius = 0.12f;
@@ -1146,6 +1155,7 @@ void LightsSubmitMapLampsNear(const float* eye, float radius, int cap, float wei
         d.intensity = n.r->intensity * weight;
         d.radius = n.r->radius;
         d.source = kLightSourceGame;   // matched by position like the game's own, lifted and gated the same
+        d.stagger = n.r->key;          // LIGHTING-V1: switches with the game's lamp it stands in for
         g_extra.push_back(d);
     }
     g_farLampsLastFrame = static_cast<int>(found.size());
@@ -1158,6 +1168,12 @@ void LightsSubmitMapLampsNear(const float* eye, float radius, int cap, float wei
 }
 
 int LightsFarLampsLastFrame() { return g_farLampsLastFrame; }
+
+float LightsTrackedDaylight(const RemixTrackedLight& t) {
+    if (t.def.source != kLightSourceGame || t.gameClass >= kGameLightClassCount || !g_settings.gameClass[t.gameClass].gate.enabled)
+        return -1.0f;
+    return LightDaylight(t);
+}
 
 void LightsSetAmbient(float ambient) { g_ambient = ambient; }
 
@@ -1288,6 +1304,25 @@ float GameClassDaylight(uint8_t klass) {
     return g_classDaylight[klass];
 }
 
+// LIGHTING-V1: one game light's share, at its own switching time within the stagger (a fixed light's
+// placement key; see RemixLightDesc::stagger). Moving lights and ungated classes take the class value.
+uint64_t StaggerKey(const RemixTrackedLight& t) {
+    if (t.def.stagger) return t.def.stagger;
+    if (t.moving) return 0;
+    uint64_t key = 0;
+    if (MapLightKeyOf(t.def.pos, &key)) return key;
+    return t.key ? t.key : t.id;
+}
+
+float LightDaylight(const RemixTrackedLight& t) {
+    const uint8_t klass = t.gameClass;
+    if (t.def.source != kLightSourceGame || klass >= kGameLightClassCount) return 1.0f;
+    if ((g_probeMask >> klass) & 1) return 0.0f;
+    const DaylightGate& gate = g_settings.gameClass[klass].gate;
+    if (!gate.enabled) return g_classDaylight[klass];
+    return DaylightGateFactorKeyed(gate, StaggerKey(t));
+}
+
 void RefreshClassDaylight() {
     for (int i = 0; i < kGameLightClassCount; ++i) {
         const float now = (g_probeMask >> i) & 1 ? 0.0f : DaylightGateFactor(g_settings.gameClass[i].gate);
@@ -1347,6 +1382,7 @@ void FitLampsToPosts() {
         LampHead head;
         if (!LampPostHead(*lamp, gta2::Vec3{post.x, d.pos[1], post.z}, floor, &head)) continue;
         const float lampIntensity = d.intensity;
+        d.stagger = key;   // LIGHTING-V1: the lamp, its glow and its pool switch together
         // The glow in the glass. The lamp keeps its place (its identity is its position,
         // and a light seen to move turns into a car's); where the post was moved off it,
         // the lamp is put out and a copy glows in the moved lantern instead.
@@ -1764,13 +1800,22 @@ void LightsReconcile() {
         if (t.def.source < kLightSourceCount) ++g_stats.bySource[t.def.source];
         if (t.def.source == kLightSourceGame && t.gameClass < kGameLightClassCount) {
             ++g_stats.byClass[t.gameClass];
-            if (g_classDaylight[t.gameClass] > kGateFloor
+            if (LightDaylight(t) > kGateFloor
                 && g_settings.gameClass[t.gameClass].enabled) {
                 ++g_stats.litByClass[t.gameClass];
             }
         }
-        // The sun has moved this kind of light far enough to be worth resending.
-        if (t.def.source == kLightSourceGame && g_classMoved[t.gameClass]) t.dirty = true;
+        // The sun has moved this light far enough to be worth resending (LIGHTING-V1: each light by its own
+        // staggered time, so the street comes on lamp by lamp).
+        float gameDaylight = 1.0f;
+        if (t.def.source == kLightSourceGame) {
+            gameDaylight = LightDaylight(t);
+            if (g_classMoved[t.gameClass] || t.gateApplied < 0.0f || std::fabs(gameDaylight - t.gateApplied) >= kGateStep ||
+                (gameDaylight <= kGateFloor) != (t.gateApplied <= kGateFloor)) {
+                t.gateApplied = gameDaylight;
+                t.dirty = true;
+            }
+        }
 
         const RemixLightOverride* ov = LightsFindOverride(t.key);
         const bool identified = t.key != 0 && t.key == g_identify;
@@ -1782,14 +1827,14 @@ void LightsReconcile() {
         } else if (t.def.source == kLightSourceGame
                    && (!(t.moving ? g_settings.injectMoving : g_settings.injectStatic)
                        || !g_settings.gameClass[t.gameClass].enabled
-                       || GameClassDaylight(t.gameClass) <= kGateFloor)) {
+                       || gameDaylight <= kGateFloor)) {
             // Only the game's own lights are filtered this way. Ours are gated by
             // their category, upstream, and never reach here when switched off.
             // A light the sun has put out is dropped rather than dimmed to
             // nothing: an invisible light is still a handle on the far side of
             // the bridge and still a light the path tracer samples.
             ++g_stats.suppressedByClass;
-            if (GameClassDaylight(t.gameClass) <= kGateFloor) ++g_stats.suppressedByDaylight;
+            if (gameDaylight <= kGateFloor) ++g_stats.suppressedByDaylight;
             suppressed = true;
         } else if (t.def.intensity < g_settings.minIntensity && !identified) {
             // The game blinks a light by taking its intensity to zero, so this is

@@ -22,6 +22,8 @@
 // 50 degrees at noon, and long slanted shadows morning and evening.
 #pragma once
 
+#include <cstdint>
+
 namespace gta2dx9 {
 
 struct TimeOfDaySettings {
@@ -44,6 +46,11 @@ struct TimeOfDaySettings {
     float lightsOffHour = 6.0f;
     float lightsOnHour = 18.0f;
     float lightsFadeMinutes = 15.0f;
+    // LIGHTING-V1: the city does not switch on in one frame. Each lamp, lit window, neon sign and car
+    // has its own on and off time, spread over this many game minutes around the hours above (on from a
+    // quarter of it before lightsOnHour, off from half of it before lightsOffHour), each light fading
+    // over lightsFadeMinutes/3 (at least 3 minutes). 0 = every light on the one clock, as before.
+    float lightsStaggerMinutes = 40.0f;
 
     // Where on Earth this city is. Latitude sets how high the sun climbs and how
     // steeply it rises; declination sets the season (+23.44 at the June
@@ -79,6 +86,14 @@ struct TimeOfDaySettings {
     float dayMaxExposure = 6.0f;
     float nightMaxExposure = 2.5f;
     float nightFixedExposure = 2.0f;   // FIX-REMIX-NIGHT-10: 0 = floating meter under the cap
+    // LIGHTING-V1: the night look (and the hold) once the sun is below nightLookBelowDeg; through the twilight the cap
+    // rises to twilightMaxExposure with the sun at twilightPeakDeg (the blue hour), 0 = a straight night-day ramp.
+    float nightLookBelowDeg = -12.0f;
+    float twilightMaxExposure = 5.0f;
+    float twilightPeakDeg = -4.0f;
+    // The night sky's airglow (rtx.atmosphere.nightSkyBrightness) at night and at the blue hour; 0 leaves rtx.conf's.
+    float nightAirglow = 0.008f;
+    float twilightAirglow = 0.08f;
     float daySkyFill = 3.0f;
     float nightSkyFill = 1.0f;
 
@@ -158,5 +173,16 @@ float DaylightGateFactor(const DaylightGate& gate);
 
 // The same for an arbitrary time of day, 0..24.
 float DaylightGateFactorAtHour(const DaylightGate& gate, float hour);
+
+// LIGHTING-V1: DaylightGateFactor for one light, whose own on/off times are drawn from `key` (a stable
+// identity: a map lamp's placement key, a window's id, a car's handle) within lightsStaggerMinutes.
+// key 0 is the shared clock (DaylightGateFactor). Every view and both renderers use the same times.
+float DaylightGateFactorKeyed(const DaylightGate& gate, uint64_t key);
+float DaylightGateFactorKeyedAtHour(const DaylightGate& gate, uint64_t key, float hour);
+
+// LIGHTING-V1: a car's head and tail lamps at dusk and dawn, 0..1, by its own staggered time (key: the vehicle's
+// placement object, the one pointer both the lamp lenses in car_bodies.cpp and the Remix beams in
+// synthetic_lights.cpp know the car by), so a car's lenses and its beams come on together.
+float CarLampsDaylight(uintptr_t object);
 
 }  // namespace gta2dx9
