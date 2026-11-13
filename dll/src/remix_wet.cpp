@@ -690,12 +690,12 @@ void RemixWetFrame(const gta2::Map& map, float eyeX, float eyeY, float eyeZ, flo
             float el = 0.0f, az = 0.0f;
             TimeOfDayAngles(&el, &az);
             const float n = (std::max)(0.0f, (std::min)(1.0f, (-el - 2.0f) / 8.0f));   // 0 above -2 deg .. 1 below -10 deg
-            static int dark = 100, nightFilm = 1;
+            static int dark = 100, nightFilm = 0;
             static DWORD darkRead = 0;
             if (GetTickCount() - darkRead >= 1000) {
                 darkRead = GetTickCount();
                 dark = GetPrivateProfileIntA("weather", "remix_wet_dark", 100, g_ini);
-                nightFilm = GetPrivateProfileIntA("weather", "remix_night_film", 1, g_ini);
+                nightFilm = GetPrivateProfileIntA("weather", "remix_night_film", 0, g_ini);   // off: it mirrored the gantry signs as sharp ghosts (p1l); the wet roughness gives the streaks
             }
             const int k = nightFilm ? static_cast<int>(std::lround(8.0f * n * wet)) : 0;
             e.mode = wet < 0.02f ? 0 : (k > 0 ? 6 : 3);
