@@ -3190,7 +3190,7 @@ bool RemixHullDraw(IDirect3DDevice9* device, const Model& model, const gta2::Mat
     return true;
 }
 
-TurretSplit TurretSplitFor(const Model& model, const gta2::Mat4& fit, float roof, float cut, float zMax) {
+TurretSplit TurretSplitFor(const Model& model, const gta2::Mat4& fit, float roof, float cut, float zMax, float pivotBand = 1.0f) {
     const TurretKey key{&model, static_cast<int>(cut * 100.0f), static_cast<int>(std::floor(zMax * 50.0f))};
     auto it = g_turretSplits.find(key);
     if (it != g_turretSplits.end()) return it->second;
@@ -3208,6 +3208,10 @@ TurretSplit TurretSplitFor(const Model& model, const gta2::Mat4& fit, float roof
     hull.name = model.name + "#hull"; top.name = model.name + "#turret";
     size_t topTris = 0;
     double ax = 0.0, az = 0.0, aw = 0.0;
+    // pivotBand < 1: the pivot is the middle of the turret's lowest part only (a pedestal gun, 022, turns about its
+    // post, not about the middle of a barrel that reaches forward)
+    const float bandTop = cut * roof + pivotBand * (roof - cut * roof);
+    double bx = 0.0, bz = 0.0, bw = 0.0;
     for (size_t n = 0; n < model.nodes.size(); ++n) {
         const int mi = model.nodes[n].mesh;
         if (mi < 0 || mi >= static_cast<int>(model.meshes.size())) continue;
@@ -3234,12 +3238,14 @@ TurretSplit TurretSplitFor(const Model& model, const gta2::Mat4& fit, float roof
                 const gta2::Vec3 nrm = gta2::Cross(q[1] - q[0], q[2] - q[0]);
                 const double area = std::sqrt(gta2::Dot(nrm, nrm));
                 ax += area * cx; az += area * cz; aw += area;
+                if (cy < bandTop) { bx += area * cx; bz += area * cz; bw += area; }
             }
         }
     }
     TurretSplit split{nullptr, nullptr, 0.0f, 0.0f};
     if (topTris >= 8 && aw > 0.0) {
         split.pivotX = static_cast<float>(ax / aw); split.pivotZ = static_cast<float>(az / aw);
+        if (pivotBand < 1.0f && bw > 0.0) { split.pivotX = static_cast<float>(bx / bw); split.pivotZ = static_cast<float>(bz / bw); }
         split.hull = ModelRegisterDerived(std::move(hull));
         split.turret = ModelRegisterDerived(std::move(top));
     }
@@ -5967,11 +5973,14 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                 hinge.m[0][0] = cs; hinge.m[0][2] = -sn; hinge.m[1][1] = 1.0f; hinge.m[2][0] = sn; hinge.m[2][2] = cs;
                 hinge.m[3][0] = hx - (hx * cs + hz * sn); hinge.m[3][2] = hz - (-hx * sn + hz * cs); hinge.m[3][3] = 1.0f;
                 ModelDraw(device, *split.door, Mul(Mul(fit, hinge), posed), nullptr, 0.0f);   // (swung: its own frame)
-            } else if ((modelNumber == 54 || modelNumber == 17) && !cpuCut) {
+            } else if ((modelNumber == 54 || modelNumber == 17 || modelNumber == 22) && !cpuCut) {
                 // The turret turned to the game's aim (see TurretSplitFor); without an
                 // aim seen in the last second it stays straight ahead.
                 const float roofY = model->Height() * sy;
+                // 022: the converted model's roof gun stands on the roof, the top 0.82 of the model's height and up
+                // (tools/hy_car roof_gun); it turns about its post (the lowest 0.3 of the gun)
                 const TurretSplit split = modelNumber == 54 ? TurretSplitFor(*worn, fit, roofY, 0.56f, 99.0f)
+                                        : modelNumber == 22 ? TurretSplitFor(*worn, fit, roofY, 0.82f, 99.0f, 0.3f)
                                                             : TurretSplitFor(*worn, fit, roofY, 0.80f, 0.05f * b->bodyLength);
                 auto aim = g_turretAims.find(use.object);
                 float yaw = 0.0f;
