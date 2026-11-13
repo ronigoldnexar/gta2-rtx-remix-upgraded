@@ -434,3 +434,50 @@ change.
   `EYE_ALL`).
 - **This commit**: the hair colours (two natural colours where plausible, the copper-brown "auburn", no blonde,
   plus greying; head maps 512 px), with the top-down allocator below that made room for them.
+
+### PEDS-FACES-2 (shipped 13 Nov 2026)
+
+- **Sunglasses** (`faces.py sunglasses`): small round metal frames (`sunglasses_round`) and a slim wraparound
+  (`sunglasses_pill`: stadium lenses in a dark frame whose front curves round the face, slate lens map
+  `acc_lens_wrap.tga`; the temple arms leave the bent lens ends and run straight back, so the far arm no longer
+  stands out past the cheek in a three-quarter view). With glasses and dark-frame glasses: four eyewear kinds.
+- **Facial hair: stubble only.** The moustache, goatee and full beard were rebuilt twice (pushed-out head shells,
+  then solid shells with a feathered edge painted in the head's UV layout, `faces_beard.py`, anchored on the mouth
+  line); both read as pasted patches with hard, texel-jagged outlines once alpha-tested in the game, and are held.
+  `faces.py FACIAL = ['stubble']`; the DLL picks what the manifest has (`identity.cpp FacePick`), so none is drawn.
+  Next attempt: dense strand cards with a feathered alpha and a solid core, as the Haredi beard
+  (`~/peds3/haredi_men.py`), drawn alpha-blended rather than alpha-tested.
+- **Head swap** (`headswap2.py`, `headswap_cap.py`): head-only models (`<A>^<B>`: B's head, opacity and glasses
+  meshes rebound to A's skeleton, nothing else). Same sex, same skin group (face-skin luminance within 16, chroma
+  within 0.08), bodies with collared or high necklines only. The DLL draws A with its head scaled away
+  (`ModelSetHideHead`) and the head-only model on top with the same clips and layers. Manifest entries carry
+  `detail_of` (A's clips) and `head_of`; `identity.cpp HeadPick` gives 45 in 100 of the eligible civilians one of
+  the body's heads (in the record, the fingerprint and the `identity: face` log line). 182 pairs, 2 rejected on
+  the neck sheet (a gap at the back of male_13's head), 180 clean; shipped capped at 3 heads per body, spreading
+  the heads: 56 combos on 19 bodies, 29 heads, 9.9 MB. human_male_07^human_male_10 uses a tone-matched copy of
+  the head map (`human_male_10_m024_head~s36.tga`, skin 3/4 of the way to the body's, R x0.94 G x0.92), so that
+  one combo takes no hair-colour variant.
+
+### The address-space gate: 320 MB largest free block (13 Nov 2026)
+
+Use this number for every memory gate on new assets (people, cars, textures) unless it is re-measured.
+
+- **Why a largest free block at all.** The game is a 32-bit process; under the plain renderer (wined3d) the big
+  free block above 2 GB shrinks and splits as the session runs. A request that finds no free run of its size
+  fails (wined3d answers a failed map with a null pointer: a fault).
+- **The largest request.** Measured with a temporary probe (MEM-PROBE, 13 Nov: every import of HeapAlloc,
+  RtlAllocateHeap, VirtualAlloc, NtAllocateVirtualMemory, malloc/calloc/realloc in every loaded module hooked,
+  requests >= 512 KB logged with the calling module, plus the DLL's own operator-new requests >= 8 MB with the
+  stack), over (1) an 18-min Remix session (16-stop map tour with the three views, 4 district swaps) and (2) a
+  20-min plain session (21 warps with the views, 6 district swaps), both with the 56 head-swap combos staged.
+  Largest single request in both: **66.3 MB**, the DLL's own (a world buffer growing at a level change; it is
+  mapped top-down). Largest from other code: 40.6 MB (wined3d heap in plain, the Remix bridge's d3d9 in Remix).
+- **The gate: 66.3 MB x 4 = 265 MB, plus margin: 320 MB** largest free block at one minute of the pedsvar2
+  scenario (`~/peds3/memfrag_runs.sh <stage> <tag> 5`, GTA2DX9_VA_WATCH=1), in 5 of 5 runs, 0 FAULT.
+- **What it measured.** 56 combos: 581, 578, 1506, 615, 1477 MB; the 20-min plain session held 657 MB from the
+  first minute to the last (0 FAULT); under Remix the block never fell below 2036 MB (the textures live in the
+  bridge's server process). The old 1.2 GB bar was a run-to-run accident: every run that fell under it was split
+  by one 832 KB block (0xd0000) that Wine maps with an anonymous mmap wherever Linux puts it once its own
+  low area is full (WINEDEBUG=+virtual: "map_view got mem with anon mmap", a reserve+commit from inside ntdll,
+  not through any module's imports), during the texture warm-up; the same build without any combo fell to
+  842 MB in 1 of 5 runs.

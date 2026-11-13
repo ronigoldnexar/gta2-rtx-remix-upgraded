@@ -66,6 +66,9 @@ struct IdentityRecord {
     // PEDS-FACES: head and face accessories (rigid models drawn on the posed head bone: facial hair, eyewear,
     // headwear; at most two) and the texture swaps that give the head its hair colour and a cap its colour.
     const Model* acc[2] = {nullptr, nullptr};
+    // PEDS-FACES-2: another avatar's head on this body: a head-only model on the body's skeleton (<body>^<head>);
+    // the body is drawn with its own head hidden, then this, posed by the same clips.
+    const Model* headSwap = nullptr;
     int hairVariant = 0;        // 0 the avatar's own hair, N its "~hcN" maps
     int texSwaps = 0;
     std::string texFrom[5], texTo[5];

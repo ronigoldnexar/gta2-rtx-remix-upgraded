@@ -30,6 +30,9 @@ types = {r: t for t in types_man['ped_types'] for r in t['remaps']}
 outfits_rows = types_man.get('ped_outfits', [])
 CW, CH = (int(x) for x in a.cell.split('x'))
 FILES = set(os.listdir(M))
+import outfits as _o
+_o.HS_ORDER.update({e['name']: i for i, e in enumerate(types_man['models'])})
+HIDE = lambda tex, node: tex.endswith('_head.tga') or '_opacity' in tex or '_glasses' in tex   # the body's own head
 remaps = [int(x) for x in a.remaps.split(',')]
 sheet = Image.new('RGB', (a.seeds * CW, len(remaps) * (CH + 26)), (40, 42, 46)); d = ImageDraw.Draw(sheet)
 counts = {}
@@ -46,7 +49,11 @@ for row, r in enumerate(remaps):
         af = M + base + '.mesh' if n != base else None
         bt = imported[base].get('textures', [])
         ht = next((t for t in bt if t.endswith('_head.tga')), ''); ot = next((t for t in bt if '_opacity' in t), '')
-        acc, sw = face_record(seed, n, FILES, ht, ot) if civilian else ([], {})   # PEDS-FACES
+        hd = rec.get('head')   # PEDS-FACES-2: a head swap: the face's maps are the head's avatar's
+        if hd:
+            hb = imported[hd.split('^')[1]].get('textures', [])
+            ht = next((t for t in hb if t.endswith('_head.tga')), ''); ot = next((t for t in hb if '_opacity' in t), '')
+        acc, sw = face_record(seed, n, FILES, ht, ot, hd) if civilian else ([], {})   # PEDS-FACES
         att = [M + x + '.mesh' for x in acc]
         counts[rec['kind']] = counts.get(rec['kind'], 0) + 1
         def tints(tex, node, rec=rec):
@@ -56,10 +63,10 @@ for row, r in enumerate(remaps):
             if rec['paint'] is not None and '_paint' in tex: return rec['paint']
             return None
         if a.pitch > 60:   # from above the figure fills little of a frame fitted to his height: render big, keep the middle
-            big = render.render(M + n + '.mesh', [(a.yaw, a.pitch)], tints=tints, size=(CW * 3, CH * 3), anim_from=af, attach=att, swap=sw)[0]
+            big = render.render(M + n + '.mesh', [(a.yaw, a.pitch)], tints=tints, size=(CW * 3, CH * 3), anim_from=af, attach=att, swap=sw, extra=[M + hd + '.mesh'] if hd else [], hide=HIDE if hd else None)[0]
             im = big.crop((CW, CH, 2 * CW, 2 * CH)).resize((CW, CH))
         else:
-            im = render.render(M + n + '.mesh', [(a.yaw, a.pitch)], tints=tints, size=(CW, CH), anim_from=af, attach=att, swap=sw)[0]
+            im = render.render(M + n + '.mesh', [(a.yaw, a.pitch)], tints=tints, size=(CW, CH), anim_from=af, attach=att, swap=sw, extra=[M + hd + '.mesh'] if hd else [], hide=HIDE if hd else None)[0]
         x, y = i * CW, row * (CH + 26)
         sheet.paste(im, (x, y))
         d.text((x + 2, y + CH + 1), n.replace('human_', '').replace('business_', 'biz_')[:18], fill=(250, 200, 120))

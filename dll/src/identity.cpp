@@ -57,6 +57,7 @@ uint32_t Fingerprint(const IdentityRecord& r) {
     for (const auto& z : r.zone) for (float c : z) f.Float(c);
     for (float c : r.tint) f.Float(c);
     for (const Model* a : r.acc) f.Str(a ? a->name.c_str() : "-");
+    f.Str(r.headSwap ? r.headSwap->name.c_str() : "-");
     for (int i = 0; i < r.texSwaps; ++i) f.Str(r.texTo[i].c_str());
     for (float c : r.paintTint) f.Float(c);
     f.Float(r.height); f.Float(r.width); f.Float(r.darkness);
@@ -163,6 +164,16 @@ void ModestOutfit(uint32_t seed, Garment* top, Garment* bottom) {
 // 38 in 100 of the dressed; a hash of its own. tools/ped_identity/outfits.py detail_pick is the same.
 constexpr uint32_t kDetailSalt = 0x2c1b3c6du;
 constexpr const char* kDetailSuffix[] = {"_dy", "_ds", "_db"};
+// PEDS-FACES-2: a head swap, for a dressed civilian whose body has combinations (and who drew no detail variant):
+// about 45 in 100 wear another avatar's head (HeadPick; outfits.py head_pick).
+constexpr uint32_t kHeadSalt = 0x6b43a9f1u;
+int HeadPick(uint32_t seed, int n) {
+    if (n <= 0) return -1;
+    const uint32_t h = Mix(seed ^ kHeadSalt);
+    if (h % 100 >= 45) return -1;
+    return static_cast<int>((h >> 8) % static_cast<uint32_t>(n));
+}
+
 int DetailPick(uint32_t seed, int n) {
     if (n <= 0) return -1;
     const uint32_t h = Mix(seed ^ kDetailSalt);
@@ -215,6 +226,12 @@ void CrowdVariety(IdentityRecord* r) {
             const int k = DetailPick(r->seed, n);
             if (k >= 0) r->model = v[k];       // same zones and zone reference as the avatar (a copy of it)
         }
+        if (!modest) {                         // perhaps another avatar's head on this body (with or without a detail)
+            const Model* hs[64];
+            const int n = ModelHeadSwaps(model.name, hs, 64);
+            const int k = HeadPick(r->seed, n);
+            if (k >= 0) r->headSwap = hs[k];   // a head-only model on the body's skeleton; the head's maps
+        }
         return;
     }
     if (r->zoned) {
@@ -266,10 +283,15 @@ void FaceVariety(IdentityRecord* r) {
     std::string base = r->model->name;
     for (const char* suf : kDetailSuffix)
         if (base.size() > 3 && base.compare(base.size() - 3, 3, suf) == 0) base.resize(base.size() - 3);
+    if (r->headSwap) {   // a head swap: the face is the head's avatar (its accessories, its hair maps)
+        const std::string& hs = r->headSwap->name;
+        const size_t caret = hs.find('^');
+        if (caret != std::string::npos) base = hs.substr(caret + 1);
+    }
     if (base.compare(0, 12, "human_haredi") == 0 || base == "human_female_adult_06" || base == "human_female_adult_10") return;
     const bool male = base.find("female") == std::string::npos;
     static const char* kFacial[] = {"stubble", "moustache", "goatee", "beard"};
-    static const char* kEye[] = {"glasses", "glasses_dark", "sunglasses"};
+    static const char* kEye[] = {"glasses", "glasses_dark", "sunglasses_round", "sunglasses_pill"};
     static const char* kHead[] = {"cap", "flatcap", "beanie"};
     const Model* facial[4]; const Model* eye[3]; const Model* head[3]; const char* headKind[3];
     int nf = 0, ne = 0, nh = 0;
@@ -332,9 +354,10 @@ void LogPerson(const char* what, uintptr_t cacheKey, const IdentityRecord& r, bo
         what, changed ? " CHANGED" : "", static_cast<int>(r.seed), r.ref.remap, r.ref.body, r.model ? r.model->name.c_str() : "(none)",
         r.zoned ? " zoned" : "", r.clothes ? " clothes" : r.tinted ? " tinted" : "", r.height, r.width, r.shownTop[0], r.shownTop[1],
         r.shownTop[2], r.shownBottom[0], r.shownBottom[1], r.shownBottom[2], r.fingerprint);
-    if (r.acc[0] || r.hairVariant)   // PEDS-FACES
-        Log("identity: face key %d -> hair %d%s%s%s%s", static_cast<int>(r.seed), r.hairVariant, r.acc[0] ? " acc " : "",
-            r.acc[0] ? r.acc[0]->name.c_str() : "", r.acc[1] ? " + " : "", r.acc[1] ? r.acc[1]->name.c_str() : "");
+    if (r.acc[0] || r.hairVariant || r.headSwap)   // PEDS-FACES
+        Log("identity: face key %d -> hair %d%s%s%s%s%s%s", static_cast<int>(r.seed), r.hairVariant, r.acc[0] ? " acc " : "",
+            r.acc[0] ? r.acc[0]->name.c_str() : "", r.acc[1] ? " + " : "", r.acc[1] ? r.acc[1]->name.c_str() : "",
+            r.headSwap ? " head " : "", r.headSwap ? r.headSwap->name.c_str() : "");
     (void)cacheKey;
 }
 

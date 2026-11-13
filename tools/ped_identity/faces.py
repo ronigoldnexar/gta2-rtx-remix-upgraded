@@ -13,7 +13,7 @@ are added ("accessory_of")."""
 import sys, os, json, struct, math, numpy as np
 from PIL import Image, ImageFilter
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import gmsh
+import gmsh, faces_beard
 from paint_resplit import read_tga, write_tga
 
 # ---------------------------------------------------------------- eligibility (judged on the head close-up sheet)
@@ -34,9 +34,11 @@ NO_GREY = {'human_female_adult_12'}                                     # the ma
 UPDO = {'human_female_adult_02', 'human_female_adult_07', 'human_female_adult_11', 'human_female_adult_17',
         'human_female_01', 'human_female_adult_09'}                 # a bun or a high ponytail: no headwear
 # (shipped: stubble; the moustache, goatee and beard and the sunglasses are being redone: FACIAL_ALL / EYE_ALL)
-FACIAL_ALL = ['stubble', 'moustache', 'goatee', 'beard']; EYE_ALL = ['glasses', 'glasses_dark', 'sunglasses']
-FACIAL = ['stubble']
-EYE = ['glasses', 'glasses_dark']
+FACIAL_ALL = ['stubble', 'moustache', 'goatee', 'beard']; EYE_ALL = ['glasses', 'glasses_dark', 'sunglasses_round', 'sunglasses_pill']
+# PEDS-FACES-2: the facial hair redone (fuller, solid inside, feathered edges, the hair's own colour) and two smaller
+# sunglasses (round metal; small pill-shaped lenses in a dark frame) in place of the big square pair
+FACIAL = ["stubble"]   # PEDS-FACES-2: moustache, goatee and beard held (not shippable as shells; strand cards later)
+EYE = EYE_ALL
 HEAD_M = ['cap', 'flatcap', 'beanie']; HEAD_F = ['cap', 'beanie']
 CAP_COLOURS = {'cap': [(40, 52, 88), (52, 54, 60), (84, 90, 58), (100, 34, 44), (150, 130, 100)],
                'beanie': [(52, 54, 60), (38, 46, 70), (46, 72, 56), (96, 36, 44), (176, 166, 146)],
@@ -145,6 +147,53 @@ def eyewear(h, kind):
         out.append((two_sided(lv, ln, np.tile([[0.5, 0.5]], (len(lv), 1)), li), 'acc_lens_dark.tga'))
     return out
 
+def circle(cx, cz, r, y, n=24):
+    return [(cx + r * math.cos(2 * math.pi * k / n), y, cz + r * math.sin(2 * math.pi * k / n)) for k in range(n)]
+
+def disc(ring, centre):
+    lv = [centre] + list(ring); li = [[0, 1 + k, 1 + (k + 1) % len(ring)] for k in range(len(ring))]
+    lv = np.array(lv); ln = np.tile([[0, -1.0, 0]], (len(lv), 1))
+    return two_sided(lv, ln, np.tile([[0.5, 0.5]], (len(lv), 1)), li)
+
+def sunglasses(h, kind):
+    """PEDS-FACES-2: smaller sunglasses. round: two round lenses (radius 0.24 of the half head) in a thin metal rim;
+    wrap: one slim lens band that follows the face round to the temples, a thin dark brow bar over it."""
+    nz, ny, hw = h['nose'][2], h['nose'][1], h['hw']
+    ze = nz + 0.36 * hw; yf = ny + 0.12 * hw
+    if kind == 'sunglasses_round':
+        r = 0.24 * hw; t = 0.014 * hw; parts = []; lens = []
+        for sx in (-1, 1):
+            cx = sx * 0.41 * hw
+            parts.append(tube(circle(cx, ze, r, yf), t))
+            lens.append(disc(circle(cx, ze, r * 0.98, yf - 0.003 * hw), (cx, yf - 0.003 * hw, ze)))
+            ex = sx * (0.41 * hw + r)
+            parts.append(tube([(ex, yf, ze + 0.2 * r), (sx * 1.02 * hw, yf + 0.25 * hw, ze + 0.2 * r), (sx * 1.04 * hw, yf + 1.15 * hw, ze - 0.05 * hw)], t * 0.85, closed=False))
+        parts.append(tube([(-0.41 * hw + r, yf, ze + 0.25 * r), (0, yf - 0.03 * hw, ze + 0.35 * r), (0.41 * hw - r, yf, ze + 0.25 * r)], t, closed=False))
+        return [(merge(parts), 'acc_glasses_metal.tga'), (merge(lens), 'acc_lens_dark.tga')]
+    # pill: two small stadium-shaped lenses (a retro-futuristic oval), a dark rim, a straight bridge
+    w, hh, t = 0.46 * hw, 0.20 * hw, 0.020 * hw
+    parts, lens = [], []
+    for sx in (-1, 1):
+        cx = sx * 0.40 * hw
+        ring = rrect(cx, ze, w, hh, yf, 0.98, n=8)
+        parts.append(tube(ring, t))
+        lens.append(disc(rrect(cx, ze, w * 0.97, hh * 0.95, yf - 0.003 * hw, 0.98, n=8), (cx, yf - 0.003 * hw, ze)))
+    parts.append(tube([(-0.40 * hw + w / 2, yf, ze + 0.15 * hh), (0.40 * hw - w / 2, yf, ze + 0.15 * hh)], t, closed=False))
+    # PEDS-FACES-3: the front wraps round the face (flat, its outer ends stood out like a beak in a three-quarter view)
+    def back(x): return 0.42 * hw * min(max(abs(x) / hw - 0.15, 0.0), 0.55) ** 2 / 0.55 ** 2
+    def bend(m):
+        v, n, uv, i = m; v = v.copy()
+        v[:, 1] += np.array([back(x) for x in v[:, 0]])
+        return v, n, uv, i
+    # the temple arms leave the bent outer lens end and run straight back to the ear, never forward of it (they were
+    # bent with the front, so the far arm stood out past the cheek as a spike in a three-quarter view)
+    arms = []
+    for sx in (-1, 1):
+        ex = sx * (0.40 * hw + w / 2); ey = yf + back(ex)
+        arms.append(tube([(ex, ey, ze + 0.2 * hh), (sx * 0.97 * hw, ey + 0.45 * hw, ze + 0.2 * hh),
+                          (sx * 1.04 * hw, yf + 1.15 * hw, ze - 0.05 * hw)], t * 0.85, closed=False))
+    return [(merge([bend(merge(parts))] + arms), 'acc_glasses_dark.tga'), (bend(merge(lens)), 'acc_lens_wrap.tga')]
+
 def skull(h):
     """The cranium with its hair as an ellipsoid: front (forehead), back, sides and top from the head and hair-card
     vertices above the eye line (a ponytail or bun below the crown does not count)."""
@@ -224,27 +273,32 @@ def headwear(h, kind):
         return [(merge([(v, d[1], d[2], d[3]), visor(h, z, g, 0.42 * hw, 58, 0.30, 0.95 * hw)]), 'acc_flatcap.tga')]
 
 def facial(h, kind, name):
+    if kind != 'stubble':   # PEDS-FACES-3: painted shells (faces_beard.py)
+        r = faces_beard.shell(h, kind)
+        return [(r, f'{name}~hair.tga')] if r is not None else None
     """Facial hair: the head mesh's faces in the region, pushed out, the border feathered (strand alpha by the
     distance from the border, in v)."""
     V, N, I, nose, hw = h['V'], h['N'], h['I'], h['nose'], h['hw']
     nx, ny, nz = nose; S = hw / 0.0375
     def region(p):
         x, y, z = p; depth = (y - ny) / S; zz = (z - nz) / S; ax = abs(x) / S
-        lips = ax < 0.011 and -0.025 < zz < -0.0165 and depth < 0.02
-        if kind == 'moustache':
-            return ax < 0.019 and -0.017 < zz < -0.004 and depth < 0.022
-        if kind == 'goatee':
-            if lips: return False
-            if ax < 0.019 and -0.017 < zz < -0.004 and depth < 0.022: return True       # the moustache
-            return ax < 0.016 and zz < -0.017 and depth < 0.035 and zz > -0.05
-        # beard and stubble: the jaw, chin and moustache; sideburns
-        if depth > 0.07: return False
+        lips = ax < 0.012 and -0.026 < zz < -0.0175 and depth < 0.02
+        # the moustache: wider at the lip line, tapering up and out (not a block)
+        tache = ax < 0.022 and depth < 0.024 and (-0.0185 + 0.15 * ax) < zz < (-0.004 - 0.30 * ax)
+        if kind == 'moustache': return tache
         if lips: return False
-        if zz > -0.004: return zz < 0.024 and 0.046 < depth < 0.07 and ax > 0.027
-        if zz > -0.016 and depth < 0.038 and ax > 0.019: return False
+        if kind == 'goatee':
+            return tache or (ax < 0.016 - 0.12 * max(0.0, -0.05 - zz) and zz < -0.0175 and zz > -0.052 and depth < 0.035) or \
+                   (ax < 0.024 and -0.026 < zz < -0.0175 and depth < 0.03)                     # joined round the mouth
+        # beard (full, trimmed) and stubble: the jaw, the cheeks below the cheekbone, the chin, the moustache, sideburns
+        if depth > 0.075: return False
+        if zz > -0.004: return (zz < 0.024 and 0.046 < depth < 0.075 and ax > 0.027) or \
+               (zz < 0.006 and depth > 0.030 and ax > 0.025)                                    # sideburns, the upper cheek line
+        if zz > -0.007 and depth < 0.026 and ax > 0.022 and not tache: return False            # beside the nose: bare
         return True
     inr = np.array([region(p) for p in V])
-    faces = [f for f in I if inr[f].sum() >= 2]
+    # (the cheeks are a few big triangles: a beard takes any face with a corner in; the smaller pieces two corners)
+    faces = [f for f in I if inr[f].sum() >= (1 if kind in ('beard', 'stubble') else 2)]
     if not faces: return None
     used = sorted({int(v) for f in faces for v in f}); remap = {v: k for k, v in enumerate(used)}
     F = np.array([[remap[int(v)] for v in f] for f in faces])
@@ -268,13 +322,19 @@ def facial(h, kind, name):
         if dd > dist[v]: continue
         for w, l in adj[v]:
             if dd + l < dist[w]: dist[w] = dd + l; heapq.heappush(pq, (dd + l, w))
-    feather = 0.008 * S
+    feather = 0.012 * S
     k = np.clip(dist / feather, 0, 1)
     low = np.clip((nz - 0.016 * S) - P0[:, 2], 0, None)
-    push = {'stubble': 0.0008 * S + 0 * k, 'moustache': (0.0012 + 0.003 * k) * S, 'goatee': (0.0012 + 0.004 * k) * S,
-            'beard': (0.0012 + 0.0035 * k) * S + 0.06 * low * k}[kind]
+    # PEDS-FACES-2: fuller (solid inside, 4-6 mm of hair where the Haredi beard has 8 mm), down to the skin at the border
+    push = {'stubble': 0.0008 * S + 0 * k, 'moustache': (0.0010 + 0.0055 * k) * S, 'goatee': (0.0010 + 0.0065 * k) * S,
+            'beard': (0.0010 + 0.0065 * k) * S + 0.09 * low * k}[kind]
     P = P0 + N0 * np.asarray(push)[:, None] if np.ndim(push) else P0 + N0 * push
-    if kind == 'beard': P[:, 2] -= 0.10 * low * k
+    if kind == 'beard': P[:, 2] -= 0.12 * low * k
+    # smoothed (no ragged spikes at the border; the Haredi beard's three passes)
+    for _ in range(3):
+        acc = P.copy(); cnt = np.ones(n)
+        for (a_, b_) in edges: acc[a_] += P[b_]; acc[b_] += P[a_]; cnt[a_] += 1; cnt[b_] += 1
+        P = 0.5 * P + 0.5 * acc / cnt[:, None]
     rep = 6
     UV = np.c_[0.5 + np.arctan2(P[:, 0], P[:, 1] - ny) / (2 * math.pi) * rep, 0.02 + 0.96 * k]
     tex = f'{name}~stubble.tga' if kind == 'stubble' else f'{name}~hair.tga'
@@ -295,12 +355,14 @@ def hair_mask(a, foot=0.95):
     img = Image.fromarray((m * 255).astype(np.uint8)).filter(ImageFilter.MedianFilter(5)).filter(ImageFilter.GaussianBlur(3))
     return np.asarray(img).astype(np.float32) / 255.0, skin
 
-def strands(rgb, density=1.9, n=128, seed=7, dots=False):
+def strands(rgb, density=1.9, n=256, seed=7, dots=False, wide=True):
     rng = np.random.default_rng(seed)
     vv = np.linspace(0, 1, n)[:, None][::-1]                                         # TGA rows top-down; v up
     if dots: alpha = (rng.random((n, n)) < 0.55 * np.clip(0.5 + vv * 1.5, 0, 1)).astype(np.float32)
-    else: alpha = ((rng.random(n)[None, :] + rng.random((n, n)) * 0.25) < vv * density).astype(np.float32)
-    st = np.clip(1 + 0.18 * (np.repeat(rng.normal(0, 1, (1, n)), n, 0) * 0.6 + rng.normal(0, 1, (n, n)) * 0.4), 0.7, 1.3)
+    elif not wide: alpha = ((rng.random(n)[None, :] + rng.random((n, n)) * 0.25) < vv * density).astype(np.float32)   # (the stubble, as shipped)
+    else: alpha = ((rng.random(n)[None, :] * 0.8 + rng.random((n, n)) * 0.2) < np.clip(vv * density, 0, 1.5)).astype(np.float32)   # solid from v 0.5
+    if wide: st = np.clip(1 + 0.28 * (np.repeat(rng.normal(0, 1, (1, n)), n, 0) * 0.7 + rng.normal(0, 1, (n, n)) * 0.3), 0.6, 1.6)   # strand highlights
+    else: st = np.clip(1 + 0.18 * (np.repeat(rng.normal(0, 1, (1, n)), n, 0) * 0.6 + rng.normal(0, 1, (n, n)) * 0.4), 0.7, 1.3)   # (the stubble, as shipped)
     a = np.zeros((n, n, 4), np.float32)
     for c in range(3): a[..., c] = np.clip(rgb[c] * st, 0, 255)
     a[..., 3] = alpha * 255
@@ -346,7 +408,7 @@ def build(M, out, name, male, report):
         for (V, N, UV, I), tex in parts:
             v, n = to_head(h, V, N); ms.append((v, n, UV, np.asarray(I), tex))
         write_rigid(os.path.join(out, f'{name}~{kind}.mesh'), ms); made.append(kind)
-    for k in EYE: put(k, eyewear(h, k))
+    for k in EYE: put(k, sunglasses(h, k) if k.startswith('sunglasses_') else eyewear(h, k))
     if name not in HOODED and name not in UPDO:   # (HOODED: the hood, the afros)
         for k in (HEAD_M if male else HEAD_F): put(k, headwear(h, k))
     if male and name not in BEARDED:
@@ -356,6 +418,9 @@ def build(M, out, name, male, report):
     m, skin = hair_mask(a[..., :3], 0.50 if male else 0.95)
     mu, _ = hair_mask(a[..., :3], 0.50)                                         # the crown's hair: the colour class
     own = (a[..., :3] * mu[..., None]).sum((0, 1)) / max(mu.sum(), 1)
+    # the facial hair's colour: the hair's lit strands (55th percentile), not its mean (the mean holds the dark gaps)
+    hp = a[..., :3][mu > 0.5]
+    own_lit = np.percentile(hp, 55, axis=0) if len(hp) > 100 else own
     dark_skin = skin.mean() < 120 or name in DARK
     pool = ['black', 'dark brown'] if dark_skin else ['black', 'dark brown', 'light brown', 'auburn']   # (blonde: not in the reviewed set)
     # (blonde only over hair that is not dark already: a dark map turned blonde reads as dyed)
@@ -365,10 +430,11 @@ def build(M, out, name, male, report):
     far = [c for c in pool if np.linalg.norm(np.array(HAIR[c]) - own) > 55]
     picks = [] if name in BALD else (list(rng.choice(far, size=min(NATURAL, len(far)), replace=False)) if far else [])
     cards = read_tga(M + h['op_tex']) if h['op_tex'] else None
-    facial_rgb = lambda c: tuple(int(x * 0.85) for x in c)
-    write_tga(strands(facial_rgb(own)), os.path.join(out, f'{name}~hair.tga'))
+    facial_rgb = lambda c: tuple(int(min(255, max(x * 1.10 + 6, f))) for x, f in zip(c, (70, 52, 40)))   # the hair's colour (it reads
+    # darker on a shell; a floor keeps black hair a dark brown-black with strands that show)
+    write_tga(faces_beard.atlas(h, facial_rgb(own_lit)), os.path.join(out, f'{name}~hair.tga'))
     shadow = lambda c: tuple(int(0.62 * skin[k] * 0.78 + 0.38 * c[k] * 0.85) for k in range(3))   # a five o'clock shadow: skin darkened toward the hair
-    write_tga(strands(shadow(own), density=3.2, seed=11), os.path.join(out, f'{name}~stubble.tga'))
+    write_tga(strands(shadow(own), density=3.2, seed=11, n=128, wide=False), os.path.join(out, f'{name}~stubble.tga'))
     variants = []
     for i, c in enumerate(picks + ([] if name in NO_GREY else ['grey']), 1):
         tag = f'~hc{i}'
@@ -380,8 +446,8 @@ def build(M, out, name, male, report):
         write_tga(small(np.dstack([ha, a[..., 3:]]).clip(0, 255), HEAD_PX), os.path.join(out, h['head_tex'][:-4] + tag + '.tga'))
         if cards is not None:
             write_tga(small(recolour_cards(cards, col), 256), os.path.join(out, h['op_tex'][:-4] + tag + '.tga'))
-        write_tga(strands(facial_rgb(col)), os.path.join(out, f'{name}~hair{tag}.tga'))
-        write_tga(strands(shadow(col), density=3.2, seed=11), os.path.join(out, f'{name}~stubble{tag}.tga'))
+        write_tga(faces_beard.atlas(h, facial_rgb(col)), os.path.join(out, f'{name}~hair{tag}.tga'))
+        write_tga(strands(shadow(col), density=3.2, seed=11, n=128, wide=False), os.path.join(out, f'{name}~stubble{tag}.tga'))
         variants.append(c)
     report[name] = dict(accessories=made, hair=variants, own_hair=[round(x) for x in own], dark_skin=bool(dark_skin))
 
@@ -390,6 +456,7 @@ def shared_textures(out):
     write_tga(flat((30, 30, 34), noise=0.03), os.path.join(out, 'acc_glasses_dark.tga'))
     write_tga(flat((22, 24, 28), noise=0.01), os.path.join(out, 'acc_lens_dark.tga'))
     clear = np.zeros((4, 4, 4), np.uint8); write_tga(clear, os.path.join(out, 'acc_clear.tga'))   # headwear: no hair cards
+    write_tga(flat((30, 38, 50), noise=0.01), os.path.join(out, 'acc_lens_wrap.tga'))   # the wraparound's lens: dark slate
     for kind, cols in CAP_COLOURS.items():
         write_tga(flat(cols[0], knit=kind == 'beanie'), os.path.join(out, f'acc_{kind}.tga'))
         for k, c in enumerate(cols): write_tga(flat(c, knit=kind == 'beanie', seed=5 + k), os.path.join(out, f'acc_{kind}~c{k}.tga'))

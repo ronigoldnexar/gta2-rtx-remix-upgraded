@@ -71,6 +71,7 @@ def modest_outfit(seed):
 
 
 FACE_SALT, ACC_SALT = 0x7a1f39b5, 0x3e5c9d21
+HS_ORDER = {}   # the combinations' load order (the manifest's): set by the sheet tools, as the DLL deals them
 
 
 def face_pick(seed, male, n_facial, n_eye, n_head, n_hair):
@@ -85,14 +86,15 @@ def face_pick(seed, male, n_facial, n_eye, n_head, n_hair):
     return hair, facial, eye, head, (b >> 13) % 5
 
 
-def face_record(seed, model, files, head_tex, op_tex):
+def face_record(seed, model, files, head_tex, op_tex, head=None):
     """identity.cpp FaceVariety for the sheets: (accessory model names, texture swaps {from: to}). `model` may be a
     detail variant; `files`: the names in the models folder."""
     base = model[:-3] if model[-3:] in ('_dy', '_ds', '_db') else model
+    if head: base = head.split('^', 1)[1]   # a head swap: the face is the head's avatar
     if base.startswith('human_haredi') or base in ('human_female_adult_06', 'human_female_adult_10'): return [], {}
     male = 'female' not in base
     kinds = lambda ks: [k for k in ks if f'{base}~{k}.mesh' in files]
-    fac, eye, head = kinds(['stubble', 'moustache', 'goatee', 'beard']), kinds(['glasses', 'glasses_dark', 'sunglasses']), kinds(['cap', 'flatcap', 'beanie'])
+    fac, eye, head = kinds(['stubble', 'moustache', 'goatee', 'beard']), kinds(['glasses', 'glasses_dark', 'sunglasses_round', 'sunglasses_pill']), kinds(['cap', 'flatcap', 'beanie'])
     n_hair = 0
     while n_hair < 3 and f'{head_tex[:-4]}~hc{n_hair + 1}.tga' in files: n_hair += 1
     hair, f, e, h, colour = face_pick(seed, male, len(fac), len(eye), len(head), n_hair)
@@ -110,6 +112,16 @@ def face_record(seed, model, files, head_tex, op_tex):
             swap(f'{base}~hair.tga', f'{base}~hair{tag}.tga'); swap(f'{base}~stubble.tga', f'{base}~stubble{tag}.tga')
     if h >= 0: swap(f'acc_{head[h]}.tga', f'acc_{head[h]}~c{colour}.tga')
     return acc, sw
+
+
+HEAD_SALT = 0x6b43a9f1
+
+
+def head_pick(seed, n):
+    """identity.cpp HeadPick (PEDS-FACES-2): of n head-swap combinations, the one this seed wears, or -1."""
+    if n <= 0: return -1
+    h = mix((seed ^ HEAD_SALT) & 0xffffffff)
+    return -1 if h % 100 >= 45 else (h >> 8) % n
 
 
 DETAIL_SALT = 0x2c1b3c6d
@@ -160,6 +172,10 @@ def crowd(seed, remap, model, entry, sprite_outfit, civilian=True, models=None):
             vs = [model + x for x in DETAIL_SUFFIX if model + x in models]
             k = detail_pick(seed, len(vs))
             if k >= 0: out['model'] = vs[k]; out['label'] += ' ' + vs[k][-3:]
+        if not modest and models is not None:   # PEDS-FACES-2: a head swap (a head-only model on this body)
+            hs = sorted((x for x in models if x.startswith(model + '^')), key=lambda x: HS_ORDER.get(x, 0))
+            k = head_pick(seed, len(hs))
+            if k >= 0: out['head'] = hs[k]; out['label'] += ' head ' + hs[k].split('^')[1].replace('human_', '')[:8]
         return out
     if zoned and sprite_outfit is not None:   # PedZoneTints (the type has tint 1), then the full shade
         own = [entry.get('zone_rgb_t') or [ref] * 3, entry.get('zone_rgb_b') or [ref] * 3]

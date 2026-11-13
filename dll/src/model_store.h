@@ -289,6 +289,9 @@ bool PedRemapIsCivilian(int remap);
 // cap colour); n 0 clears. And whether a texture file exists in the models folder (cached).
 void ModelSetTextureSwaps(const std::string* from, const std::string* to, int n);
 bool ModelTextureFileExists(const std::string& file);
+// PEDS-FACES-2: the head-swap combinations of a body avatar (manifest "head_of": <body>^<head>, loaded like a detail
+// variant: the body's clips), up to `max` into out; their count.
+int ModelHeadSwaps(const std::string& body, const Model** out, int max);
 bool PedZoneTints(int remap, const Model& model, float tints[3][3], bool* hairTint);
 bool PedRemapHasType(int remap);   // a ped type lists this remap (53: the SWAT/FBI body)
 // Meshes of a zoned avatar drawn with these factors (top, bottom; hair on the

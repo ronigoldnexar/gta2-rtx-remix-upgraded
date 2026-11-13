@@ -1377,6 +1377,9 @@ IDirect3DTexture9* PlayerCopyFor(IDirect3DDevice9* device, const std::string& fi
     return g_playerCopies[file];
 }
 
+std::vector<std::pair<std::string, std::string>> g_headSwapPending;   // (body, combo) as loaded (names: the deque grows)
+std::map<std::string, std::vector<const Model*>> g_headSwaps;
+
 const std::string* g_swapFrom = nullptr;   // PEDS-FACES: this figure's texture swaps (ModelSetTextureSwaps)
 const std::string* g_swapTo = nullptr;
 int g_swapN = 0;
@@ -1555,6 +1558,7 @@ void ModelsLoad(const char* folder) {
             const auto base = of.empty() ? g_byName.end() : g_byName.find(of);
             if (base != g_byName.end()) {
                 model.animOwner = static_cast<int>(base->second);
+                if (!Field(entry, "head_of").empty()) g_headSwapPending.push_back({of, name});
                 std::vector<ModelAnimation>().swap(model.animations);
                 static int logged = 0;
                 if (logged++ < 3) Log("models: %s is a detail variant of %s (its clips, its own clothing maps)", name.c_str(), of.c_str());
@@ -2810,6 +2814,22 @@ bool PedRemapHasType(int remap) { return remap >= 0 && remap < 64 && g_pedTypeBy
 
 void ModelSetTextureSwaps(const std::string* from, const std::string* to, int n) {
     g_swapFrom = from; g_swapTo = to; g_swapN = n > 0 ? n : 0;
+}
+
+int ModelHeadSwaps(const std::string& body, const Model** out, int max) {
+    if (!g_headSwapPending.empty()) {
+        for (const auto& p : g_headSwapPending) {
+            const auto it = g_byName.find(p.second);
+            if (it != g_byName.end()) g_headSwaps[p.first].push_back(&g_models[it->second]);
+        }
+        Log("models: %zu head-swap combinations on %zu bodies", g_headSwapPending.size(), g_headSwaps.size());
+        g_headSwapPending.clear();
+    }
+    const auto it = g_headSwaps.find(body);
+    if (it == g_headSwaps.end()) return 0;
+    int n = 0;
+    for (const Model* m : it->second) { if (n >= max) break; out[n++] = m; }
+    return n;
 }
 
 bool ModelTextureFileExists(const std::string& file) {

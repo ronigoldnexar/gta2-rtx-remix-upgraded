@@ -13830,11 +13830,20 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 }
                 if (!kdSkipDraw) {
                     ModelSetTextureSwaps(ident.texFrom, ident.texTo, ident.texSwaps);   // PEDS-FACES: hair and cap colours
+                    const bool swapHead = ident.headSwap && !fpBody;   // PEDS-FACES-2: the body's head hidden, the other drawn
+                    if (swapHead) ModelSetHideHead(true);
                     if (pedLensAlpha < 0.98f) {   // FIX-CAMERA-18: see-through as the faded street objects (texture alpha x the fade)
                         SeeThroughDraw see(device, pedLensAlpha);
                         ModelDrawBlend(device, *model, world, locoA, locoTA, locoB, locoTB, locoW);
                     } else {
                         ModelDrawBlend(device, *model, world, locoA, locoTA, locoB, locoTB, locoW);
+                    }
+                    if (swapHead) {
+                        ModelSetHideHead(false);
+                        ModelSetLayers(ident.headSwap, layerClip, layerT, layerW, layers);   // the same layers on the head's model
+                        if (pedLensAlpha < 0.98f) { SeeThroughDraw see(device, pedLensAlpha); ModelDrawBlend(device, *ident.headSwap, world, locoA, locoTA, locoB, locoTB, locoW); }
+                        else ModelDrawBlend(device, *ident.headSwap, world, locoA, locoTA, locoB, locoTB, locoW);
+                        ModelSetLayers(model, layerClip, layerT, layerW, layers);
                     }
                     // PEDS-FACES: the head and face accessories, rigid, at the head bone as posed (not in first person)
                     gta2::Mat4 headNode;

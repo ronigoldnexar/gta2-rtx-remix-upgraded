@@ -22,12 +22,17 @@ def persp(fov, aspect, n=0.05, f=20):
     t = np.tan(np.radians(fov) / 2); m = np.zeros((4, 4))
     m[0, 0] = 1 / (t * aspect); m[1, 1] = 1 / t; m[2, 2] = -(f + n) / (f - n); m[2, 3] = -2 * f * n / (f - n); m[3, 2] = -1; return m
 def render(path, views, tints=None, clip='idle', frame=0, size=(320, 480), bg=(0.42, 0.44, 0.46), hide=None, anim_from=None,
-           attach=(), swap=None, tex_dirs=()):
+           attach=(), swap=None, tex_dirs=(), extra=()):
     """attach: rigid accessory meshes in head-bone space (PEDS-FACES), drawn at the posed 'Bip01 Head'; swap: texture
     name -> name (hair colour, cap colour); tex_dirs: more folders to find textures in."""
     model = gmsh.load(path)
     if anim_from: model['anims'] = gmsh.load(anim_from)['anims']   # a detail variant carries no clips: its avatar's
     parts, world = gmsh.pose(model, clip, frame)
+    if hide: parts = [q for q in parts if not hide(q[4], model['nodes'][q[5]]['name'])]
+    for xp in extra:   # PEDS-FACES-2: a head-swap's head-only model on the same skeleton, posed by the same clips
+        xm = gmsh.load(xp); xm['anims'] = model['anims']
+        xparts, _ = gmsh.pose(xm, clip, frame)
+        parts += [(np.ascontiguousarray(q[0]), np.ascontiguousarray(q[1]), np.ascontiguousarray(q[2]), np.ascontiguousarray(q[3]), q[4], -1) for q in xparts]
     if attach:
         hn = [i for i, n in enumerate(model['nodes']) if n['name'] == 'Bip01 Head'][0]
         for ap in attach:
@@ -41,7 +46,7 @@ def render(path, views, tints=None, clip='idle', frame=0, size=(320, 480), bg=(0
     d = os.path.dirname(path); W, H = size; imgs = []
     def texpath(name):
         name = swap.get(name, name)
-        for dd in (d,) + tuple(tex_dirs):
+        for dd in tuple(tex_dirs) + (d,):   # (the extra folders first: a newer build of a map the stage also has)
             if os.path.exists(os.path.join(dd, name)): return os.path.join(dd, name)
         return os.path.join(d, name)
     allp = np.concatenate([p[0] for p in parts]); lo, hi = allp.min(0), allp.max(0); c = (lo + hi) / 2; h = hi[1] - lo[1]

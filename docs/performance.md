@@ -2163,3 +2163,7 @@ the large allocations that do come (vertex buffers, D3D textures).
 What still lands in the block: one 16 MB region (part committed, part reserved) 13-35 s in, leaving 1.37-1.6 GB.
 Pre-growing the CRT heap at load (20 MB in small blocks, freed) did not move it (it was in the five runs of the last
 row, then taken out): it is not the DLL's CRT heap. Left for later.
+
+**The gate for new assets (13 Nov 2026):** 320 MB largest free block at one minute of pedsvar2, 5 of 5 runs, 0 FAULT;
+the largest single request seen in 20-min plain and Remix sessions is 66.3 MB (x 4 plus margin). Method and numbers:
+docs/ped-identity.md, "The address-space gate".
