@@ -20,7 +20,7 @@ against the source tree afterwards. Layout (paths inside the zip):
                                Dmavideo.dll, DMAGlide.dll, gta2dx9.ini, install.reg, uninstall.reg}
                                from stage/, plus gta2dx9-linux-built/linux/... (the committed linux/
                                tree at HEAD, read from git, so local edits never ship)
-  gta2dx9_models_people.zip    assets/models/human_*   (41 Rocketbox avatars, MIT, re-imported)
+  gta2dx9_models_people.zip    assets/models/human_*, acc_*   (41 Rocketbox avatars, MIT, re-imported; accessory maps)
   gta2dx9_models_cars.zip      assets/models/0NN_*     (the generated car models)
   textures_hd_dds.zip          assets/textures_hd/{wil,bil,ste}/*.dds
   remix_mod_gta2hd.zip         gta2hd/{mod.usda, mod_wet.usda, pbr.json, textures/*.dds}, store-only (what
@@ -48,7 +48,7 @@ def entries(name):
         out += [(f"gta2dx9-linux-built/{f}", "git:" + f) for f in files]   # as committed at REV, not the working tree
         return "gta2dx9-x86-linux-built.zip", out, zipfile.ZIP_DEFLATED
     if name in ("people", "cars"):
-        pat = re.compile(r"^human_" if name == "people" else r"^\d{3}_")
+        pat = re.compile(r"^(human_|acc_)" if name == "people" else r"^\d{3}_")
         fs = sorted(f for f in os.listdir("assets/models") if pat.match(f))
         return f"gta2dx9_models_{name}.zip", [(f"assets/models/{f}", f"assets/models/{f}") for f in fs], zipfile.ZIP_DEFLATED
     if name == "textures":
