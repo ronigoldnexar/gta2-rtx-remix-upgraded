@@ -56,6 +56,8 @@ uint32_t Fingerprint(const IdentityRecord& r) {
     f.Int(r.zoned); f.Int(r.zoneHair); f.Int(r.tinted); f.Int(r.clothes); f.Int(r.livery);
     for (const auto& z : r.zone) for (float c : z) f.Float(c);
     for (float c : r.tint) f.Float(c);
+    for (const Model* a : r.acc) f.Str(a ? a->name.c_str() : "-");
+    for (int i = 0; i < r.texSwaps; ++i) f.Str(r.texTo[i].c_str());
     for (float c : r.paintTint) f.Float(c);
     f.Float(r.height); f.Float(r.width); f.Float(r.darkness);
     if (r.wreck) f.Int(1000 + r.wreckOf);
@@ -240,6 +242,72 @@ void CrowdVariety(IdentityRecord* r) {
     }
 }
 
+// PEDS-FACES: the face's variety. FacePick (outfits.py face_pick is the same) chooses, from the seed: the hair colour
+// (0 the own, about 40 in 100, else one of the avatar's n variants), facial hair on about 35 in 100 men who have some
+// to wear, eyewear on about 15 in 100, headwear on about 12 in 100, never more than two accessories (the headwear
+// goes first), and a headwear colour 0..4. Kinds are indices into the available lists (-1 none).
+constexpr uint32_t kFaceSalt = 0x7a1f39b5u, kAccSalt = 0x3e5c9d21u;
+struct FaceChoice { int hair = 0, facial = -1, eye = -1, head = -1, colour = 0; };
+FaceChoice FacePick(uint32_t seed, bool male, int nFacial, int nEye, int nHead, int nHair) {
+    FaceChoice c;
+    const uint32_t h = Mix(seed ^ kFaceSalt);
+    if (nHair > 0 && h % 100 >= 40) c.hair = 1 + static_cast<int>((h >> 7) % static_cast<uint32_t>(nHair));
+    const uint32_t a = Mix(seed ^ kAccSalt), b = Mix(a);
+    if (male && nFacial > 0 && a % 100 < 35) c.facial = static_cast<int>((a >> 7) % static_cast<uint32_t>(nFacial));
+    if (nEye > 0 && (a >> 12) % 100 < 15) c.eye = static_cast<int>((a >> 19) % static_cast<uint32_t>(nEye));
+    if (nHead > 0 && b % 100 < 12) c.head = static_cast<int>((b >> 7) % static_cast<uint32_t>(nHead));
+    if (c.facial >= 0 && c.eye >= 0 && c.head >= 0) c.head = -1;
+    c.colour = static_cast<int>((b >> 13) % 5);
+    return c;
+}
+
+void FaceVariety(IdentityRecord* r) {
+    if (!g_crowdVariety || !r->model || !PedRemapIsCivilian(r->ref.remap)) return;
+    std::string base = r->model->name;
+    for (const char* suf : kDetailSuffix)
+        if (base.size() > 3 && base.compare(base.size() - 3, 3, suf) == 0) base.resize(base.size() - 3);
+    if (base.compare(0, 12, "human_haredi") == 0 || base == "human_female_adult_06" || base == "human_female_adult_10") return;
+    const bool male = base.find("female") == std::string::npos;
+    static const char* kFacial[] = {"stubble", "moustache", "goatee", "beard"};
+    static const char* kEye[] = {"glasses", "glasses_dark", "sunglasses"};
+    static const char* kHead[] = {"cap", "flatcap", "beanie"};
+    const Model* facial[4]; const Model* eye[3]; const Model* head[3]; const char* headKind[3];
+    int nf = 0, ne = 0, nh = 0;
+    for (const char* k : kFacial) if (const Model* m = ModelByName((base + "~" + k).c_str())) facial[nf++] = m;
+    for (const char* k : kEye) if (const Model* m = ModelByName((base + "~" + k).c_str())) eye[ne++] = m;
+    for (const char* k : kHead) if (const Model* m = ModelByName((base + "~" + k).c_str())) { headKind[nh] = k; head[nh++] = m; }
+    const Model* bm = ModelByName(base.c_str()); if (!bm) bm = r->model;
+    std::string headTex, opTex;
+    for (const ModelMesh& mesh : bm->meshes) {
+        const std::string& t = mesh.texture;
+        if (t.size() > 9 && t.compare(t.size() - 9, 9, "_head.tga") == 0) headTex = t;
+        if (t.find("_opacity") != std::string::npos) opTex = t;
+    }
+    int nHair = 0;
+    while (nHair < 3 && !headTex.empty() && ModelTextureFileExists(headTex.substr(0, headTex.size() - 4) + "~hc" + std::to_string(nHair + 1) + ".tga")) ++nHair;
+    const FaceChoice c = FacePick(r->seed, male, nf, ne, nh, nHair);
+    int k = 0;
+    if (c.facial >= 0) r->acc[k++] = facial[c.facial];
+    if (c.eye >= 0) r->acc[k++] = eye[c.eye];
+    if (c.head >= 0 && k < 2) r->acc[k++] = head[c.head];
+    r->hairVariant = c.hair;
+    auto swap = [&](const std::string& from, const std::string& to) {
+        if (r->texSwaps < 5 && ModelTextureFileExists(to)) { r->texFrom[r->texSwaps] = from; r->texTo[r->texSwaps] = to; ++r->texSwaps; }
+    };
+    // headwear: the hair cards are not drawn (they would poke through the crown); the painted hair stays under it
+    if (c.head >= 0 && !opTex.empty()) swap(opTex, "acc_clear.tga");
+    if (c.hair > 0) {
+        const std::string tag = "~hc" + std::to_string(c.hair);
+        swap(headTex, headTex.substr(0, headTex.size() - 4) + tag + ".tga");
+        if (!opTex.empty()) swap(opTex, opTex.substr(0, opTex.size() - 4) + tag + ".tga");
+        if (c.facial >= 0) {
+            swap(base + "~hair.tga", base + "~hair" + tag + ".tga");
+            swap(base + "~stubble.tga", base + "~stubble" + tag + ".tga");
+        }
+    }
+    if (c.head >= 0) swap(std::string("acc_") + headKind[c.head] + ".tga", std::string("acc_") + headKind[c.head] + "~c" + std::to_string(c.colour) + ".tga");
+}
+
 // The colours the classic view's sprite shows on the torso and the legs, as the 3D avatar
 // renders them with this record (texture reference x tint).
 void Shown(IdentityRecord* r) {
@@ -264,6 +332,9 @@ void LogPerson(const char* what, uintptr_t cacheKey, const IdentityRecord& r, bo
         what, changed ? " CHANGED" : "", static_cast<int>(r.seed), r.ref.remap, r.ref.body, r.model ? r.model->name.c_str() : "(none)",
         r.zoned ? " zoned" : "", r.clothes ? " clothes" : r.tinted ? " tinted" : "", r.height, r.width, r.shownTop[0], r.shownTop[1],
         r.shownTop[2], r.shownBottom[0], r.shownBottom[1], r.shownBottom[2], r.fingerprint);
+    if (r.acc[0] || r.hairVariant)   // PEDS-FACES
+        Log("identity: face key %d -> hair %d%s%s%s%s", static_cast<int>(r.seed), r.hairVariant, r.acc[0] ? " acc " : "",
+            r.acc[0] ? r.acc[0]->name.c_str() : "", r.acc[1] ? " + " : "", r.acc[1] ? r.acc[1]->name.c_str() : "");
     (void)cacheKey;
 }
 
@@ -288,6 +359,7 @@ IdentityRecord DerivePed(uint32_t seed, int remap, int body) {
     bool hair = false;
     if (m->pedZones && PedZoneTints(remap, *m, r.zone, &hair)) { r.zoned = true; r.zoneHair = hair; r.tinted = false; }
     CrowdVariety(&r);
+    FaceVariety(&r);
     r.height *= typeScale;
     r.width *= typeWidth;
     Shown(&r);

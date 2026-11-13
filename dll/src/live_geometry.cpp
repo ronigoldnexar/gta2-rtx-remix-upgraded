@@ -13829,12 +13829,36 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                             std::hypot(vx - g_viewEye.x, vz - g_viewEye.z), track.action, kdSkipDraw ? 0 : 1);
                 }
                 if (!kdSkipDraw) {
+                    ModelSetTextureSwaps(ident.texFrom, ident.texTo, ident.texSwaps);   // PEDS-FACES: hair and cap colours
                     if (pedLensAlpha < 0.98f) {   // FIX-CAMERA-18: see-through as the faded street objects (texture alpha x the fade)
                         SeeThroughDraw see(device, pedLensAlpha);
                         ModelDrawBlend(device, *model, world, locoA, locoTA, locoB, locoTB, locoW);
                     } else {
                         ModelDrawBlend(device, *model, world, locoA, locoTA, locoB, locoTB, locoW);
                     }
+                    // PEDS-FACES: the head and face accessories, rigid, at the head bone as posed (not in first person)
+                    gta2::Mat4 headNode;
+                    if (!fpBody && (ident.acc[0] || ident.acc[1]) &&
+                        ModelNodeWorld(*model, "Bip01 Head", locoA, locoTA, locoB, locoTB, locoW, &headNode)) {
+                        gta2::Mat4 place;
+                        for (int i = 0; i < 4; ++i)
+                            for (int j = 0; j < 4; ++j) {
+                                float v = 0.0f;
+                                for (int k = 0; k < 4; ++k) v += headNode.m[i][k] * world.m[k][j];
+                                place.m[i][j] = v;
+                            }
+                        device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);   // strand cards: alpha tested
+                        device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+                        device->SetRenderState(D3DRS_ALPHATESTENABLE, TRUE);
+                        device->SetRenderState(D3DRS_ALPHAREF, 128u);
+                        device->SetRenderState(D3DRS_ALPHAFUNC, D3DCMP_GREATEREQUAL);
+                        for (const Model* acc : ident.acc) {
+                            if (!acc) continue;
+                            if (pedLensAlpha < 0.98f) { SeeThroughDraw see(device, pedLensAlpha); ModelDraw(device, *acc, place, nullptr, 0.0f); }
+                            else ModelDraw(device, *acc, place, nullptr, 0.0f);
+                        }
+                    }
+                    ModelSetTextureSwaps(nullptr, nullptr, 0);
                 }
                 if (fpBody) {
                     ModelSetHideHead(false); ModelSetPoseHook(nullptr, nullptr, 0); CabNoteDriverBody();

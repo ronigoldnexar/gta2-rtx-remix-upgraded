@@ -21,11 +21,29 @@ def look(eye, target, up=(0, 1, 0)):
 def persp(fov, aspect, n=0.05, f=20):
     t = np.tan(np.radians(fov) / 2); m = np.zeros((4, 4))
     m[0, 0] = 1 / (t * aspect); m[1, 1] = 1 / t; m[2, 2] = -(f + n) / (f - n); m[2, 3] = -2 * f * n / (f - n); m[3, 2] = -1; return m
-def render(path, views, tints=None, clip='idle', frame=0, size=(320, 480), bg=(0.42, 0.44, 0.46), hide=None, anim_from=None):
+def render(path, views, tints=None, clip='idle', frame=0, size=(320, 480), bg=(0.42, 0.44, 0.46), hide=None, anim_from=None,
+           attach=(), swap=None, tex_dirs=()):
+    """attach: rigid accessory meshes in head-bone space (PEDS-FACES), drawn at the posed 'Bip01 Head'; swap: texture
+    name -> name (hair colour, cap colour); tex_dirs: more folders to find textures in."""
     model = gmsh.load(path)
     if anim_from: model['anims'] = gmsh.load(anim_from)['anims']   # a detail variant carries no clips: its avatar's
     parts, world = gmsh.pose(model, clip, frame)
+    if attach:
+        hn = [i for i, n in enumerate(model['nodes']) if n['name'] == 'Bip01 Head'][0]
+        for ap in attach:
+            am = gmsh.load(ap)
+            for me in am['meshes']:
+                v = me['v']; P = np.c_[v[:, :3], np.ones(len(v))]
+                pp = (world[hn] @ P.T).T[:, :3]; nn = (world[hn][:3, :3] @ v[:, 3:6].T).T
+                nn /= np.linalg.norm(nn, axis=1, keepdims=True) + 1e-9
+                parts.append((np.ascontiguousarray(pp), np.ascontiguousarray(nn), np.ascontiguousarray(v[:, 6:8]), np.ascontiguousarray(me['idx'].reshape(-1, 3)), me['tex'], -1))
+    swap = swap or {}
     d = os.path.dirname(path); W, H = size; imgs = []
+    def texpath(name):
+        name = swap.get(name, name)
+        for dd in (d,) + tuple(tex_dirs):
+            if os.path.exists(os.path.join(dd, name)): return os.path.join(dd, name)
+        return os.path.join(d, name)
     allp = np.concatenate([p[0] for p in parts]); lo, hi = allp.min(0), allp.max(0); c = (lo + hi) / 2; h = hi[1] - lo[1]
     for (yaw, pitch) in views:
         dist = h * 2.3; yr, pr = np.radians(yaw), np.radians(pitch)
@@ -33,13 +51,13 @@ def render(path, views, tints=None, clip='idle', frame=0, size=(320, 480), bg=(0
         mvp = persp(30, W / H) @ look(eye, c)
         col = torch.tensor(bg, device='cuda').expand(H, W, 3).clone(); depth = torch.full((H, W), 1e9, device='cuda')
         for p, n, uv, idx, texname, ni in parts:
-            if hide and hide(texname, model['nodes'][ni]['name']): continue
+            if hide and ni >= 0 and hide(texname, model['nodes'][ni]['name']): continue
             P = torch.tensor(np.c_[p, np.ones(len(p))] @ mvp.T, dtype=torch.float32, device='cuda')[None]
             tri = torch.tensor(idx, dtype=torch.int32, device='cuda')
             rast, _ = dr.rasterize(ctx(), P, tri, (H, W))
             uvs, _ = dr.interpolate(torch.tensor(uv, dtype=torch.float32, device='cuda')[None], rast, tri)
             nrm, _ = dr.interpolate(torch.tensor(n, dtype=torch.float32, device='cuda')[None], rast, tri)
-            t = tex(os.path.join(d, texname))
+            t = tex(texpath(texname))
             uvs = uvs.clone(); uvs[..., 1] = uvs[..., 1]   # glTF uv origin top-left = image row 0
             s = dr.texture(t[None].contiguous(), uvs.contiguous(), filter_mode='linear')[0]
             z = rast[0, ..., 2]; cover = (rast[0, ..., 3] > 0) & (s[..., 3] > 0.5)
@@ -49,7 +67,7 @@ def render(path, views, tints=None, clip='idle', frame=0, size=(320, 480), bg=(0
             lam = 0.45 + 0.55 * (nn @ L).abs().clamp(0, 1)
             rgb = s[..., :3]
             if tints:
-                tn = tints(texname, model['nodes'][ni]['name'])
+                tn = tints(texname, model['nodes'][ni]['name']) if ni >= 0 else None
                 if tn is not None: rgb = (rgb * torch.tensor(tn, device='cuda', dtype=torch.float32)).clamp(0, 1)
             rgb = rgb * lam[..., None]
             upd = cover & (ndc_z < depth)

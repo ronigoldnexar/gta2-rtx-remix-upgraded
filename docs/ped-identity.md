@@ -395,3 +395,33 @@ change.
 | GPU-only textures | 435.6 MB | 505.6 MB | 517.1 MB |
 | at 1 min: private / free / largest free block | 997 / 2022 / 1433 MB | 1127 / 1900 / 622 MB | 1011 / 2027 / 1542 MB |
 | warm-up to "cars ready" | 5.5 s | 5.8 s | 5.9 s |
+
+## Faces (PEDS-FACES, 13 Nov 2026; branch peds-faces, not shipped)
+
+- **Accessories.** `tools/ped_identity/faces.py` builds, for each civilian avatar, rigid models `<avatar>~<kind>` in
+  its head-bone space, fitted to its own head (the head mesh and the hair cards): eyewear (`glasses` thin metal,
+  `glasses_dark`, `sunglasses`), headwear (`cap`, `flatcap` for men, `beanie`; not over a hood, a bun, a high
+  ponytail or an afro), facial hair for men (`stubble`, a skin-and-hair shadow; `moustache`, `goatee`, `beard`:
+  the face's own faces pushed out, the border feathered by strand alpha; not on the two bearded avatars). 237
+  models, 7.6 MB of meshes. `live_geometry.cpp` draws them after the figure at `ModelNodeWorld("Bip01 Head")`
+  (the posed head, same blend and overlay), alpha tested, not in first person. Caps and beanies are never tinted by
+  the outfit: five muted colours of their own (`acc_<kind>~c0..4.tga`), chosen per seed; with headwear the hair
+  cards are swapped for a clear map (they would poke through the crown).
+- **Hair colour.** Each avatar's head map and hair cards in 1-3 variants (`~hc1..3`: two natural colours where
+  plausible, darker shades only on dark skin, greying only on the bald, `grey` salt-and-pepper heavier at the
+  temples), and the facial hair's strand and stubble maps in each colour (consistent across head, cards and beard).
+  The mask (`recolor_hair.py hair_mask`, now down to the map's foot for long hair) keeps the face, ears and neck:
+  skin is never changed. The DLL swaps the maps by name while it draws that figure (`ModelSetTextureSwaps`, in
+  `TextureFor`); the swap-in maps are warmed with the people.
+- **Choice.** `identity.cpp FacePick` / `outfits.py face_pick`: own hair 40 in 100 else a variant; facial hair 35 in
+  100 of eligible men, eyewear 15 in 100, headwear 12 in 100, at most two accessories (the headwear goes first),
+  a headwear colour. In the record (`acc`, `texFrom/texTo`) and the fingerprint; log `identity: face key ...`.
+  Not the Haredi figures, nor female_adult_06/10. `outfit_parity.py`: 560 000 lines, 0 mismatches.
+- **Cost (qa_pedsvar9 round 3 -> qa_faces4, same scenario).** Models 328 -> 565; heap after the models
+  383.2 -> 390.4 MB; managed textures 628.1 -> 754.0 MB, GPU-only 517.1 -> 643.1 MB (+126 MB: head-map variants
+  88 x 1 MB, hair-card variants 75 x 0.25 MB, strand, stubble and cap maps 17 MB); at one minute private
+  1011 -> 1059 MB, free 2027 -> 1963 MB, largest free block 1542 -> 1545 MB (qa_faces2, the same build before the
+  hair-mask fix: 973 MB: the block varies run to run); warm-up 5.9 -> 6.7 s.
+- **Head swap (test only, `headswap.py`, `headswap_test.jpg`).** B's head mesh and hair cards re-bound to A's
+  skeleton (per joint: A's bind matrix x B's inverse bind) sit on A's neck: 5 of 6 pairs clean (collars, hoods); the
+  scoop neckline (female_08 <- female_adult_04) shows a gap at the nape. Seam medians 4.5-10 mm.

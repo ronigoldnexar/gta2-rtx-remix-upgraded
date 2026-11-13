@@ -70,6 +70,48 @@ def modest_outfit(seed):
     return MODEST_TOPS[(h >> 3) % len(MODEST_TOPS)], MODEST_SKIRTS[(h >> 11) % len(MODEST_SKIRTS)]
 
 
+FACE_SALT, ACC_SALT = 0x7a1f39b5, 0x3e5c9d21
+
+
+def face_pick(seed, male, n_facial, n_eye, n_head, n_hair):
+    """identity.cpp FacePick (PEDS-FACES): (hair 0..n, facial, eye, head kind indices or -1, headwear colour 0..4)."""
+    h = mix((seed ^ FACE_SALT) & 0xffffffff)
+    hair = 1 + (h >> 7) % n_hair if n_hair > 0 and h % 100 >= 40 else 0
+    a = mix((seed ^ ACC_SALT) & 0xffffffff); b = mix(a)
+    facial = (a >> 7) % n_facial if male and n_facial > 0 and a % 100 < 35 else -1
+    eye = (a >> 19) % n_eye if n_eye > 0 and (a >> 12) % 100 < 15 else -1
+    head = (b >> 7) % n_head if n_head > 0 and b % 100 < 12 else -1
+    if facial >= 0 and eye >= 0 and head >= 0: head = -1
+    return hair, facial, eye, head, (b >> 13) % 5
+
+
+def face_record(seed, model, files, head_tex, op_tex):
+    """identity.cpp FaceVariety for the sheets: (accessory model names, texture swaps {from: to}). `model` may be a
+    detail variant; `files`: the names in the models folder."""
+    base = model[:-3] if model[-3:] in ('_dy', '_ds', '_db') else model
+    if base.startswith('human_haredi') or base in ('human_female_adult_06', 'human_female_adult_10'): return [], {}
+    male = 'female' not in base
+    kinds = lambda ks: [k for k in ks if f'{base}~{k}.mesh' in files]
+    fac, eye, head = kinds(['stubble', 'moustache', 'goatee', 'beard']), kinds(['glasses', 'glasses_dark', 'sunglasses']), kinds(['cap', 'flatcap', 'beanie'])
+    n_hair = 0
+    while n_hair < 3 and f'{head_tex[:-4]}~hc{n_hair + 1}.tga' in files: n_hair += 1
+    hair, f, e, h, colour = face_pick(seed, male, len(fac), len(eye), len(head), n_hair)
+    acc = ([f'{base}~{fac[f]}'] if f >= 0 else []) + ([f'{base}~{eye[e]}'] if e >= 0 else [])
+    if h >= 0 and len(acc) < 2: acc.append(f'{base}~{head[h]}')
+    sw = {}
+    def swap(a, b):
+        if len(sw) < 5 and b in files and a not in sw: sw[a] = b
+    if h >= 0 and op_tex: swap(op_tex, 'acc_clear.tga')
+    if hair > 0:
+        tag = f'~hc{hair}'
+        swap(head_tex, head_tex[:-4] + tag + '.tga')
+        if op_tex: swap(op_tex, op_tex[:-4] + tag + '.tga')
+        if f >= 0:
+            swap(f'{base}~hair.tga', f'{base}~hair{tag}.tga'); swap(f'{base}~stubble.tga', f'{base}~stubble{tag}.tga')
+    if h >= 0: swap(f'acc_{head[h]}.tga', f'acc_{head[h]}~c{colour}.tga')
+    return acc, sw
+
+
 DETAIL_SALT = 0x2c1b3c6d
 DETAIL_SUFFIX = ['_dy', '_ds', '_db']   # yoke, sleeve or cuff, band (garment_detail.py)
 

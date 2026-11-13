@@ -11,7 +11,7 @@ import argparse, json, os, sys
 here = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, here)
 import render
-from outfits import crowd, pool_model
+from outfits import crowd, pool_model, face_record
 from PIL import Image, ImageDraw
 
 ap = argparse.ArgumentParser()
@@ -29,6 +29,7 @@ imported = {e['name']: e for e in man['imported']}
 types = {r: t for t in types_man['ped_types'] for r in t['remaps']}
 outfits_rows = types_man.get('ped_outfits', [])
 CW, CH = (int(x) for x in a.cell.split('x'))
+FILES = set(os.listdir(M))
 remaps = [int(x) for x in a.remaps.split(',')]
 sheet = Image.new('RGB', (a.seeds * CW, len(remaps) * (CH + 26)), (40, 42, 46)); d = ImageDraw.Draw(sheet)
 counts = {}
@@ -43,6 +44,10 @@ for row, r in enumerate(remaps):
         rec = crowd(seed, r, n, e, sprite, civilian, models=imported)
         base, n = n, rec.get('model', n)   # PEDS-VARIETY-3: a detail variant (posed with its avatar's clips)
         af = M + base + '.mesh' if n != base else None
+        bt = imported[base].get('textures', [])
+        ht = next((t for t in bt if t.endswith('_head.tga')), ''); ot = next((t for t in bt if '_opacity' in t), '')
+        acc, sw = face_record(seed, n, FILES, ht, ot) if civilian else ([], {})   # PEDS-FACES
+        att = [M + x + '.mesh' for x in acc]
         counts[rec['kind']] = counts.get(rec['kind'], 0) + 1
         def tints(tex, node, rec=rec):
             if rec['zone'] is not None:
@@ -51,14 +56,14 @@ for row, r in enumerate(remaps):
             if rec['paint'] is not None and '_paint' in tex: return rec['paint']
             return None
         if a.pitch > 60:   # from above the figure fills little of a frame fitted to his height: render big, keep the middle
-            big = render.render(M + n + '.mesh', [(a.yaw, a.pitch)], tints=tints, size=(CW * 3, CH * 3), anim_from=af)[0]
+            big = render.render(M + n + '.mesh', [(a.yaw, a.pitch)], tints=tints, size=(CW * 3, CH * 3), anim_from=af, attach=att, swap=sw)[0]
             im = big.crop((CW, CH, 2 * CW, 2 * CH)).resize((CW, CH))
         else:
-            im = render.render(M + n + '.mesh', [(a.yaw, a.pitch)], tints=tints, size=(CW, CH), anim_from=af)[0]
+            im = render.render(M + n + '.mesh', [(a.yaw, a.pitch)], tints=tints, size=(CW, CH), anim_from=af, attach=att, swap=sw)[0]
         x, y = i * CW, row * (CH + 26)
         sheet.paste(im, (x, y))
         d.text((x + 2, y + CH + 1), n.replace('human_', '').replace('business_', 'biz_')[:18], fill=(250, 200, 120))
-        d.text((x + 2, y + CH + 13), rec['label'][:19], fill=(225, 225, 225))
+        d.text((x + 2, y + CH + 13), (rec['label'][:12] + ' ' + ','.join(z.split('~')[1][:4] for z in acc))[:21], fill=(225, 225, 225))
     d.text((3, row * (CH + 26) + 2), f"remap {r} {t['name']}", fill=(255, 255, 0))
 sheet.save(a.out, quality=88)
 print(a.out, sheet.size, counts)

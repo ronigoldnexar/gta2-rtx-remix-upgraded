@@ -1377,7 +1377,14 @@ IDirect3DTexture9* PlayerCopyFor(IDirect3DDevice9* device, const std::string& fi
     return g_playerCopies[file];
 }
 
-IDirect3DTexture9* TextureFor(IDirect3DDevice9* device, const std::string& file) {
+const std::string* g_swapFrom = nullptr;   // PEDS-FACES: this figure's texture swaps (ModelSetTextureSwaps)
+const std::string* g_swapTo = nullptr;
+int g_swapN = 0;
+
+IDirect3DTexture9* TextureFor(IDirect3DDevice9* device, const std::string& fileIn) {
+    const std::string* swapped = nullptr;
+    for (int i = 0; i < g_swapN; ++i) if (g_swapFrom[i] == fileIn) { swapped = &g_swapTo[i]; break; }
+    const std::string& file = swapped ? *swapped : fileIn;
     IDirect3DTexture9* base = BaseTextureFor(device, file);
     if (!g_playerTextures || !base) return base;
     return PlayerCopyFor(device, file, base);
@@ -2801,6 +2808,19 @@ bool PedTypeBuild(int remap, float* scale, float* width) {
 
 bool PedRemapHasType(int remap) { return remap >= 0 && remap < 64 && g_pedTypeByRemap[remap] >= 0; }
 
+void ModelSetTextureSwaps(const std::string* from, const std::string* to, int n) {
+    g_swapFrom = from; g_swapTo = to; g_swapN = n > 0 ? n : 0;
+}
+
+bool ModelTextureFileExists(const std::string& file) {
+    static std::map<std::string, bool> s_known;
+    const auto it = s_known.find(file);
+    if (it != s_known.end()) return it->second;
+    const bool ok = GetFileAttributesA((g_folder + "\\" + file).c_str()) != INVALID_FILE_ATTRIBUTES;
+    s_known[file] = ok;
+    return ok;
+}
+
 bool PedRemapIsCivilian(int remap) {
     if (!PedRemapHasType(remap)) return true;
     return g_pedTypes[g_pedTypeByRemap[remap]].name.compare(0, 8, "civilian") == 0;
@@ -3857,6 +3877,17 @@ void BuildWarmList() {
         }
         // The spare skin buffers once the people's own resources are up (before the cars).
         if (group == 1 && g_skinSpareBytes) g_warmSteps.push_back({0, 2, std::string()});
+        if (group == 1) {   // PEDS-FACES: the swap-in maps (hair colours "~hcN", cap colours "~cN"): no mesh names them
+            WIN32_FIND_DATAA fd; int n = 0;
+            HANDLE f = FindFirstFileA((g_folder + "\\*~*.tga").c_str(), &fd);
+            if (f != INVALID_HANDLE_VALUE) {
+                do {   // (the wildcard also matches 8.3 short names, which all hold a ~: the long name must)
+                    if (strchr(fd.cFileName, '~')) { g_warmSteps.push_back({0, 0, fd.cFileName}); ++n; }
+                } while (FindNextFileA(f, &fd));
+                FindClose(f);
+            }
+            Log("models: %d swap-in textures (hair and cap colours) queued for the warm-up", n);
+        }
     }
     // The texture files in the same order for the reader thread, each once.
     std::set<std::string> seen;

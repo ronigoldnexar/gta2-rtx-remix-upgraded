@@ -14,6 +14,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 struct IDirect3DDevice9;
 
@@ -62,6 +63,12 @@ struct IdentityRecord {
     float tint[3] = {1, 1, 1};
     bool clothes = false;       // the tint is a civilian's everyday-colour clothes (crowd variety)
     float height = 1.0f, width = 1.0f;   // build (crowd variety x type build; 1 for the player)
+    // PEDS-FACES: head and face accessories (rigid models drawn on the posed head bone: facial hair, eyewear,
+    // headwear; at most two) and the texture swaps that give the head its hair colour and a cap its colour.
+    const Model* acc[2] = {nullptr, nullptr};
+    int hairVariant = 0;        // 0 the avatar's own hair, N its "~hcN" maps
+    int texSwaps = 0;
+    std::string texFrom[5], texTo[5];
     // Vehicles: the paint over the model's own.
     CabRecord cab;              // FIX-COCKPIT-CAB-3: the first-person cab (IdentityCabFor of the whole model)
     bool livery = false;        // the model keeps its own paint (cop car, taxi, ...): no tint stage
