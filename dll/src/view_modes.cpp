@@ -1,4 +1,5 @@
 #include "view_modes.h"
+#include "city_map.h"
 
 #include "cockpit_mode.h"
 #include "eye_collision.h"
@@ -1014,7 +1015,8 @@ bool g_holdPhys[kHoldCount] = {};   // physically down, as the device last repor
 bool g_holdTold[kHoldCount] = {};   // what the game was last told
 ULONGLONG g_holdUntil = 0;
 bool g_holdLogged = false;
-bool InputHeld() { return g_holdUntil && GetTickCount64() < g_holdUntil; }
+bool g_mapHold = false;   // CITYMAP-1: the city map is open: every game control key is withheld
+bool InputHeld() { return g_mapHold || (g_holdUntil && GetTickCount64() < g_holdUntil); }
 void EntryNoteKey(DWORD dik, bool down, bool withheld);   // FIX-ENTRY-1, below
 void EntryNoteReadFailure(long hr);                         // FIX-ENTRY-1, below
 // FIX-AIM-1: the fire key (either Ctrl) as the game is told of it: each press that reaches the game is an attack
@@ -1142,6 +1144,7 @@ HRESULT WINAPI NavGetDeviceState(IDirectInputDevice8A* self, DWORD cbData, LPVOI
             keys[DIK_RCONTROL] = FireKeyWanted(1) ? 0x80 : 0;
         }
         if (InputHeld()) for (int i = 0; i < kHoldCount; ++i) keys[kHoldDik[i]] = 0;   // FIX-KNOCKDOWN
+        if (g_mapHold) memset(keys, 0, 256);   // CITYMAP-1: the map is open: the game sees no key down
         if (g_diDataCalls == 0) NoteFireTold((keys[DIK_LCONTROL] & 0x80) != 0 || (keys[DIK_RCONTROL] & 0x80) != 0);   // FIX-AIM-1
     }
     return hr;
@@ -1178,6 +1181,9 @@ HRESULT WINAPI NavGetDeviceData(IDirectInputDevice8A* self, DWORD cbObj, LPDIDEV
             if (hk >= 0) g_holdPhys[hk] = down;
             if (g_fireWithheld || (!down && FireKeyWanted(which))) continue;   // told later, by the reconcile below
         }
+        // CITYMAP-1: while the map is open no key goes down for the game (the hold keys are reconciled below;
+        // a release still passes, so a key held as the map opened is not left down in the game).
+        if (g_mapHold && (e->dwData & 0x80) && HoldIndexOfDik(e->dwOfs) < 0) continue;
         // FIX-ENTRY-1: GTA2DX9_LOG_ENTRY=1 logs every Return the game's keyboard reports (EntryService).
         if ((e->dwOfs == DIK_RETURN || e->dwOfs == DIK_NUMPADENTER) && !(flags & DIGDD_PEEK))
             EntryNoteKey(e->dwOfs, (e->dwData & 0x80) != 0, held);
@@ -1737,6 +1743,17 @@ void ViewHoldPlayerInput() {
     g_holdUntil = GetTickCount64() + 300;   // a frame or two without a renewal (a hitch) is not a release
 }
 
+// CITYMAP-1: the city map holds the game's keys while it is open (view_modes.h).
+void ViewSetMapHold(bool on) {
+    if (on == g_mapHold) return;
+    if (on) {
+        InstallNavHook(false);
+        for (int k = 0; k < kHoldCount; ++k) g_holdTold[k] = true;   // as a knock-down hold begins: the next read tells each key went up
+    }
+    g_mapHold = on;
+    Log("citymap: the game's control keys %s", on ? "withheld (map open)" : "back to the game");
+}
+
 ViewModeSettings& ViewModes() { return g_settings; }
 ViewLook& LookOffsets() { return g_look; }
 float CameraTurnBudgetDeg() {
@@ -2292,10 +2309,10 @@ void ViewModePollInput(HWND presentWindow, bool menuVisible, bool worldLoaded) {
     const SHORT state = key > 0 && key < 256 ? GetAsyncKeyState(key) : 0;
     const bool keyDown = (state & 0x8000) != 0 && !altDown;
     const bool tapped = (state & 0x0001) != 0 && !altDown;
-    if ((tapped || (keyDown && !keyWasDown)) && ours && !menuVisible) CycleViewMode();
+    if ((tapped || (keyDown && !keyWasDown)) && ours && !menuVisible && !CityMapOpen()) CycleViewMode();
     keyWasDown = keyDown;
     // FIX-COCKPIT-BODY (owner item 3): the dashcam key, at the wheel in first person (cockpit_mode.h).
-    CockpitModePoll(ours && !menuVisible && !altDown && worldLoaded, g_navInVehicle && CurrentViewMode() == ViewMode::FirstPerson);
+    CockpitModePoll(ours && !menuVisible && !altDown && worldLoaded && !CityMapOpen(), g_navInVehicle && CurrentViewMode() == ViewMode::FirstPerson);
 
     // Camera-relative controls on foot in the street views.
     {
@@ -2304,7 +2321,7 @@ void ViewModePollInput(HWND presentWindow, bool menuVisible, bool worldLoaded) {
         g_navLastPoll = now;
         if (dt <= 0.0f || dt > 0.25f) dt = 1.0f / 30.0f;
         const ViewMode mode = CurrentViewMode();
-        const bool active = g_settings.navMap && worldLoaded && ours && !menuVisible &&
+        const bool active = g_settings.navMap && worldLoaded && ours && !menuVisible && !CityMapOpen() &&
                             mode != ViewMode::Classic && g_navHeadingKnown && !g_navInVehicle;
         if (active) InstallNavHook(false);
         // FIX-AIM-1: the attack key is read through the same hook (the swing log, the aim assist), so it goes in on
@@ -2325,7 +2342,7 @@ void ViewModePollInput(HWND presentWindow, bool menuVisible, bool worldLoaded) {
         }
     }
 
-    const bool want = worldLoaded && ours && !menuVisible && g_settings.mouseLook &&
+    const bool want = worldLoaded && ours && !menuVisible && !CityMapOpen() && g_settings.mouseLook &&
                       CurrentViewMode() != ViewMode::Classic && presentWindow != nullptr;
     if (!want) {
         captured = false;

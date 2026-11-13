@@ -1,5 +1,6 @@
 #include "mem_stats.h"
 #include "world_view.h"
+#include "city_map.h"
 #include "hud_gamefont.h"
 #include "prop_collision.h"
 #include "regress_cam.h"
@@ -539,6 +540,9 @@ LRESULT CALLBACK PresentWndProc(HWND window, UINT message, WPARAM wparam, LPARAM
         }
         return MA_NOACTIVATE;
     }
+    if (message == WM_MOUSEWHEEL) CityMapNoteWheel(GET_WHEEL_DELTA_WPARAM(wparam));   // CITYMAP-1
+    if (message == WM_LBUTTONDOWN || message == WM_LBUTTONUP || message == WM_RBUTTONDOWN)   // CITYMAP-1: the map's clicks
+        CityMapNoteButton(message == WM_RBUTTONDOWN ? 1 : 0, message != WM_LBUTTONUP);
     const bool mouse = message >= WM_MOUSEFIRST && message <= WM_MOUSELAST
                        && message != WM_MOUSEWHEEL && message != WM_MOUSEHWHEEL;
     if (mouse && g_presentGameWindow && !DebugMenuWantsMouse()) {
@@ -1535,6 +1539,7 @@ bool WorldView::EnsureWorldLoaded() {
             }
         }
         SetEnvCells(rail, busStops);
+        CityMapSetLevel(map_, zone, mapPath);   // CITYMAP-1: the city map's graph, labels and picture
         Log("environment: %u rail cells from %u track zone cells, %u bus stops", static_cast<unsigned>(rail.size()),
             static_cast<unsigned>(seeds.size()), static_cast<unsigned>(busStops.size()));
     }
@@ -4023,6 +4028,9 @@ void WorldView::RenderFrame() {
             renderer_.MarkDrawsAsScreenUi();
             overlay_.Flush(renderer_.Device(), renderer_.Width(), renderer_.Height());
         }
+        // CITYMAP-1: the map's keys and the route's progress; the street views' ground chevrons under the HUD
+        CityMapUpdate(renderer_.Device(), renderer_.Width(), renderer_.Height(), window_, worldUploaded_);
+        CityMapDrawWorld(renderer_.Device(), renderer_.Width(), renderer_.Height());
         Hud3dHoldForSwitch(dissolveActive_);   // the kept classic frame carries the game's HUD (pm7)
         Hud3dRender(renderer_.Device(), renderer_.Width(), renderer_.Height(), map_, worldUploaded_);   // MODERN HUD (hud3d.cpp)
         // The view switch out of the classic view (BEV-PURITY). The street view's renderer
@@ -4081,6 +4089,7 @@ void WorldView::RenderFrame() {
                 }
             }
         }
+        CityMapDrawOverlay(renderer_.Device(), renderer_.Width(), renderer_.Height());   // CITYMAP-1: the full map, when open
         // ImGui issues ordinary D3D9 draws, so it belongs inside the scene.
         DebugMenuRender();
         // Remix clears its per-frame light list every frame, so a light is in the

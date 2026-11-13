@@ -44,6 +44,7 @@
 
 #include "../../src/gta2_map.h"
 #include "beats.h"
+#include "city_map.h"
 #include "compat.h"
 #include "game_access.h"
 #include "game_save.h"
@@ -1013,6 +1014,143 @@ MapDrawStats DrawMapDisc(ImDrawList* dl, ImVec2 c, float R, ImVec2 pc, float px,
         if (n >= 3) { dl->AddConvexPolyFilled(out, n, col); ++st.clipped; }
     }
     return st;
+}
+
+// ---- CITYMAP-1: the GPS route on a mini-map disc -------------------------------------------
+//
+// The route (city_map.cpp) on the disc, cut exactly at its rim; the waypoint a diamond on the disc,
+// or a chevron on the rim along the line from him to it. The GPS colour is magenta, apart from the
+// jobs' yellow and the phones' cyan; it goes in as its 1/2.2 power as the disc's tones do.
+ImU32 GpsCol(int r, int g, int b, float a) {
+    auto lin = [](int x) { return static_cast<int>(std::lround(255.0 * std::pow(x / 255.0, 1.0 / 2.2))); };
+    return IM_COL32(lin(r), lin(g), lin(b), static_cast<int>((std::max)(0.0f, (std::min)(1.0f, a)) * 255.0f));
+}
+template <typename ToScreen>
+void DrawGpsOnDisc(ImDrawList* dl, ImVec2 c, float R, ImVec2 pc, ToScreen toScreen, float A, float time) {
+    CityMapGuide gd;
+    if (!CityMapGuideNow(&gd)) return;
+    const float u = g_u;
+    const float Ri = R - 1.5f * u, R2 = Ri * Ri;
+    std::vector<std::vector<ImVec2>> runs;
+    std::vector<ImVec2> run;
+    for (size_t k = 1; k < gd.lineX.size(); ++k) {
+        const ImVec2 a = toScreen(gd.lineX[k - 1], gd.lineY[k - 1]), b = toScreen(gd.lineX[k], gd.lineY[k]);
+        const float dx = b.x - a.x, dy = b.y - a.y, fx = a.x - c.x, fy = a.y - c.y;
+        const float qa = dx * dx + dy * dy, qb = 2 * (fx * dx + fy * dy), qc = fx * fx + fy * fy - R2;
+        float t0 = 0, t1 = 1;
+        if (qa < 1e-9f) { if (qc > 0) t0 = 1, t1 = 0; }
+        else {
+            const float disc = qb * qb - 4 * qa * qc;
+            if (disc <= 0) t0 = 1, t1 = 0;
+            else { const float sq = std::sqrt(disc); t0 = (std::max)(0.0f, (-qb - sq) / (2 * qa)); t1 = (std::min)(1.0f, (-qb + sq) / (2 * qa)); }
+        }
+        if (t0 >= t1) { if (run.size() >= 2) runs.push_back(run); run.clear(); continue; }
+        const ImVec2 pa(a.x + dx * t0, a.y + dy * t0), pb(a.x + dx * t1, a.y + dy * t1);
+        if (run.empty() || t0 > 1e-4f) { if (run.size() >= 2) runs.push_back(run); run.clear(); run.push_back(pa); }
+        run.push_back(pb);
+        if (t1 < 1.0f - 1e-4f) { if (run.size() >= 2) runs.push_back(run); run.clear(); }
+    }
+    if (run.size() >= 2) runs.push_back(run);
+    const float w = 3.4f * u;
+    for (const auto& r : runs) dl->AddPolyline(r.data(), static_cast<int>(r.size()), GpsCol(40, 4, 26, 0.9f * A), ImDrawFlags_None, w + 3 * u);
+    for (const auto& r : runs) dl->AddPolyline(r.data(), static_cast<int>(r.size()), GpsCol(255, 62, 170, A), ImDrawFlags_None, w);
+    // the waypoint
+    const ImVec2 wp = toScreen(gd.wayX, gd.wayY);
+    const float inner = R - 10 * u;
+    const float dxw = wp.x - c.x, dyw = wp.y - c.y;
+    if (dxw * dxw + dyw * dyw < inner * inner) {
+        const float r = 6 * u;
+        const ImVec2 d[4] = {ImVec2(wp.x, wp.y - r), ImVec2(wp.x + r, wp.y), ImVec2(wp.x, wp.y + r), ImVec2(wp.x - r, wp.y)};
+        dl->AddConvexPolyFilled(d, 4, GpsCol(255, 62, 170, A));
+        dl->AddPolyline(d, 4, Fade(kShadow, A), ImDrawFlags_Closed, 1.5f * u);
+        const float ring = r + (3.0f + 5.0f * std::fmod(time, 1.2f) / 1.2f) * u;
+        dl->AddCircle(wp, ring, GpsCol(255, 62, 170, A * (1.0f - std::fmod(time, 1.2f) / 1.2f)), 24, 1.5f * u);
+    } else {
+        float ux = wp.x - pc.x, uy = wp.y - pc.y;
+        const float ul = std::sqrt(ux * ux + uy * uy) + 1e-4f;
+        ux /= ul; uy /= ul;
+        const float ox = pc.x - c.x, oy = pc.y - c.y;
+        const float bq = ox * ux + oy * uy, cq = ox * ox + oy * oy - inner * inner;
+        const float t = -bq + std::sqrt((std::max)(0.0f, bq * bq - cq));
+        const ImVec2 p(pc.x + ux * t, pc.y + uy * t);
+        const float ang = std::atan2(uy, ux), r = 9 * u;
+        const ImVec2 t0(p.x + std::cos(ang) * r, p.y + std::sin(ang) * r);
+        const ImVec2 t1(p.x + std::cos(ang + 2.4f) * r, p.y + std::sin(ang + 2.4f) * r);
+        const ImVec2 t2(p.x + std::cos(ang - 2.4f) * r, p.y + std::sin(ang - 2.4f) * r);
+        dl->AddTriangleFilled(t0, t1, t2, GpsCol(255, 62, 170, A));
+        dl->AddTriangle(t0, t1, t2, Fade(kShadow, A * 0.8f), 1.0f * u);
+    }
+}
+
+// The read-out over a disc: the next turn (or ARRIVED) and the distance left. classic: GTA2's own
+// HUD look (a black-edged yellow on a dark plate) rather than the modern HUD's glass.
+void DrawGpsChip(ImDrawList* dl, float x, float y, float w, float A, bool classic) {
+    CityMapGuide gd;
+    if (!CityMapGuideNow(&gd)) return;
+    const float u = g_u, h = 28 * u;
+    dl->AddRectFilled(ImVec2(x, y), ImVec2(x + w, y + h), classic ? Fade(IM_COL32(8, 10, 16, 220), A) : Fade(kGlass, A), 4 * u);
+    if (classic) dl->AddRect(ImVec2(x, y), ImVec2(x + w, y + h), Fade(kShadow, A), 4 * u, 0, 2 * u);
+    dl->AddRectFilled(ImVec2(x, y), ImVec2(x + h, y + h), GpsCol(255, 62, 170, A), 4 * u);
+    const float cx = x + h / 2, cy = y + h / 2;
+    std::string big;
+    if (gd.arrived) {
+        dl->AddCircle(ImVec2(cx, cy), 6 * u, Fade(kWhite, A), 16, 2.5f * u);
+        dl->AddCircleFilled(ImVec2(cx, cy), 2.5f * u, Fade(kWhite, A), 12);
+        big = "ARRIVED";
+    } else if (gd.turnBlocks >= 0) {
+        const float sg = static_cast<float>(gd.turnDir);
+        const ImVec2 a[3] = {ImVec2(cx - sg * 4 * u, cy + 9 * u), ImVec2(cx - sg * 4 * u, cy - 1 * u), ImVec2(cx + sg * 4 * u, cy - 1 * u)};
+        dl->AddPolyline(a, 3, Fade(kWhite, A), ImDrawFlags_None, 3.0f * u);
+        dl->AddTriangleFilled(ImVec2(cx + sg * 9 * u, cy - 1 * u), ImVec2(cx + sg * 3 * u, cy - 6 * u), ImVec2(cx + sg * 3 * u, cy + 4 * u), Fade(kWhite, A));
+        big = CityMapDistanceText(gd.turnBlocks);
+    } else {
+        dl->AddLine(ImVec2(cx, cy + 9 * u), ImVec2(cx, cy - 2 * u), Fade(kWhite, A), 3.0f * u);
+        dl->AddTriangleFilled(ImVec2(cx, cy - 9 * u), ImVec2(cx - 5 * u, cy - 2 * u), ImVec2(cx + 5 * u, cy - 2 * u), Fade(kWhite, A));
+        big = gd.offNetwork ? "TO THE ROAD" : "AHEAD";
+    }
+    const float px = g_fonts.heavyPx * 0.72f;
+    Text(dl, g_fonts.heavy, px, ImVec2(x + h + 8 * u, cy - px * 0.55f), classic ? kYellow : kWhite, big.c_str(), A);
+    if (!gd.arrived) {
+        const std::string rest = CityMapDistanceText(gd.remainingBlocks);
+        const float lp = g_fonts.labelPx * 0.85f;
+        const ImVec2 ts = Measure(g_fonts.label, lp, rest.c_str());
+        Text(dl, g_fonts.label, lp, ImVec2(x + w - 8 * u - ts.x, cy - ts.y * 0.5f), classic ? kYellow : kWhite, rest.c_str(), A * 0.85f);
+    }
+}
+
+// The classic view's GPS disc (only while a waypoint is set, never with the map open): north up as
+// the classic camera, bottom left, framed as GTA2's own HUD (a black rim, a yellow ring).
+void DrawClassicGps(ImDrawList* dl, float W, float H, float time) {
+    const PlayerState& p = ViewPlayer();
+    if (!p.valid) return;
+    const float u = g_u;
+    const float R = 78 * u;
+    const ImVec2 c(24 * u + R, H - 24 * u - R);
+    const float scale = 260.0f * u / 64.0f * 0.8f;
+    dl->AddCircleFilled(ImVec2(c.x, c.y + 2 * u), R + 4 * u, IM_COL32(0, 0, 0, 140), 96);
+    DrawMapDisc(dl, c, R, c, p.x, p.y, 1.0f, 0.0f, scale, 1.0f);
+    auto toScreen = [&](float gx, float gy) { return ImVec2(c.x + (gx - p.x) * scale, c.y + (gy - p.y) * scale); };
+    DrawGpsOnDisc(dl, c, R, c, toScreen, 1.0f, time);
+    const float heading = p.facingKnown ? std::atan2(p.dirX, -p.dirY) : 0.0f;
+    const float r = 8.0f * u;
+    const ImVec2 fwd(std::sin(heading), -std::cos(heading)), side(std::cos(heading), std::sin(heading));
+    const ImVec2 tip(c.x + fwd.x * r, c.y + fwd.y * r);
+    const ImVec2 l(c.x - fwd.x * r * 0.7f - side.x * r * 0.75f, c.y - fwd.y * r * 0.7f - side.y * r * 0.75f);
+    const ImVec2 rr(c.x - fwd.x * r * 0.7f + side.x * r * 0.75f, c.y - fwd.y * r * 0.7f + side.y * r * 0.75f);
+    const ImVec2 back(c.x - fwd.x * r * 0.3f, c.y - fwd.y * r * 0.3f);
+    const ImVec2 arrow[4] = {tip, rr, back, l};
+    dl->AddPolyline(arrow, 4, kShadow, ImDrawFlags_Closed, 2.4f * u);
+    dl->AddTriangleFilled(tip, l, back, kWhite);
+    dl->AddTriangleFilled(tip, back, rr, kWhite);
+    dl->AddCircle(c, R, IM_COL32(0, 0, 0, 230), 96, 4.0f * u);
+    dl->AddCircle(c, R - 2.5f * u, kYellow, 96, 2.0f * u);
+    dl->AddCircle(c, R - 4.5f * u, IM_COL32(0, 0, 0, 150), 96, 1.0f * u);
+    const ImVec2 np(c.x, c.y - R);
+    dl->AddCircleFilled(np, 8.5f * u, IM_COL32(8, 10, 16, 240), 24);
+    dl->AddCircle(np, 8.5f * u, kYellow, 24, 1.5f * u);
+    const ImVec2 ns = Measure(g_fonts.label, g_fonts.labelPx * 0.8f, "N");
+    dl->AddText(g_fonts.label, g_fonts.labelPx * 0.8f, ImVec2(np.x - ns.x * 0.5f, np.y - ns.y * 0.5f), kYellow, "N");
+    DrawGpsChip(dl, c.x - R, c.y - R - 40 * u, 2 * R, 1.0f, true);
 }
 
 // ---- QB-50: pickup labels and score pops in the world ----------------------------------
@@ -2703,6 +2841,7 @@ void Draw(ImDrawList* dl, IDirect3DDevice9* device, const Values& v, float W, fl
         QueryPerformanceCounter(&q1);
         g_mapStats.ticks += q1.QuadPart - q0.QuadPart;
         g_mapStats.rects += ms.rects; g_mapStats.clipped += ms.clipped; ++g_mapStats.frames;
+        DrawGpsOnDisc(dl, mc, R, pc, toScreen, A, an.time);   // CITYMAP-1
         // Blips: phones small and cyan, the job's own arrows yellow and larger; off the map
         // they sit on its rim as a chevron.
         const float inner = R - 10 * u;
@@ -2752,6 +2891,8 @@ void Draw(ImDrawList* dl, IDirect3DDevice9* device, const Values& v, float W, fl
         dl->AddPolyline(arrow, 4, Fade(kShadow, A), ImDrawFlags_Closed, 2.4f * u);
         dl->AddTriangleFilled(tip, l, back, Fade(kWhite, A));
         dl->AddTriangleFilled(tip, back, rr, Fade(kWhite, A));
+        // CITYMAP-1: the next turn and the distance left, over the disc while a waypoint is set.
+        DrawGpsChip(dl, m0.x, m0.y - 36 * u, mapW, A, false);
         // The rim, then north on it.
         dl->AddCircle(mc, R, Fade(IM_COL32(0, 0, 0, 200), A), 96, 3.0f * u);
         dl->AddCircle(mc, R - 1.0f * u, Fade(IM_COL32(244, 240, 228, 150), A), 96, 1.2f * u);
@@ -3437,7 +3578,7 @@ void Hud3dRender(IDirect3DDevice9* device, int width, int height, const gta2::Ma
     }
     // The pause and stats screen (part 16) is the game's alone: the modern HUD steps aside.
     const bool paused = g_partSeen[16] + 2 >= g_frame;
-    const bool want = street && g_cfg.modern && v.valid && !paused && !g_switchHold;
+    const bool want = street && g_cfg.modern && v.valid && !paused && !g_switchHold && !CityMapOpen();   // CITYMAP-1: the map takes the screen
 
     // GTA2DX9_HUD_TEST=1: the [hud] keys modern, test_health and test_clock are re-read once a
     // second, so a script switches and pokes by editing the ini (no key the game might take).
@@ -3524,7 +3665,7 @@ void Hud3dRender(IDirect3DDevice9* device, int width, int height, const gta2::Ma
     g_active = want;
     // The objective markers stand in for the game's arrows (swallowed in any street view), so
     // they are drawn with the modern HUD off too.
-    const bool markersWant = street && g_cfg.markers && v.valid && !paused;
+    const bool markersWant = street && g_cfg.markers && v.valid && !paused && !CityMapOpen();
     static float markerFade = 0.0f;
     UpdateAimHud(want, static_cast<float>(width), static_cast<float>(height), dt);   // QB-6
 
@@ -3569,11 +3710,13 @@ void Hud3dRender(IDirect3DDevice9* device, int width, int height, const gta2::Ma
     const bool quitWant = street && g_quitFrame + 2 >= g_frame;
     g_quitAlpha = quitWant ? (std::min)(1.0f, g_quitAlpha + dt / 0.12f) : (std::max)(0.0f, g_quitAlpha - dt / 0.1f);
     const bool quitShown = g_quitAlpha > 0.01f && street;
-    if (((an.fade > 0.01f && v.valid) || beatShown || markersShown || quitShown) && device && width > 0 && height > 0 && EnsureContext(device, height)) {
+    // CITYMAP-1: the classic view's GPS disc, only while a waypoint is set (with none, nothing of ours is drawn there)
+    const bool classicGps = !street && worldLoaded && !paused && CityMapClassicDisc() && CurrentViewMode() == ViewMode::Classic;
+    if (((an.fade > 0.01f && v.valid) || beatShown || markersShown || quitShown || classicGps) && device && width > 0 && height > 0 && EnsureContext(device, height)) {
         ImGuiContext* previous = ImGui::GetCurrentContext();
         ImGui::SetCurrentContext(g_ctx);
         if (g_fontHeight != height || g_glyphs.gen != HudGameFontGeneration()) BuildFonts(height);
-        if (g_cfg.minimap && g_cfg.modern) BuildMap(device, map);
+        if ((g_cfg.minimap && g_cfg.modern) || classicGps) BuildMap(device, map);
         ImGuiIO& io = ImGui::GetIO();
         io.DisplaySize = ImVec2(static_cast<float>(width), static_cast<float>(height));
         io.DeltaTime = dt > 0 ? dt : 1.0f / 30.0f;
@@ -3585,6 +3728,7 @@ void Hud3dRender(IDirect3DDevice9* device, int width, int height, const gta2::Ma
             Draw(ImGui::GetForegroundDrawList(), device, v, static_cast<float>(width), static_cast<float>(height), dt);
         if (beatShown) DrawBeat(ImGui::GetForegroundDrawList(), static_cast<float>(width), static_cast<float>(height));
         if (quitShown) DrawQuit(ImGui::GetForegroundDrawList(), static_cast<float>(width), static_cast<float>(height), g_quitAlpha);
+        if (classicGps) DrawClassicGps(ImGui::GetForegroundDrawList(), static_cast<float>(width), static_cast<float>(height), an.time);
         ImGui::EndFrame();
         ImGui::Render();
         LARGE_INTEGER q0, q1;

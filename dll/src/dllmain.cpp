@@ -11,6 +11,7 @@
 // below come from those epilogues, and getting one wrong unbalances the stack.
 
 #define WIN32_LEAN_AND_MEAN
+#include "city_map.h"
 #include "mem_stats.h"
 #include <windows.h>
 
@@ -1186,6 +1187,9 @@ void LogMinimiseRefused(const char* what) {
 }
 
 LRESULT CALLBACK ClosingWndProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
+    if (message == WM_MOUSEWHEEL) gta2dx9::CityMapNoteWheel(GET_WHEEL_DELTA_WPARAM(wparam));   // CITYMAP-1: the map's zoom
+    if (message == WM_LBUTTONDOWN || message == WM_LBUTTONUP || message == WM_RBUTTONDOWN)   // CITYMAP-1: the map's clicks
+        gta2dx9::CityMapNoteButton(message == WM_RBUTTONDOWN ? 1 : 0, message != WM_LBUTTONUP);
     // FIX-STABILITY-1: what the minimise path needs, before anything else.
     if (message == WM_SIZE || message == WM_SETFOCUS || message == WM_KILLFOCUS || message == WM_ACTIVATEAPP ||
         message == WM_ACTIVATE || message == WM_CLOSE || message == WM_DESTROY) {
