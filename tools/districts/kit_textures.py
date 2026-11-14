@@ -80,6 +80,41 @@ def make(name, k):
         a[..., :3] = tint((132, 138, 140), 0, k, 0.16) * rib[..., None]
         a[..., :3] *= np.where((yy % 8) == 0, 0.62, 1.0)[..., None]
         a[..., :3] *= (0.9 + 0.1 * noise(k + 7, 32)[..., None])
+    elif name.startswith("sign_") or name.startswith("neon_"):
+        # DISTRICTS round 5: illuminated sign boxes and neon. "<name>" is the box by day (unlit panel, muted letters),
+        # "<name>_lit" what the night pass adds (bright letters on black: drawn additively, so black adds nothing)
+        lit = name.endswith("_lit")
+        base = name[:-4] if lit else name
+        fg = {"sign_warm": (255, 196, 60), "sign_cool": (120, 210, 255), "neon_pink": (255, 70, 190)}[base]
+        if base.startswith("neon"):
+            core = np.abs(yy % 32 - 16) < 5           # a tube along u, repeated
+            glow = np.clip(1.0 - np.abs(yy % 32 - 16) / 12.0, 0, 1)
+            if lit:
+                a[..., :3] = np.array(fg, np.float32)[None, None, :] / 255.0 * np.maximum(core * 1.0, glow * 0.5)[..., None]
+            else:
+                a[..., :3] = tint((120, 116, 118), 0, k, 0.06) * np.where(core, 1.15, 0.85)[..., None]
+        else:
+            r = np.random.default_rng(k // 2 * 2)      # the same letters in the day and the lit texture
+            glyph = np.zeros((N, N), bool)
+            for row in range(2):
+                x = 10
+                while x < N - 14:
+                    w = int(r.integers(6, 12)); h0 = 18 + row * 52
+                    cells = r.random((5, 3)) < 0.55
+                    for gy in range(5):
+                        for gx in range(3):
+                            if cells[gy, gx]:
+                                glyph[h0 + gy * 7:h0 + gy * 7 + 6, x + gx * (w // 3):x + gx * (w // 3) + max(2, w // 3 - 1)] = True
+                    x += w + 4
+            frame = (xx < 4) | (xx >= N - 4) | (yy < 4) | (yy >= N - 4)
+            if lit:
+                a[..., :3] = np.where(glyph[..., None], np.array(fg, np.float32) / 255.0, 0.08 * np.array(fg, np.float32) / 255.0)
+                a[..., :3] *= np.where(frame, 0.0, 1.0)[..., None]
+            else:
+                panel = tint((58, 56, 60), 0, k, 0.08)
+                letters = np.array(fg, np.float32)[None, None, :] / 255.0 * 0.55
+                a[..., :3] = np.where(glyph[..., None], letters, panel)
+                a[..., :3] = np.where(frame[..., None], np.array((40, 40, 42), np.float32) / 255.0, a[..., :3])
     elif name == "glass_dark":
         a[..., :3] = tint((30, 40, 52), 0, k, 0.06)
     return np.clip(a, 0, 1)

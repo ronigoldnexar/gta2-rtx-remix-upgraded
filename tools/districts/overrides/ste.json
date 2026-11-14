@@ -1,5 +1,5 @@
 {
-  "_comment": "Hand-editable district overrides for Residential (ste); see wil.json.",
+  "_comment": "Hand-editable district overrides for Residential (ste); see wil.json; default_style: the row of every district not listed in styles.",
   "names": {
     "gang:redngang": "Rednecks turf",
     "gang:zaibgang": "Zaibatsu turf",
@@ -14,5 +14,6 @@
     "local_nav:s06": "residential_prison",
     "local_nav:s07": "residential_mall"
   },
-  "rects": []
+  "rects": [],
+  "default_style": "residential_mixed"
 }

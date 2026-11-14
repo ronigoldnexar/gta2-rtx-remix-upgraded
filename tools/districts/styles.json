@@ -1,5 +1,5 @@
 {
- "_comment": "DISTRICTS style tables. A district picks a row in tools/districts/overrides/<lvl>.json 'styles' (a row not defined here is the default row); every row is complete. kit: what kit.py builds (fire_escapes none|side|front, water_towers / roof_units / awnings.rate as shares, stacks per factory, parapet in blocks, cornice heavy|archetype); props: multipliers on the renderer's street rules (furniture = bins, benches, hydrants, mailboxes; roof = AC units, vents, water-tower props; trees; meters; containers); grade: per-channel multipliers on the street views' fog and ambient (plain renderer), eased over a few seconds as the camera crosses districts; remix: rtx options pushed through the Remix API when the camera enters the district (the same keys in every row, so leaving one resets them). recast: the district's architecture, archetype -> archetype for its generic buildings ('industrial': factory at 3+ levels, else warehouse). awnings.doors: street doors on the front get the shopfront treatment (sign band, awning).",
+ "_comment": "DISTRICTS style tables. A district picks a row in tools/districts/overrides/<lvl>.json 'styles' (a row not defined here is the default row); every row is complete. kit: what kit.py builds (fire_escapes none|side|front, water_towers / roof_units / awnings.rate as shares, stacks per factory, parapet in blocks, cornice heavy|archetype); props: multipliers on the renderer's street rules (furniture = bins, benches, hydrants, mailboxes; roof = AC units, vents, water-tower props; trees; meters; containers); grade: per-channel multipliers on the street views' fog and ambient (plain renderer), eased over a few seconds as the camera crosses districts; remix: rtx options pushed through the Remix API when the camera enters the district (the same keys in every row, so leaving one resets them). recast: the district's architecture, archetype -> archetype for its generic buildings ('industrial': factory at 3+ levels, else warehouse). storefronts: a fascia sign band (lit sign boxes, neon) and a canopy along every street-facing ground floor; crowns: setback storey, stepped crown and mast on 4+ level towers; flagpoles on the front roof edge. base: a row is its base row (default if none) with its own keys merged over it.",
  "styles": {
   "default": {
    "kit": {
@@ -14,7 +14,10 @@
      "striped": 0.5,
      "palette": null
     },
-    "recast": {}
+    "recast": {},
+    "storefronts": false,
+    "crowns": false,
+    "flagpoles": false
    },
    "props": {
     "furniture": 1.0,
@@ -55,9 +58,12 @@
       "awning_red",
       "awning_green",
       "awning_blue",
-      "awning_yellow"
-     ],
-     "doors": true
+      "awning_yellow",
+      "canvas_red",
+      "canvas_navy",
+      "canvas_green",
+      "canvas_ochre"
+     ]
     },
     "recast": {
      "block": "office_tower",
@@ -65,7 +71,10 @@
      "warehouse": "office_tower",
      "brownstone": "shopfront_row",
      "factory": "office_tower"
-    }
+    },
+    "storefronts": true,
+    "crowns": true,
+    "flagpoles": true
    },
    "props": {
     "furniture": 2.2,
@@ -114,7 +123,10 @@
      "civic": "brownstone",
      "warehouse": "brick_tenement",
      "factory": "brick_tenement"
-    }
+    },
+    "storefronts": false,
+    "crowns": false,
+    "flagpoles": false
    },
    "props": {
     "furniture": 0.8,
@@ -160,7 +172,10 @@
      "office_tower": "industrial",
      "civic": "industrial",
      "shopfront_row": "industrial"
-    }
+    },
+    "storefronts": false,
+    "crowns": false,
+    "flagpoles": false
    },
    "props": {
     "furniture": 0.3,
@@ -184,6 +199,300 @@
    "remix": {
     "rtx.tonemap.exposureBias": "-0.15",
     "rtx.tonemap.colorBalance": "0.95, 1, 0.98"
+   }
+  },
+  "downtown_corporate": {
+   "base": "downtown_core",
+   "kit": {
+    "neon": 0.05,
+    "awnings": {
+     "palette": [
+      "awning_blue",
+      "awning_green",
+      "canvas_navy",
+      "canvas_green"
+     ],
+     "striped": 0.2
+    }
+   },
+   "grade": {
+    "fog": [
+     0.9,
+     0.97,
+     1.1
+    ],
+    "ambient": [
+     0.95,
+     0.99,
+     1.07
+    ]
+   }
+  },
+  "downtown_neon": {
+   "base": "downtown_core",
+   "kit": {
+    "neon": 0.8,
+    "awnings": {
+     "palette": [
+      "awning_red",
+      "awning_yellow",
+      "canvas_maroon",
+      "canvas_red",
+      "canvas_ochre"
+     ]
+    }
+   },
+   "grade": {
+    "fog": [
+     1.06,
+     0.95,
+     1.06
+    ],
+    "ambient": [
+     1.04,
+     0.97,
+     1.03
+    ]
+   },
+   "remix": {
+    "rtx.tonemap.exposureBias": "0.05",
+    "rtx.tonemap.colorBalance": "1.04, 0.97, 1.03"
+   }
+  },
+  "downtown_loonie": {
+   "base": "downtown_neon"
+  },
+  "downtown_campus": {
+   "base": "default",
+   "kit": {
+    "cornice": "heavy",
+    "parapet": 0.08,
+    "fire_escapes": "none",
+    "water_towers": 0.0
+   },
+   "props": {
+    "trees": 3.0,
+    "furniture": 1.4
+   }
+  },
+  "residential_suburb": {
+   "base": "residential_brownstone",
+   "kit": {
+    "fire_escapes": "side",
+    "water_towers": 0.3,
+    "awnings": {
+     "palette": [
+      "canvas_green",
+      "canvas_cream"
+     ]
+    },
+    "recast": {
+     "block": "brownstone",
+     "office_tower": "brick_tenement"
+    }
+   },
+   "props": {
+    "trees": 3.5
+   },
+   "grade": {
+    "fog": [
+     1.03,
+     1.02,
+     0.95
+    ],
+    "ambient": [
+     1.03,
+     1.01,
+     0.96
+    ]
+   }
+  },
+  "residential_redneck": {
+   "base": "default",
+   "kit": {
+    "fire_escapes": "none",
+    "water_towers": 0.6,
+    "cornice": "archetype"
+   },
+   "props": {
+    "trees": 2.0,
+    "furniture": 0.6,
+    "meters": 0.0
+   },
+   "grade": {
+    "fog": [
+     1.08,
+     1.02,
+     0.88
+    ],
+    "ambient": [
+     1.05,
+     1.0,
+     0.9
+    ]
+   },
+   "remix": {
+    "rtx.tonemap.exposureBias": "0",
+    "rtx.tonemap.colorBalance": "1.06, 1.01, 0.9"
+   }
+  },
+  "residential_mall": {
+   "base": "downtown_core",
+   "kit": {
+    "crowns": false
+   }
+  },
+  "residential_prison": {
+   "base": "default",
+   "kit": {
+    "parapet": 0.14,
+    "fire_escapes": "none",
+    "water_towers": 0.0,
+    "awnings": {
+     "rate": 0.0
+    }
+   }
+  },
+  "industrial_russian": {
+   "base": "industrial_docks",
+   "kit": {
+    "stacks": 2
+   },
+   "grade": {
+    "fog": [
+     0.9,
+     0.98,
+     0.92
+    ],
+    "ambient": [
+     0.93,
+     0.99,
+     0.94
+    ]
+   }
+  },
+  "industrial_krishna": {
+   "base": "industrial_docks",
+   "kit": {
+    "stacks": 1,
+    "recast": {
+     "block": "industrial",
+     "office_tower": "industrial"
+    }
+   },
+   "grade": {
+    "fog": [
+     1.04,
+     0.98,
+     0.9
+    ],
+    "ambient": [
+     1.02,
+     0.99,
+     0.93
+    ]
+   }
+  },
+  "industrial_zaibatsu": {
+   "base": "industrial_docks",
+   "kit": {
+    "stacks": 2,
+    "roof_units": 0.4
+   },
+   "grade": {
+    "fog": [
+     0.92,
+     0.96,
+     1.02
+    ],
+    "ambient": [
+     0.95,
+     0.98,
+     1.02
+    ]
+   }
+  },
+  "downtown_mixed": {
+   "base": "downtown_core",
+   "kit": {
+    "crowns": true,
+    "flagpoles": false,
+    "neon": 0.2,
+    "recast": {
+     "block": "office_tower",
+     "warehouse": "office_tower"
+    }
+   },
+   "grade": {
+    "fog": [
+     0.97,
+     0.99,
+     1.03
+    ],
+    "ambient": [
+     0.99,
+     1.0,
+     1.02
+    ]
+   },
+   "remix": {
+    "rtx.tonemap.exposureBias": "0.05",
+    "rtx.tonemap.colorBalance": "0.99, 1, 1.02"
+   }
+  },
+  "residential_mixed": {
+   "base": "residential_brownstone",
+   "kit": {
+    "fire_escapes": "side",
+    "water_towers": 0.5,
+    "recast": {
+     "block": "brownstone"
+    }
+   },
+   "grade": {
+    "fog": [
+     1.03,
+     1.0,
+     0.96
+    ],
+    "ambient": [
+     1.02,
+     1.0,
+     0.97
+    ]
+   },
+   "remix": {
+    "rtx.tonemap.exposureBias": "0",
+    "rtx.tonemap.colorBalance": "1.02, 1, 0.97"
+   }
+  },
+  "industrial_mixed": {
+   "base": "industrial_docks",
+   "kit": {
+    "stacks": 1,
+    "recast": {
+     "block": "industrial",
+     "office_tower": "industrial"
+    }
+   },
+   "props": {
+    "containers": 1.0
+   },
+   "grade": {
+    "fog": [
+     0.95,
+     0.98,
+     0.97
+    ],
+    "ambient": [
+     0.97,
+     0.99,
+     0.98
+    ]
+   },
+   "remix": {
+    "rtx.tonemap.exposureBias": "-0.05",
+    "rtx.tonemap.colorBalance": "0.98, 1, 0.99"
    }
   }
  }

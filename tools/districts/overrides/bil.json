@@ -1,5 +1,5 @@
 {
-  "_comment": "Hand-editable district overrides for Industrial (bil); see wil.json.",
+  "_comment": "Hand-editable district overrides for Industrial (bil); see wil.json; default_style: the row of every district not listed in styles.",
   "names": {
     "gang:russgang": "Russian Mafia turf",
     "gang:krisgang": "Krishna turf",
@@ -15,5 +15,6 @@
     "local_nav:b21": "industrial_docks",
     "nav:m14": "industrial_docks"
   },
-  "rects": []
+  "rects": [],
+  "default_style": "industrial_mixed"
 }

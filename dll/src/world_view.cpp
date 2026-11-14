@@ -4191,6 +4191,16 @@ void WorldView::RenderFrame() {
                 kitShow = v;
             }
             renderer_.SetKitPresentation(worldUploaded_ ? g_presentExtras : 0.0f, kitShow != 0);
+            if (renderer_.KitStreaming()) {
+                // DISTRICTS round 5: the kit's lit signs follow the street lights' staggered switch-on (time_of_day.h),
+                // 32 buckets of their own; dark while the day/night cycle is off (the fixed noon sun)
+                float share[32];
+                DaylightGate gate;
+                gate.enabled = true;
+                const bool cycle = TimeOfDay().enabled;
+                for (int k = 0; k < 32; ++k) share[k] = cycle ? DaylightGateFactorKeyed(gate, 0x51C0B0C5ULL + static_cast<uint64_t>(k) * 0x9E37ULL) : 0.0f;
+                renderer_.SetKitSignLights(share);
+            }
             if (districts::StylesLoaded()) {
                 LARGE_INTEGER dc, df;
                 QueryPerformanceCounter(&dc);

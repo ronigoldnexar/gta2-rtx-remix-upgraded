@@ -371,3 +371,44 @@ rare. The grade is deliberately subtle. Pixels changed by the kit at this camera
 
 Next: Downtown needs a street-level lever that does not depend on cut openings (sign bands and canopies along the
 whole ground floor of a front, street-level piers), then the district rows for the other gang and local districts.
+
+## 11. Round 5 (14 Nov): Downtown identity, QA remainder, the whole city streamed
+
+### Downtown identity
+- **Storefronts** (`storefronts`, the downtown rows and the Mall): along every street-facing ground floor of a
+  commercial building, whether or not the analysis cut openings there: a dark fascia sign band over the ground floor
+  (0.2 high, at the top of the ground floor), an illuminated sign box on three cells in four (letters in warm or cool,
+  per building), a solid canvas canopy with a valance under it (colour from the row's palette, per building; striped
+  canvas read as barrier tape from the street), and neon tubes up some cell edges (the row's `neon` share: 0.8 in
+  Yakuza turf and Ukita, 0.05 in the Zaibatsu business district). Per-opening awnings are off where the band runs.
+- **Tower silhouettes** (`crowns`, 4+ levels): a setback storey over the roof's largest inner rectangle, in the tower's
+  own upper wall art, a stone crown step and a dark cap on it, and a 2.2-block mast; **flagpoles** (`flagpoles`) on the
+  front roof edge with a canvas flag. All on real flat roof (QA anchors); roof units are kept off the setback.
+- **Lit at dusk:** sign faces and neon carry an emissive flag and one of 32 switch-on buckets. The DLL fills the
+  buckets' night share each frame from lighting-v1's staggered street-light clock (`DaylightGateFactorKeyed`, the
+  same `lights_on_hhmm` and `lights_stagger_minutes` as lamps, windows and cars), and the renderer adds each group's
+  `_lit` material, unlit and unfogged, at that share times the chunk's and the kit's fade. Dark while the day/night
+  cycle is off (the fixed noon sun) and by day. Plain renderer and Remix draw the same additive pass; under Remix the
+  signs show bright but do not emit light into the scene (that would need an emissive entry for the lit textures in
+  the gta2hd layer).
+
+### QA remainder (whole city, final code)
+| level | round 4 | round 5 | lean rebuilds |
+|---|---|---|---|
+| wil | 7 % | 5 % | 10 |
+| ste | 1 % | 1 % | 3 |
+| bil | 8 % | 2 % | 1 |
+
+Over budget: 0 (was 12). A building over 20 000 triangles is now rebuilt lean (no dentils, two brackets a face, half
+the ribs and balconies, no hood moulds, sills without end caps). Overlaps: 69 of bil's 84 were chimney stacks
+capped twice (the stack's own cap under its iron ring); the setback storey met the plant rooms on towers. What is
+left (65 buildings) are small coplanar caps (a sill end against a trim).
+
+### The whole city streamed
+Every building of every level streams (`DISTRICTS_STREAM="wil:all ste:all bil:all"`), each district with its row:
+the named districts have rows of their own (Yakuza turf and Ukita neon, the Zaibatsu business district corporate,
+the University campus, Rednecks, the suburbs, the prison, the Mall, the three Industrial gangs), every other district
+the level's mixed row (`default_style` in `overrides/<lvl>.json`); a row can inherit another (`base`). Streams:
+wil 3.26 M / 0.40 M triangles (LOD0 / LOD1, 172 MB), ste 2.40 M / 0.26 M (125 MB), bil 1.26 M / 0.22 M (70 MB). The
+vertex pool went to 16 pages (32 MB) and LOD0 to 20 blocks: a dense Downtown chunk is 17 000 triangles at LOD0, and
+with 8 pages the pool filled with 10 chunks and refused the rest.

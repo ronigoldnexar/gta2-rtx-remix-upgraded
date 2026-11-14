@@ -1,5 +1,5 @@
 {
-  "_comment": "Hand-editable district overrides for Downtown (wil). rects: [x, y, w, h] in map cells, applied after the map's zones; names: display names for zone keys the game's text does not name; styles: the style-table row (docs/districts-plan.md) a district uses.",
+  "_comment": "Hand-editable district overrides for Downtown (wil). rects: [x, y, w, h] in map cells, applied after the map's zones; names: display names for zone keys the game's text does not name; styles: the style-table row (docs/districts-plan.md) a district uses; default_style: the row of every district not listed in styles.",
   "names": {
     "gang:yakuzagang": "Yakuza turf",
     "gang:zaibatsugang": "Zaibatsu turf",
@@ -14,5 +14,6 @@
     "local_nav:m39": "downtown_neon",
     "local_nav:m31": "downtown_core"
   },
-  "rects": []
+  "rects": [],
+  "default_style": "downtown_mixed"
 }

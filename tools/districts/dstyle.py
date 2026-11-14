@@ -15,7 +15,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 def main():
     work, lvl, out = sys.argv[1:4]
-    styles = json.load(open(os.path.join(HERE, "styles.json")))["styles"]
+    sys.path.insert(0, HERE)
+    from kit import STYLES as styles     # the rows with their "base" rows merged in
     dj = json.load(open(os.path.join(work, f"{lvl}_districts.json")))
     names = ["default"]
     drow = []

@@ -86,6 +86,9 @@ def district_grid(m, lvl, gxt, overrides):
     for k, st in overrides.get("styles", {}).items():
         if k in info:
             info[k]["style"] = st
+    if overrides.get("default_style"):     # the level's own flavour for every district without a row of its own
+        for k in info:
+            info[k].setdefault("style", overrides["default_style"])
     return [info[k] for k in keys], grid
 
 

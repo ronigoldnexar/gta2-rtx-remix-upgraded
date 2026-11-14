@@ -32,13 +32,18 @@ from gmap import FaceFrame, W, H
 
 KIT = ["stone_light", "stone_brown", "metal_dark", "metal_galv", "grate", "awning_red", "awning_green",
        "awning_blue", "brick_dark", "concrete", "glass_dark", "wood", "awning_yellow", "awning_brown", "rubber",
-       "canvas_red", "canvas_green", "canvas_navy", "canvas_maroon", "canvas_cream", "canvas_ochre", "shutter"]
+       "canvas_red", "canvas_green", "canvas_navy", "canvas_maroon", "canvas_cream", "canvas_ochre", "shutter",
+       "sign_warm", "sign_warm_lit", "sign_cool", "sign_cool_lit", "neon_pink", "neon_pink_lit"]
 K = {n: i for i, n in enumerate(KIT)}
 ALPHA = {K["grate"]}
+# illuminated parts: drawn with the day material, plus (renderer, at night) the next material, the "_lit" one, added
+# at its own staggered switch-on time: flags 16 = emissive, bits 8..12 = one of 32 switch-on buckets (time_of_day.h)
+EMISSIVE = {K["sign_warm"], K["sign_cool"], K["neon_pink"]}
 
 SKIN = 0.15          # wall proud of the box face: the window reveal depth (~60 cm at 4 m a block)
 MAXO = 0.25          # nothing stands further out than this from the box face
 CONF = 0.45          # openings cut only above this confidence (analyze.py)
+BUDGET = 20000       # triangles a building (qa.py); over it the building is built lean
 DEPS = 0.04          # ends of a proud element move out by DEPS x its depth past the skin: no two elements of different
                      # depth end in one plane (their end caps z-fought: qa.py coplanar pairs, round 4)
 HAXIS = {"N": (-1.0, 0.0, 0.0), "S": (1.0, 0.0, 0.0), "E": (0.0, 0.0, 1.0), "W": (0.0, 0.0, -1.0)}
@@ -68,7 +73,25 @@ AWNING_COLOURS = {"awning_red": (168, 36, 34), "awning_green": (34, 104, 58), "a
 
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-STYLES = json.load(open(os.path.join(HERE, "styles.json")))["styles"]   # per-district rows (docs/districts-plan.md)
+def _resolve_styles(raw):
+    """styles.json rows; a row with "base" is that row with its own keys merged over it (nested dicts merged too,
+    except "recast", which a row gives whole)"""
+    def merge(a, b):
+        out = dict(a)
+        for k, v in b.items():
+            out[k] = merge(out[k], v) if isinstance(v, dict) and isinstance(out.get(k), dict) and k != "recast" else v   # a recast replaces
+        return out
+    done = {}
+    def get(name):
+        if name not in done:
+            row = raw[name]
+            base = row.get("base", "default" if name != "default" else None)
+            done[name] = merge(get(base), {k: v for k, v in row.items() if k != "base"}) if base else row
+        return done[name]
+    return {n: get(n) for n in raw if not n.startswith("_")}
+
+
+STYLES = _resolve_styles(json.load(open(os.path.join(HERE, "styles.json")))["styles"])   # per-district rows (docs/districts-plan.md)
 
 
 def contrast(lum, bx):
@@ -132,7 +155,7 @@ class Mesh:
         else:
             own.append((self.cur, at, len(ix) - at))
 
-    def kit(self, mat, pts, n, scale=2.0):
+    def kit(self, mat, pts, n, scale=2.0, bucket=0):
         """a kit-material polygon, world-planar UVs on the dominant axis of its normal"""
         ax = max(range(3), key=lambda i: abs(n[i]))
         if ax == 0:
@@ -141,7 +164,19 @@ class Mesh:
             uvs = [(p[0] * scale, p[2] * scale) for p in pts]
         else:
             uvs = [(p[0] * scale, -p[1] * scale) for p in pts]
-        self.poly((-1 - K[mat], (1 if K[mat] in ALPHA else 0) | 2 | 4), pts, uvs, n)
+        fl = (1 if K[mat] in ALPHA else 0) | 2 | 4 | ((16 | ((bucket & 31) << 8)) if K[mat] in EMISSIVE else 0)
+        self.poly((-1 - K[mat], fl), pts, uvs, n)
+
+    def merge(self, o):
+        """append another mesh (its owners, anchors and triangles)"""
+        for key, (vs, ix) in o.g.items():
+            mv, mi = self.g[key]
+            base, at = len(mv), len(mi)
+            mv.extend(vs)
+            mi.extend(i + base for i in ix)
+            self.owner[key].extend((bid, first + at, cnt) for bid, first, cnt in o.owner[key])
+        self.anchors.extend(o.anchors)
+        self.tris += o.tris
 
     def write(self, path):
         keys = sorted(self.g.keys())
@@ -270,6 +305,7 @@ class Builder:
         self.roof = [[m.top(x, y)[0] for x in range(W)] for y in range(H)]
         self.mesh = Mesh()
         self.report = []
+        self.lean = False
         self.rows = []      # per district index (catalogue.py), its style row (styles.json; overrides/<lvl>.json picks it)
         dp = os.path.join(work, f"{lvl}_districts.json") if work else None
         if dp and os.path.exists(dp):
@@ -313,6 +349,10 @@ class Builder:
         if ind and k.get("stacks"):
             st["vents"] = True
         st["awnings"] = k.get("awnings") or STYLES["default"]["kit"]["awnings"]
+        st["neon"] = k.get("neon", 0.25)
+        for key in ("storefronts", "crowns", "flagpoles"):
+            if k.get(key) and not ind and arch != "house":
+                st[key] = k[key]
         return st
 
     # ---- map and art queries
@@ -396,6 +436,25 @@ class Builder:
 
     # ---- one building
     def build(self, bid):
+        """one building into its own mesh; over BUDGET triangles it is built again lean (no dentils, two brackets a
+        face, fewer ribs and balconies: qa.py's budget), then appended to the level's mesh"""
+        main = self.mesh
+        n = None
+        for lean in (False, True):
+            self.lean = lean
+            self.mesh = Mesh(); self.mesh.cur = bid
+            n = self._build(bid)
+            if n is None or n <= BUDGET:
+                break
+            self.report.pop()
+        if n is not None and self.lean:
+            self.report[-1]["lean"] = 1
+        main.merge(self.mesh)
+        self.mesh = main
+        self.lean = False
+        return n
+
+    def _build(self, bid):
         b = self.cat[bid]
         a = self.arch[bid]
         if a["archetype"] not in STYLE:
@@ -417,8 +476,13 @@ class Builder:
             self.face(b, st, walls, front, x, y, side, level, wl, f, stats)
         if st.get("fire_escape") and b["levels"] >= (2 if st.get("fire_front") else 3) and not self.coarse:
             self.fire_escapes(b, walls, front, stats, st.get("fire_front", False))
+        setback = set()
+        if st.get("crowns") and b["levels"] >= 4:
+            setback = self.tower_crown(b, st, walls, stats) or set()
         if st.get("roof_units"):
-            self.roof_units(b, st, stats)
+            self.roof_units(b, st, stats, setback)
+        if st.get("flagpoles") and b["levels"] >= 3 and not self.coarse:
+            self.flagpoles(b, front, stats)
         if st.get("water_tower"):
             self.water_tower(b, stats)
         if st.get("roof"):
@@ -460,6 +524,8 @@ class Builder:
         er = self.ext(side, self.corner(x, y, side, level, 1), SKIN)
         if self.coarse:
             self.skin(wl, [], -el, 1.0 + er, stats)
+            if st.get("storefronts") and level == f["lo"] and level <= street and self.street_facing(x, y, side, level):
+                self.storefront(b, st, wl, x, y, side, level, [], el, er, stats)
             self.caps(wl, walls, x, y, side, level, el, er, roof, street, st, stats)
             if (x, y, side, level + 1) not in walls and level + 1 >= roof - 1 and level + 1 > street + 1:
                 top = level + 1
@@ -512,16 +578,16 @@ class Builder:
                 proud = min(0.04, max(0.012, 0.15 * (h1 - h0)))      # at most 0.19 deep: the piers are at 0.195    # a small window gets a small sill (half of round 2)
                 self.sill(wl, st["trim"], s0, s1, max(level + 0.002, yy0 - 0.012 - 0.25 * proud), yy0, proud, stats)
                 stats["sills"] += 1
-                if st.get("hoods") and yy1 < level + 0.94:
+                if st.get("hoods") and yy1 < level + 0.94 and not self.lean:
                     hy1 = min(level + 0.995, yy1 + 0.045)
                     hp = min(0.05, max(0.02, 0.25 * (h1 - h0)))
                     self.trim(wl, st["trim"], max(elo, h0 - 0.02), min(ehi, h1 + 0.02), yy1, hy1, SKIN, SKIN + hp, stats=stats)
                     box(self.mesh, wl, st["trim"], max(elo, h0 - 0.02), min(ehi, h1 + 0.02), yy1, yy1 + 0.012, SKIN + hp, SKIN + hp + 0.015, "blrf")
                     stats["hoods"] += 1
-                if st.get("balconies") and upper and h32(x, y, ord(side), level, int(round(h0 * 8)), 9) % 4 == 1:
+                if st.get("balconies") and upper and h32(x, y, ord(side), level, int(round(h0 * 8)), 9) % (8 if self.lean else 4) == 1:
                     self.balcony(wl, max(elo, h0 - 0.04), min(ehi, h1 + 0.04), yy0 - 0.03)
                     stats["balconies"] += 1
-            elif kind == "shop window" and level <= street:
+            elif kind == "shop window" and level <= street and not st.get("storefronts"):
                 if st.get("industrial"):
                     # industrial: no fabric; a plain steel hood over the opening (some have none)
                     if h32(x, y, ord(side), int(h0 * 64), 21) % 3:
@@ -530,7 +596,7 @@ class Builder:
                         stats["steel_hoods"] += 1
                 else:
                     self.shopfront(wl, max(-el, h0 - 0.03), min(1 + er, h1 + 0.03), yy1, level, stats, (b["id"], b["district"], x, y, side, h0))
-            elif kind == "door" and level <= street and is_front and st["awnings"].get("doors") and not st.get("industrial"):
+            elif kind == "door" and level <= street and is_front and st["awnings"].get("doors") and not st.get("industrial") and not st.get("storefronts"):
                 # a district whose street doors are shop entrances (the downtown core): the shopfront treatment on them
                 self.shopfront(wl, max(-el, h0 - 0.06), min(1 + er, h1 + 0.06), yy1, level, stats, (b["id"], b["district"], x, y, side, h0))
             elif kind in ("door", "loading_door") and level <= street:
@@ -540,6 +606,8 @@ class Builder:
                     self.stoop(wl, h0, h1, level, stats)
         for hl in bays:
             self.bay(wl, hl, el, er, stats)
+        if st.get("storefronts") and level == f["lo"] and level <= street and self.street_facing(x, y, side, level):
+            self.storefront(b, st, wl, x, y, side, level, holes, el, er, stats)
         # base: a rusticated plinth broken at doors and shop windows
         if level == f["lo"] and level <= street:
             cuts = sorted((hl[0], hl[1]) for hl in holes if hl[4] in ("door", "loading_door", "shop window") and hl[2] < level + 0.2)
@@ -555,10 +623,11 @@ class Builder:
                 at = max(at, c1)
             stats["plinth"] += 1
         if st.get("ribs") and not holes and not self.openings(wl.tile):
-            for k in range(1, 8):
-                hc = k / 8.0
+            nr = 4 if self.lean else 8
+            for k in range(1, nr):
+                hc = k / float(nr)
                 self.rib(wl, hc - 0.014, hc + 0.014, level, level + 1)
-            stats["ribs"] += 7
+            stats["ribs"] += nr - 1
         # the roof edge: the top of this column's solid wall at the roof or a level under it (a map railing stays above)
         if (x, y, side, level + 1) not in walls and level + 1 >= roof - 1 and level + 1 > street + 1:
             self.cornice(wl, st, x, y, side, level, level + 1, roof, stats)
@@ -577,6 +646,8 @@ class Builder:
         mk([P(h0, y0, d1), P(h1, y0, d1), P(h1, y1 - bev, d1), P(h0, y1 - bev, d1)], wl.n)
         sl = math.hypot(proud, bev)
         mk([P(h0, y1, d0), P(h1, y1, d0), P(h1, y1 - bev, d1), P(h0, y1 - bev, d1)], (wl.n[0] * bev / sl, proud / sl, wl.n[2] * bev / sl))
+        if self.lean:
+            return      # lean: the sill's front and sloped top only
         mk([P(h0, y0, d0), P(h1, y0, d0), P(h1, y0, d1), P(h0, y0, d1)], (0.0, -1.0, 0.0))
         for hh, s_ in ((h0, -1), (h1, 1)):
             mk([P(hh, y0, d0), P(hh, y0, d1), P(hh, y1 - bev, d1), P(hh, y1, d0)], (wl.ha[0] * s_, 0.0, wl.ha[2] * s_))
@@ -661,12 +732,13 @@ class Builder:
             # frieze, dentil course, bracket course, crown and cap: a deep profile with a hard shadow line under it
             l, r = ex(0.17); self.band(wl, l, r, top - 0.26, top - 0.16, SKIN, 0.17, b0, b1, "blrf")
             l, r = ex(0.19); self.band(wl, l, r, top - 0.16, top - 0.13, SKIN, 0.19, b0, b1, "blrf")
-            n = 16
+            n = 0 if self.lean else 16
             for k in range(n):
                 hc = (k + 0.5) / n
                 self.band(wl, hc - 0.012, hc + 0.012, top - 0.13, top - 0.095, 0.19, 0.205, b0, b1, "blrf")
-            for k in range(4):
-                hc = (k + 0.5) / 4
+            nb = 2 if self.lean else 4
+            for k in range(nb):
+                hc = (k + 0.5) / nb
                 self.band(wl, hc - 0.02, hc + 0.02, top - 0.13, top - 0.06, SKIN, 0.225, b0, b1, "blrf")
             l, r = ex(MAXO); self.band(wl, l, r, top - 0.06, top + 0.0, SKIN, MAXO, b0, b1, "tblrf")
             l, r = ex(0.24); self.band(wl, l, r, top, top + 0.025, SKIN, 0.24, b0, b1, "tlrf")
@@ -911,6 +983,143 @@ class Builder:
         return cs, [(x, y) for (x, y) in cs if all((x + dx, y + dy) in cs for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))
                     and self.roof_host(x, y, R)]
 
+    def street_facing(self, x, y, side, level):
+        """the cell in front of this wall is a road or a pavement at the wall's foot"""
+        ox, oy = OUT[side]
+        if not (0 <= x + ox < W and 0 <= y + oy < H):
+            return False
+        t = self.m.top(x + ox, y + oy)
+        return t[2] in (1, 2) and t[0] <= level + 1
+
+    def sign_box(self, wl, mat, h0, h1, y0, y1, d0, d1, bucket):
+        """an illuminated sign box: the sign material's letters across its face (u 0..1 along, v 0..1 down), a dark
+        metal case; the face is emissive (Mesh.kit flags) and lights at its bucket's switch-on time"""
+        P = wl.w
+        fl = 2 | 4 | 16 | ((bucket & 31) << 8)
+        self.mesh.poly((-1 - K[mat], fl), [P(h0, y0, d1), P(h1, y0, d1), P(h1, y1, d1), P(h0, y1, d1)],
+                       [(0.0, 1.0), (1.0, 1.0), (1.0, 0.0), (0.0, 0.0)], wl.n)
+        box(self.mesh, wl, "metal_dark", h0, h1, y0, y1, d0, d1, "tblr")
+
+    def storefront(self, b, st, wl, x, y, side, level, holes, el, er, stats):
+        """DISTRICTS round 5, the commercial front of a downtown street (not tied to cut openings): a dark fascia sign
+        band over the ground floor along the whole front, a sign box lit at night on most cells, a canopy under the
+        band (colour from the district palette, by building), and neon tubes up some cell edges"""
+        g_top = max([hl[3] for hl in holes if hl[2] < level + 0.3] + [level])
+        y0 = min(level + 0.78, max(level + 0.72, g_top + 0.01)); y1 = y0 + 0.2     # the top of the ground floor
+        h0, h1 = -el, 1.0 + er
+        box(self.mesh, wl, "metal_dark", h0, h1, y0, y1, SKIN, 0.208, "tblrf")          # the fascia
+        stats["sign_bands"] += 1
+        v = h32(wl.x, wl.y, ord(side), level, 61)
+        bucket = h32(b["id"], wl.x, wl.y, 7) & 31
+        if self.coarse:
+            box(self.mesh, wl, "metal_dark", h0, h1, y0 - 0.03, y0, SKIN, MAXO - 0.01, "tbf")
+            return
+        if v % 4:
+            mat = ("sign_warm", "sign_cool")[(h32(b["id"], 5) >> 3) & 1]
+            self.sign_box(wl, mat, 0.1, 0.9, y0 + 0.02, y1 - 0.02, 0.208, 0.226, bucket)
+            stats["sign_boxes"] += 1
+        names = sorted(n for n in (st["awnings"].get("palette") or []) if n in CANVAS) or sorted(CANVAS)
+        mat = names[h32(b["id"], 9) % len(names)]
+        if (v >> 4) % 6:
+            # the canopy: canvas sloped from under the band out to 0.24 with a 0.06 valance (solid: a striped one read
+            # as barrier tape from the street)
+            P = wl.w
+            top, drop, dep = y0 - 0.005, 0.1, MAXO - 0.01
+            n_ = (wl.n[0] * drop, dep - SKIN, wl.n[2] * drop); ln = math.sqrt(sum(c * c for c in n_)); n_ = tuple(c / ln for c in n_)
+            self.mesh.kit(mat, [P(h0, top, SKIN), P(h1, top, SKIN), P(h1, top - drop, dep), P(h0, top - drop, dep)], n_, scale=1.0)
+            self.mesh.kit(mat, [P(h0, top - drop, dep), P(h1, top - drop, dep), P(h1, top - drop - 0.06, dep), P(h0, top - drop - 0.06, dep)], wl.n, scale=1.0)
+            stats["canopies"] += 1
+        if ((v >> 8) % 100) < 100 * st.get("neon", 0.25):
+            for hc in (0.04, 0.96):
+                tube = [wl.w(hc - 0.008, y1 + 0.02, 0.226), wl.w(hc + 0.008, y1 + 0.02, 0.226),
+                        wl.w(hc + 0.008, y1 + 0.42, 0.226), wl.w(hc - 0.008, y1 + 0.42, 0.226)]
+                self.mesh.poly((-1 - K["neon_pink"], 2 | 4 | 16 | (((bucket + 1) & 31) << 8)), tube,
+                               [(0.0, 0.5), (0.0, 0.5), (1.0, 0.5), (1.0, 0.5)], wl.n)
+                box(self.mesh, wl, "metal_dark", hc - 0.004, hc + 0.004, y1 + 0.02, y1 + 0.42, SKIN, 0.222, "lr")
+            stats["neon"] += 1
+
+    def inner_rect(self, inner):
+        best = None
+        for (x0, y0) in inner:
+            x1 = x0
+            while (x1 + 1, y0) in inner: x1 += 1
+            for xe in range(x0, x1 + 1):
+                y1 = y0
+                while all((xx, y1 + 1) in inner for xx in range(x0, xe + 1)): y1 += 1
+                area = (xe - x0 + 1) * (y1 - y0 + 1)
+                if best is None or area > best[0]:
+                    best = (area, x0, y0, xe, y1)
+        return best
+
+    def tower_crown(self, b, st, walls, stats):
+        """DISTRICTS round 5, a downtown tower's silhouette from the street: a setback storey over the largest inner
+        rectangle of the roof (the tower's own upper wall art round it), a two-step crown on that, and a mast"""
+        cs, inner = self.interior(b)
+        inner = set(inner)
+        best = self.inner_rect(inner)
+        if not best:
+            return
+        area, x0, y0, x1, y1 = best
+        R = b["roof"]
+        tiles = defaultdict(int)
+        for (x, y, side, level) in walls:
+            if level >= R - 2:
+                tiles[walls[(x, y, side, level)][0].tile] += 1
+        if not tiles:
+            return
+        tile = max(tiles, key=lambda t: (tiles[t], t))
+        for xx in range(x0, x1 + 1):
+            for yy in range(y0, y1 + 1):
+                self.anchor("setback", xx, yy, R)
+        X0, X1 = x0 + 0.15, x1 + 0.85
+        Z0, Z1 = H - y1 - 1 + 0.15, H - y0 - 0.85
+        hgt = 1.0 if area >= 4 else 0.6
+        key = (tile, 2 | 4)
+        for (pa, pb, n) in (((X0, Z0), (X1, Z0), (0, 0, -1)), ((X1, Z1), (X0, Z1), (0, 0, 1)),
+                            ((X0, Z1), (X0, Z0), (-1, 0, 0)), ((X1, Z0), (X1, Z1), (1, 0, 0))):
+            ln = abs(pb[0] - pa[0]) + abs(pb[1] - pa[1])
+            self.mesh.poly(key, [(pa[0], R, pa[1]), (pb[0], R, pb[1]), (pb[0], R + hgt, pb[1]), (pa[0], R + hgt, pa[1])],
+                           [(0.0, hgt), (ln, hgt), (ln, 0.0), (0.0, 0.0)], n)
+        self.mesh.kit("concrete", [(X0, R + hgt, Z0), (X1, R + hgt, Z0), (X1, R + hgt, Z1), (X0, R + hgt, Z1)], (0, 1, 0))
+        # the crown: a stone course proud of the setback, a narrower step, a dark cap
+        c = 0.06
+        cuboid(self.mesh, "stone_light", X0 - c, X1 + c, R + hgt - 0.08, R + hgt + 0.02, Z0 - c, Z1 + c, bottom=True)
+        i1 = min(0.3, (X1 - X0) / 4, (Z1 - Z0) / 4)
+        cuboid(self.mesh, "stone_light", X0 + i1, X1 - i1, R + hgt + 0.02, R + hgt + 0.32, Z0 + i1, Z1 - i1)
+        i2 = i1 + min(0.15, (X1 - X0) / 8, (Z1 - Z0) / 8)
+        cuboid(self.mesh, "metal_dark", X0 + i2, X1 - i2, R + hgt + 0.32, R + hgt + 0.4, Z0 + i2, Z1 - i2)
+        cx, cz = (X0 + X1) / 2, (Z0 + Z1) / 2
+        top = R + hgt + 0.4
+        cyl(self.mesh, "metal_dark", cx, cz, top, top + 2.2, 0.04, 0.015, n=6)
+        for k_ in range(3):
+            yy = top + 0.7 + 0.45 * k_
+            cuboid(self.mesh, "metal_dark", cx - 0.2 + 0.05 * k_, cx + 0.2 - 0.05 * k_, yy, yy + 0.015, cz - 0.01, cz + 0.01)
+        stats["crowns"] += 1
+        return {(xx, yy) for xx in range(x0, x1 + 1) for yy in range(y0, y1 + 1)}
+
+    def flagpoles(self, b, front, stats):
+        """DISTRICTS round 5: flagpoles on the roof edge over the street front, the flag in a canvas colour"""
+        if front is None:
+            return
+        side, line = front
+        ox, oy = OUT[side]
+        R = b["roof"]
+        cells = sorted(c for c in map(tuple, b["cells"]) if (c[1] if side in "NS" else c[0]) == line and self.roof_host(c[0], c[1], R))
+        if not cells:
+            return
+        picks = [cells[len(cells) // 2]] if len(cells) < 4 else [cells[len(cells) // 4], cells[3 * len(cells) // 4]]
+        flags = sorted(CANVAS)
+        for (x, y) in picks:
+            cx, cz = x + 0.5 + ox * 0.3, H - y - 0.5 - oy * 0.3
+            cyl(self.mesh, "metal_galv", cx, cz, R, R + 1.4, 0.02, n=6)
+            mat = flags[h32(b["id"], x, y, 3) % len(flags)]
+            ax, az = (ALONG[side][0], -ALONG[side][1])
+            pts = [(cx, R + 1.38, cz), (cx + ax * 0.5, R + 1.36, cz + az * 0.5), (cx + ax * 0.5, R + 1.08, cz + az * 0.5), (cx, R + 1.1, cz)]
+            nrm = (float(ox), 0.0, float(-oy))
+            self.mesh.kit(mat, pts, nrm, scale=1.0)
+            self.anchor("flagpole", x, y, R)
+            stats["flagpoles"] += 1
+
     def anchor(self, kind, x, y, base):
         self.mesh.anchors.append([self.mesh.cur, kind, x, y, base])
 
@@ -922,10 +1131,11 @@ class Builder:
         blk = self.m.block(x, y, roof)
         return bool(blk) and any(f & 0x3FF for f in blk[:5])
 
-    def roof_units(self, b, st, stats):
+    def roof_units(self, b, st, stats, exclude=frozenset()):
         """downtown roof plant: a plant-room box on the biggest roofs, rooftop units on a share of the inner roof
         cells and an antenna mast on the tallest, all on real flat roof (roof_host); kit materials (the art has none)"""
         cs, inner = self.interior(b)
+        inner = [c for c in inner if c not in exclude]      # not under a tower's setback storey
         if not inner:
             return
         R = b["roof"]
@@ -934,7 +1144,7 @@ class Builder:
         if len(inner) >= 6:      # a plant room over two inner cells side by side
             for (x, y) in ranked:
                 for dx, dy in ((1, 0), (0, 1)):
-                    if (x + dx, y + dy) in inner:
+                    if (x + dx, y + dy) in set(inner):
                         x0, x1 = x + 0.15, x + dx + 0.85
                         z0, z1 = H - (y + dy) - 1 + 0.15, H - y - 0.15
                         cuboid(self.mesh, "concrete", x0, x1, R, R + 0.55, z0, z1)
@@ -1037,7 +1247,7 @@ class Builder:
         for k in range(min(st.get("stacks", 0), len(ranked))):
             x, y = ranked[k]
             self.anchor("stack", x, y, R)
-            cyl(self.mesh, "brick_dark", x + 0.5, H - y - 0.5, R, R + 1.4 + 0.5 * k, 0.17, 0.15, n=10)
+            cyl(self.mesh, "brick_dark", x + 0.5, H - y - 0.5, R, R + 1.4 + 0.5 * k, 0.17, 0.15, n=10, cap=False)   # the ring caps it
             cyl(self.mesh, "metal_dark", x + 0.5, H - y - 0.5, R + 1.3 + 0.5 * k, R + 1.4 + 0.5 * k, 0.17, n=10)
             stats["stacks"] += 1
         for (x, y) in ranked[st.get("stacks", 0):]:

@@ -20,13 +20,16 @@ for l in wil ste bil; do
   GTA2_DATA="$DATA" $PY "$HERE/kit.py" "$WORK" $l "$OUT/$l.kit" --hd "$HD" $([ "$MODE" = all ] && echo --all) | head -1
   rm -f "$OUT/$l.kit.owners.json" "$OUT/$l.kit.anchors.json"
 done
-# DISTRICTS_STREAM="<lvl>:<district key> ..." (e.g. "wil:local_nav:m31 ste:gang:sciegang bil:local_nav:b22"): each
+# DISTRICTS_STREAM="<lvl>:<district key> ..." (e.g. "wil:local_nav:m31 ste:gang:sciegang bil:local_nav:b22", or
+# "wil:all ste:all bil:all"): each
 # such district as that level's streamed kit (<lvl>.kit2: chunks, two levels of detail, packed vertices; the renderer
 # prefers it to <lvl>.kit); one district per level
+# "<lvl>:all" streams every building of the level (round 5: the whole city, every district with its style row)
 for SPEC in ${DISTRICTS_STREAM:-}; do
   SL=${SPEC%%:*}; SD=${SPEC#*:}
-  GTA2_DATA="$DATA" $PY "$HERE/kit.py" "$WORK" $SL "$WORK/${SL}_stream0.kit" --hd "$HD" --district "$SD" | head -1
-  GTA2_DATA="$DATA" $PY "$HERE/kit.py" "$WORK" $SL "$WORK/${SL}_stream1.kit" --hd "$HD" --district "$SD" --coarse | head -1
+  SEL="--district $SD"; [ "$SD" = all ] && SEL="--all"
+  GTA2_DATA="$DATA" $PY "$HERE/kit.py" "$WORK" $SL "$WORK/${SL}_stream0.kit" --hd "$HD" $SEL | head -1
+  GTA2_DATA="$DATA" $PY "$HERE/kit.py" "$WORK" $SL "$WORK/${SL}_stream1.kit" --hd "$HD" $SEL --coarse | head -1
   $PY "$HERE/pack_kit.py" "$WORK/${SL}_stream0.kit" "$WORK/${SL}_stream1.kit" "$OUT/$SL.kit2"
 done
 # the per-district style rows (grade, props, Remix options) for the renderer: tools/districts/styles.json

@@ -169,6 +169,9 @@ public:
     bool LoadKitStream(const std::string& path, const Style& style);
     KitStreamStats KitStreamStatus() const { return kitStream_.Stats(); }
     bool KitStreaming() const { return kitStream_.Loaded(); }
+    // DISTRICTS round 5: how lit each of the kit's 32 sign switch-on buckets is now, 0..1 (the DLL's staggered
+    // street-light clock, time_of_day.h); emissive kit groups get their "_lit" material added at that share
+    void SetKitSignLights(const float* share32) { for (int k = 0; k < 32; ++k) kitSign_[k] = share32[k]; }
     void SetKitPresentation(float alpha, bool visible) {
         kitAlpha_ = alpha < 0.0f ? 0.0f : (alpha > 1.0f ? 1.0f : alpha); kitVisible_ = visible;
         post_.SetKitShadow(visible && streetView_ ? kitAlpha_ : 0.0f);
@@ -345,7 +348,8 @@ private:
     float photoMix_ = 0.0f;
     float kitAlpha_ = 1.0f;             // see SetKitPresentation
     KitStream kitStream_;
-    std::vector<PostFx::StreamCaster> kitCasters_;   // the resident chunks as shadow casters (post_fx), refilled each frame
+    std::vector<PostFx::StreamCaster> kitCasters_;
+    float kitSign_[32] = {};   // DISTRICTS round 5: the night share of each sign switch-on bucket (SetKitSignLights)   // the resident chunks as shadow casters (post_fx), refilled each frame
     void DrawKitStream(const Camera& camera);
     IDirect3DTexture9* KitMaterialTexture(const Style& style, int tile);
     bool kitVisible_ = true;

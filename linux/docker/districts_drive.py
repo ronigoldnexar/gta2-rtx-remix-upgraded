@@ -45,8 +45,18 @@ if not (s and s["driving"]):
     T.mark("NO CAR: the drive-through is on foot")
 T.view("third")
 T.mark("drive start")
+legs = route.get("legs")
 for lap in range(int(os.environ.get("DK_LAPS", "2"))):
     for i, (x, y) in enumerate(wp[1:] + wp[:1]):
-        T.drive(world, x, y, f"lap{lap} wp{i}", budget=90, fp_after=10 ** 6)
+        if legs:
+            lg = legs[(i + 1) % len(legs)]
+            T.mark(f"leg {i} to {lg['district']} ({lg['style']}: {lg.get('name')})")
+        T.drive(world, x, y, f"lap{lap} wp{i}", budget=int(os.environ.get("DK_LEG_BUDGET", "90")), fp_after=10 ** 6)
+        s = D.wait_state()
+        if not (s and s["driving"]):          # lost the car (a crash, a carjack): into another and on
+            T.mark("on foot: boarding again")
+            T.view("third")
+            s = board()
+            T.view("third")
 T.mark("drive end")
 open("/out/.dk_done", "w").write("ok\n")

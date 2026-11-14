@@ -53,9 +53,10 @@ public:
     // no index buffer: DrawPrimitive on each group's range.
     IDirect3DVertexBuffer9* Page(int i) const { return i >= 0 && i < static_cast<int>(pages_.size()) ? pages_[static_cast<size_t>(i)].vb : nullptr; }
     static constexpr uint32_t kPageVertices = 65536;   // 2 MB
-    int Pages = 8;                                      // 16 MB: ~170k triangles resident at most
+    int Pages = 16;                                     // 32 MB: ~340k triangles resident at most (round 5: the whole city
+                                                        // streams; a dense Downtown chunk is 17k triangles at LOD0)
     KitStreamStats Stats() const;
-    float Radius0 = 24.0f, Radius1 = 56.0f, FadeSeconds = 0.4f;
+    float Radius0 = 20.0f, Radius1 = 56.0f, FadeSeconds = 0.4f;
     int CreateBudget = 3;
 
 private:

@@ -9,7 +9,7 @@ os.environ.setdefault("DK_POINTS", "[]")
 import districts_capture as C   # runs nothing at import: the capture's main loop is guarded below
 D, Q, T = C.D, C.Q, C.T
 
-DUSK = int(os.environ.get("DK_DUSK", "1800"))
+DUSK = int(os.environ.get("DK_DUSK", "1820"))
 
 
 def clock(tod):
