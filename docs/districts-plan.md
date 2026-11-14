@@ -601,10 +601,13 @@ Downtown -> Residential -> Downtown in one game process (frontend PLAYER QUIT, t
 START PLAY), each stop third person + walk + first person + classic; every load verified against the game log (the
 kit's stream line). The game's frontend changes after a saved status appears (RESUME SAVED STATUS on top), and after 7
 changes the scripted keys picked REPLAY PREVIOUS AREA on swapped files, which ends in GTA2's own script error dialog
-and a clean exit (exit 167, no FAULT): so each process does 2 laps (6 changes) and three processes give 6 laps.
+and a clean exit (exit 167, no FAULT): so each process does 2 laps (6 changes) and three processes give 6 laps. (The
+game also builds its first level twice at start-up, ~45 s apart: the first "verified" load of each process was that
+second build, so the real count is 6 level changes a process, 18 a configuration; the kit-stream sequence per process,
+bil bil wil ste wil bil wil ste, shows all of them.)
 
-| level-change check (3 processes x 2 laps each) | level loads verified | FAULT |
+| level-change check (3 processes x 2 laps each) | level changes | FAULT |
 |---|---|---|
-| plain, fixed DLL (`dkl3_plain_*`) | 21 / 21 (kit streams bil bil wil ste wil bil wil ste per process) | 0 |
-| plain, the 5090's faulting DLL (`dkl3_old_*`) | 21 / 21 | 0 (the stale read is intermittent: not reproduced) |
-| RTX Remix, L4, fixed DLL (`dkl3_remix_*`) | 21 / 21 | 0 |
+| plain, fixed DLL (`dkl3_plain_*`) | 18 level changes (kit streams bil bil wil ste wil bil wil ste per process) | 0 |
+| plain, the 5090's faulting DLL (`dkl3_old_*`) | 18 | 0 (the stale read is intermittent: not reproduced) |
+| RTX Remix, L4, fixed DLL (`dkl3_remix_*`) | 18 | 0 |

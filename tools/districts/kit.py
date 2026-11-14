@@ -1049,7 +1049,11 @@ class Builder:
             mat = ("sign_warm", "sign_cool")[(h32(b["id"], 5) >> 3) & 1]
             words = SIGN_WORDS[mat]
             allowed = [i for i, w_ in enumerate(words) if w_ in (st.get("signs") or words)] or list(range(len(words)))
-            word = allowed[h32(b["id"], wl.x, wl.y, 29) % len(allowed)]     # one word a shop (cell)
+            # one word a shop (cell), stepping along the street line (the frontage's side and line, not the building),
+            # so neighbouring boxes never repeat a word, across building boundaries too (round-5 frames: BAR / BAR)
+            along = wl.x if side in "NS" else wl.y
+            line = wl.y if side in "NS" else wl.x
+            word = allowed[(h32(ord(side), line, level, 29) + along) % len(allowed)]
             self.sign_box(wl, mat, 0.1, 0.9, y0 + 0.02, y1 - 0.02, 0.208, 0.226, bucket, word)
             stats["sign_boxes"] += 1
         names = sorted(n for n in (st["awnings"].get("palette") or []) if n in CANVAS) or sorted(CANVAS)
