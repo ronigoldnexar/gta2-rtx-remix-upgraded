@@ -44,6 +44,9 @@ if [ -n "$PREV_STG" ] && git -C "$W" show "$PREV_STG:package/gta2dx9.ini" > "$C/
 python3 "$W/tools/merge_stage_ini.py" "$W/package/gta2dx9.ini" "stage/gta2dx9.ini" "$C/gta2dx9.ini" $PREV_INI
 rm -f "$C/.prev_package.ini"
 for f in install.reg uninstall.reg; do [ -f "stage/$f" ] && cp "stage/$f" "$C/$f" || cp "$W/package/$f" "$C/$f" 2>/dev/null || true; done
+# LIGHTING-V1 (14 Nov): the effects ini ships beside gta2dx9.ini (package/gta2dx9_effects.ini: the v1.1 values every install
+# carries, with SirensVersion=2 and the reconciled siren tuning); without it the play page ran the old v1.1 siren tuning.
+cp "$W/package/gta2dx9_effects.ini" "$C/gta2dx9_effects.ini" 2>/dev/null || true
 cp -al assets/models "$C/gta2dx9_models" 2>/dev/null || cp -a assets/models "$C/gta2dx9_models"
 [ -d assets/textures_hd ] && { cp -al assets/textures_hd "$C/gta2dx9_textures_hd" 2>/dev/null || cp -a assets/textures_hd "$C/gta2dx9_textures_hd"; }
 git worktree remove --force "$W" 2>/dev/null || true
@@ -52,7 +55,7 @@ if [ "${1:-}" != "--no-smoke" ]; then
   ../gamerun/stage_smoke.sh "$C" "${SMOKE_SECONDS:-150}" || { echo "restage refused: candidate failed the smoke run"; exit 1; }
 fi
 # swap in: DLLs by atomic rename, folders by directory rename (running games keep their mapped/open files)
-for f in gta2dx9.dll d3ddll.dll gta2dx9_vid.dll Dmavideo.dll DMAGlide.dll gta2dx9.ini install.reg uninstall.reg; do
+for f in gta2dx9.dll d3ddll.dll gta2dx9_vid.dll Dmavideo.dll DMAGlide.dll gta2dx9.ini gta2dx9_effects.ini install.reg uninstall.reg; do
   [ -f "$C/$f" ] && { cp "$C/$f" "stage/.$f.new" && mv -f "stage/.$f.new" "stage/$f"; }
 done
 for d in gta2dx9_models gta2dx9_textures_hd; do
