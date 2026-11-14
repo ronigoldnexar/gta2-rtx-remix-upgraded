@@ -562,8 +562,10 @@ the game's art ship as release archives); it is built from the commit's own tool
   8 809 wall and 1 640 roof anchors on their hosts, 0 off.
 - **50-building random sample** (unflagged, 2+ levels, seeded; in-game street and across views, kit on and off;
   `scratchpad/districts/ship_sample50_*`). What it found and what was fixed:
-  - Setback storeys on big flat roofs became storey-high boxes the size of a car park (wil 259, 309): a setback is now
-    a tower's (5+ levels over the street) and at most 3 x 3 cells, centred.
+  - Big pale slabs across two views (wil 259, 309): I first took them for setback storeys and limited setbacks to towers
+    (5+ levels over the street, at most 3 x 3 cells, centred; kept, a sensible limit), but the recapture
+    (`ship_qa_fixes_before_after.jpg`) is unchanged: the test camera stands on the roof edge, inside the cornice and
+    parapet. The test poses bypass the camera collision; in play the wall clearance below keeps the eye out.
   - Neon tube supports were open pairs of side faces that read as black slabs close up: now closed thin boxes.
   - **Street cameras inside the kit:** the camera collision keeps 0.12-0.24 block from the walls it knows, and the kit
     stands up to 0.25 out of them, so a camera close to a wall sat inside sills, cornices and canopies. While the kit
@@ -571,7 +573,8 @@ the game's art ship as release archives); it is built from the commit's own tool
   - Not kit defects: a few "buildings" in the catalogue are crates, fences or girder bridges (wil 13, bil 140, 818,
     1066); the kit leaves them as they are (lattice tiles are never dressed; crates get no openings). Some test poses
     stand in odd places (frame_plan's poses target a building's middle, not a framed shot).
-- vreg spawn_classic 0 tiles, 0 FAULT on the rebased stage (`dk_vreg7`, `dk_vreg8`).
+- vreg spawn_classic 0 tiles, 0 FAULT on the rebased stage (`dk_vreg7`, and `dk_vreg8` after the fixes).
+- After the fixes, wil city drive (`dkc8_wil`): 0 FAULT, busy 16.1 ms, largest free block min 657 MB.
 - City drives on the rebased stage (`dkc7_*`): 0 FAULT, all nine legs, largest free block min 996 / 617 / 576 MB
   (wil / ste / bil; gate 320).
 
