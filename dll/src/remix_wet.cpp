@@ -1037,7 +1037,7 @@ bool WriteDitherDds(const std::wstring& path) {
     for (int y = 0; y < n; ++y) for (int x = 0; x < n; ++x) {
         const float v = Hash2(x * 31 + 7, y * 17 + 3);
         uint8_t* q = &px[(static_cast<size_t>(y) * n + x) * 4];
-        q[0] = q[1] = q[2] = 255; q[3] = static_cast<uint8_t>(1 + v * 253.0f);
+        q[0] = q[1] = q[2] = 0; q[3] = static_cast<uint8_t>(1 + v * 253.0f);   // black albedo: the fog's light is its emission (fx6: a white texture lit up at night)
     }
     uint32_t header[32] = {};
     header[0] = 0x20534444; header[1] = 124; header[2] = 0x100F; header[3] = n; header[4] = n; header[5] = n * 4;
@@ -1074,7 +1074,7 @@ remixapi_MaterialHandle FogDitherMaterial(int level) {
     info.sType = REMIXAPI_STRUCT_TYPE_MATERIAL_INFO; info.pNext = &op;
     info.hash = 0x464F470000000000ull ^ key;
     info.albedoTexture = g_ditherPath.c_str();
-    info.emissiveTexture = g_ditherPath.c_str();
+    info.emissiveTexture = nullptr;
     info.emissiveColorConstant = {0.80f, 0.82f, 0.86f};
     info.emissiveIntensity = (0.02f + 0.9f * day) * g_fogEmissivePct / 100.0f;
     info.filterMode = 0; info.wrapModeU = 0; info.wrapModeV = 0;   // nearest, repeat: a crisp door
@@ -1084,17 +1084,18 @@ remixapi_MaterialHandle FogDitherMaterial(int level) {
     return h;
 }
 
-remixapi_MeshHandle FogQuad(remixapi_MaterialHandle mat, int variant = 0) {
+remixapi_MeshHandle FogQuad(remixapi_MaterialHandle mat, int variant = 0, float aspect = 1.0f) {   // aspect: the slab's height / width
     // x -1..1, y 0..1, facing -z (the eye); one mesh per (material, variant). The variants shift the screen door's
     // texture by a fraction of its tile, cycled by frame, so Ray Reconstruction averages the door into a veil.
     static std::map<std::pair<remixapi_MaterialHandle, int>, remixapi_MeshHandle> meshes;
-    auto it = meshes.find({mat, variant});
+    const int ak = static_cast<int>(aspect * 64.0f + 0.5f);
+    auto it = meshes.find({mat, variant * 4096 + ak});
     if (it != meshes.end()) return it->second;
     remixapi_HardcodedVertex v[4] = {};
     const float px[4] = {-1, 1, 1, -1}, py[4] = {0, 0, 1, 1};
     for (int k = 0; k < 4; ++k) {
         v[k].position[0] = px[k]; v[k].position[1] = py[k]; v[k].position[2] = 0.0f;
-        v[k].normal[2] = -1.0f; v[k].texcoord[0] = px[k] * 12.0f + 0.37f * variant; v[k].texcoord[1] = py[k] * 8.0f + 0.61f * variant;
+        v[k].normal[2] = -1.0f; v[k].texcoord[0] = px[k] * 12.0f + 0.37f * variant; v[k].texcoord[1] = py[k] * 24.0f * (ak / 64.0f) + 0.61f * variant;   // square texels (fx6: 4x tall ones drew vertical streaks)
         v[k].color = 0xFFFFFFFFu;
     }
     uint32_t idx[6] = {0, 1, 2, 0, 2, 3};
@@ -1103,11 +1104,11 @@ remixapi_MeshHandle FogQuad(remixapi_MaterialHandle mat, int variant = 0) {
     surface.indices_values = idx; surface.indices_count = 6;
     surface.skinning_hasvalue = 0; surface.material = mat;
     remixapi_MeshInfo mesh = {};
-    mesh.sType = REMIXAPI_STRUCT_TYPE_MESH_INFO; mesh.hash = (0x464F475100000000ull ^ reinterpret_cast<uintptr_t>(mat)) + (static_cast<uint64_t>(variant) << 48);
+    mesh.sType = REMIXAPI_STRUCT_TYPE_MESH_INFO; mesh.hash = (0x464F475100000000ull ^ reinterpret_cast<uintptr_t>(mat)) + (static_cast<uint64_t>(variant) << 48) + (static_cast<uint64_t>(ak) << 36);
     mesh.surfaces_values = &surface; mesh.surfaces_count = 1;
     remixapi_MeshHandle h = nullptr;
     if (RemixApi()->CreateMesh(&mesh, &h) != REMIXAPI_ERROR_CODE_SUCCESS) h = nullptr;
-    meshes[{mat, variant}] = h;
+    meshes[{mat, variant * 4096 + ak}] = h;
     return h;
 }
 
@@ -1130,8 +1131,7 @@ void DrawFogProxy(float ex, float ey, float ez, float viewMix, const float fwd[3
     remixapi_MaterialHandle mat = g_fogMode == 3 ? FogDitherMaterial(level) : FogMaterial(g_fogMode, g_fogMode == 2 ? level : 0);
     if (!mat) return;
     static unsigned frame = 0; ++frame;
-    remixapi_MeshHandle quad = FogQuad(mat, g_fogMode == 3 ? static_cast<int>(frame & 7) : 0);
-    if (!quad) return;
+
     // The fog's colour: a pale grey-blue by day, a dark blue-grey at night (the slab's albedo, or its colour under emission).
     auto mix = [&](float d, float n) { return static_cast<int>(255.0f * (n + (d - n) * day) + 0.5f); };
     const int fogRgb = (mix(0.74f, 0.05f) << 16) | (mix(0.76f, 0.055f) << 8) | mix(0.80f, 0.07f);
@@ -1143,6 +1143,8 @@ void DrawFogProxy(float ex, float ey, float ez, float viewMix, const float fwd[3
         const int a255 = (std::max)(0, (std::min)(255, static_cast<int>(a * 255.0f + 0.5f)));
         if (a255 < 2) continue;
         const float halfW = d * 1.7f + 2.0f, bottom = ey - 8.0f, height = 8.0f + d * 0.9f + 3.0f;
+        remixapi_MeshHandle quad = FogQuad(mat, g_fogMode == 3 ? static_cast<int>(frame & 7) : 0, height / (2.0f * halfW));
+        if (!quad) continue;
         const float ax[3] = {fz * halfW, 0.0f, -fx * halfW};   // right
         const float ay[3] = {0.0f, height, 0.0f};
         const float az[3] = {fx, 0.0f, fz};
@@ -1166,7 +1168,7 @@ void DrawLightning() {
     if (!w.active || w.flash < 0.01f) return;
     static int scale = -1; static DWORD read = 0;
     if (scale < 0 || GetTickCount() - read >= 1000) { read = GetTickCount(); scale = GetPrivateProfileIntA("weather", "remix_lightning_percent", 100, g_ini); }
-    const float r = (std::min)(1.5f, w.flash) * 3.5f * scale / 100.0f;   // fx1: 6 lit the night street like noon
+    const float r = (std::min)(1.5f, w.flash) * 3.5f * (1.0f + 1.2f * (1.0f - w.night)) * scale / 100.0f;   // cyr1: by day +4..10 luma only   // fx1: 6 lit the night street like noon
     remixapi_LightInfo info = {};
     info.sType = REMIXAPI_STRUCT_TYPE_LIGHT_INFO;
     info.hash = 0x4C49474854000001ull;
