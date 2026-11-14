@@ -1065,6 +1065,8 @@ int g_assistLogs = 0;
 double g_assistPushUntil = 0.0;   // fists: Up held into him until then (after the press is let go)
 double g_assistContactSince = 0.0;   // fists: since when he has been walked into him inside kAssistFistLand (0 = not)
 bool FirePhys() { return g_fireKeyPhys[0] || g_fireKeyPhys[1]; }
+// FIX-FIRE-STRAFE: the physical Left/Right (the camera-relative controller's sideways walk, the game's turn).
+bool SteerPhys() { return g_phys[2] || g_phys[3]; }
 bool PickFresh() { return g_pick.valid && Now() - g_pick.at < 0.15; }
 bool AssistLogOn() {
     static int on = -1;
@@ -1077,7 +1079,8 @@ void NoteFirePhys(int which, bool down) {
     g_fireKeyPhys[which] = down;
     const bool now = FirePhys();
     if (now && !was) {
-        if (g_assistAllowed && !InputHeld() && PickFresh()) {
+        // FIX-FIRE-STRAFE (owner, 14 Nov): Left/Right held at the press are the player's own steering: no assist.
+        if (g_assistAllowed && !InputHeld() && PickFresh() && !SteerPhys()) {
             const float err = WrapAngle(g_pick.bearing - g_navHeading);
             g_assistObject = g_pick.object;
             g_pickFists = g_pick.fists;
@@ -1451,12 +1454,14 @@ void AssistSteer(bool allowed, float dt) {
         if (g_pickFists && g_pick.dist <= kAssistFistLand) { if (g_assistContactSince <= 0.0) g_assistContactSince = Now(); }
         else g_assistContactSince = 0.0;
         const bool close = !g_pickFists || (g_assistContactSince > 0.0 && Now() - g_assistContactSince >= kAssistFistContact);
-        if (!fresh) letGo("the person left the pick");
+        if (SteerPhys()) { letGo("the player steers"); g_assistPhase = kAssistIdle; }   // FIX-FIRE-STRAFE
+        else if (!fresh) letGo("the person left the pick");
         else if (facing && close) letGo(g_pickFists ? "on him, within reach" : "on him");
         else if (Now() - g_assistT0 > (g_pickFists ? kAssistFistBound : kAssistGunBound)) letGo(g_pickFists ? "0.7 s bound" : "0.25 s bound");
         else walkIn = std::fabs(e) < 35.0f * kDegToRad;   // fists: Up into him until the press goes
     } else if (g_assistPhase == kAssistTrack) {
-        if (!FirePhys() || !fresh) g_assistPhase = kAssistIdle;
+        // FIX-FIRE-STRAFE: firing while walking sideways in 3D: the arrows go back to the player (BEV parity).
+        if (!FirePhys() || !fresh || SteerPhys()) g_assistPhase = kAssistIdle;
     }
     // The turn: the controller's rule (held while far off, one-frame pulses near), on a tighter band.
     const bool pushIn = g_pickFists && Now() < g_assistPushUntil;
