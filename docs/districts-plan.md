@@ -354,3 +354,20 @@ street blend: the classic view is untouched), scales the street prop rules (a mu
 old props) and pushes the row's Remix options when the street view enters a district (the default row's values
 back on leaving, or in the classic view). Logged: `districts: style table ...`, `districts: camera in <row>`.
 
+
+### Three districts side by side (sheets in `scratchpad/districts/r4_*`)
+Same camera in every district: the chase camera's height (2.2 blocks over the street, 3 back, looking 10 ahead at
+1.0 up), on the straight road with the most tall district frontage (`id_plan.py`), both ways along it, day and dusk
+(18:00), kit on and off. vreg spawn_classic PASS (0 tiles) on this stage. Plain (Tokyo) and RTX Remix (Tokyo L4, a package copy with no parallax on the kit's 243
+recessed tiles), 0 FAULT in all six runs; under Remix each district's options were pushed on entry and reset on
+leaving (`2 set, 0 refused`).
+
+By eye: **Industrial docks** reads at once (brick stacks over every roof line, copings, downpipes, roller doors);
+**Residential brownstone** reads (front fire escapes, heavy cornices, bays, deep reveals, water towers on the
+skyline); **Downtown core** is the weakest: its frontages are the art's own towers and signs, its roof plant is
+above the chase camera's view and few of its doors and shop windows pass the contrast gate, so its awnings are
+rare. The grade is deliberately subtle. Pixels changed by the kit at this camera: 9-16 % (Industrial, Downtown),
+11-20 % (Residential).
+
+Next: Downtown needs a street-level lever that does not depend on cut openings (sign bands and canopies along the
+whole ground floor of a front, street-level piers), then the district rows for the other gang and local districts.
