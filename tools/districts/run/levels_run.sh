@@ -16,5 +16,5 @@ else
     -v $G/stage_districts/gta2dx9_districts:/tmp/wp/drive_c/Games/GTA2/gta2dx9_districts:ro > $G/out/$N.nohup 2>&1
 fi
 L=$G/out/$N/gta2dx9.log
-echo "$(date +%T) $N: FAULT $(grep -c FAULT $L 2>/dev/null), level loads $(grep -c 'MARK level loaded' $G/out/$N/keys.log 2>/dev/null), stops done $(grep -c 'MARK stop end' $G/out/$N/keys.log 2>/dev/null), kit streams loaded $(grep -ac 'facade kit stream .* loaded' $L 2>/dev/null), style tables $(grep -ac 'districts: style table' $L 2>/dev/null)"
+echo "$(date +%T) $N: FAULT $(grep -c FAULT $L 2>/dev/null), level loads verified $(grep -c "MARK level loaded.*verified" $G/out/$N/keys.log 2>/dev/null), NOT verified $(grep -c "NOT VERIFIED" $G/out/$N/keys.log 2>/dev/null), stops done $(grep -c 'MARK stop end' $G/out/$N/keys.log 2>/dev/null), kit streams loaded $(grep -ac 'facade kit stream .* loaded' $L 2>/dev/null), style tables $(grep -ac 'districts: style table' $L 2>/dev/null)"
 grep -a 'facade kit stream\|districts: style table' $L 2>/dev/null | sed 's/.*gta2dx9_districts.//' | cut -c1-60 | uniq -c | head -8

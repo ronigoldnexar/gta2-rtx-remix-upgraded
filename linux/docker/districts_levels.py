@@ -25,8 +25,36 @@ def swap(L):
     return r.returncode == 0
 
 
+LOG = G + "/gta2dx9.log"
+
+
+def loads():
+    """level loads so far: the renderer's kit-stream line, written once per map it builds"""
+    try:
+        return open(LOG, encoding="latin-1", errors="replace").read().count("facade kit stream")
+    except OSError:
+        return 0
+
+
+def on_foot():
+    for _ in range(4):
+        s = D.wait_state()
+        if not (s and s.get("driving")):
+            return
+        tap("Return", 0.15); time.sleep(2.5)     # out of the car (the quit menu does not open from a car in all states)
+
+
+def start_level(n0):
+    """PLAYER QUIT, BACK TO MAIN MENU, START PLAY; True once the log shows a new level load"""
+    on_foot()
+    tap("Escape", 0.1); time.sleep(1.5); tap("Return", 0.1); time.sleep(4)
+    tap("Down", 0.1); time.sleep(0.5); tap("Down", 0.1); time.sleep(0.5); tap("Return", 0.1)
+    return n0
+
+
 Q.start("dklevels"); TT = time.time()
 time.sleep(4); D.wait_state()
+bad = 0
 for k, cur in enumerate(ORDER):
     say("MARK stop start", k, cur, f"{time.time() - TT:.0f}", Q.words(D.wait_state()))
     Q.set_view("third", settle=2.5); hold("Up", 3.0); shot(f"s{k:02d}_{cur}_third")
@@ -37,13 +65,31 @@ for k, cur in enumerate(ORDER):
     if k + 1 >= len(ORDER):
         break
     nxt = ORDER[k + 1]
-    tap("Escape", 0.1); time.sleep(1.5); tap("Return", 0.1); time.sleep(4)
-    tap("Down", 0.1); time.sleep(0.5); tap("Down", 0.1); time.sleep(0.5); tap("Return", 0.1)
-    time.sleep(3); ok = swap(nxt)
-    for i in range(40):
-        time.sleep(1.5)
-        if i % 4 == 1 and 8 < i < 36: tap("Return", 0.15)
-    say("MARK level loaded", k + 1, nxt, "swapok", ok, Q.current_view(), Q.words(D.wait_state()))
-say("MARK levels done", len(ORDER), f"{time.time() - TT:.0f}")
+    n0 = loads()
+    got = False
+    for attempt in range(3):
+        start_level(n0)
+        time.sleep(3)
+        if attempt == 0:
+            swap(nxt)
+        t0 = time.time()
+        while time.time() - t0 < 75:
+            time.sleep(1.5)
+            el = time.time() - t0
+            if 12 < el < 40 and int(el) % 6 < 2:
+                tap("Return", 0.15)          # past the level's intro text
+            if el > 40 and Q.current_view() == "classic":
+                Q.set_view("third", settle=1.0)   # the street view builds the map (and the kit) if it has not yet
+            if loads() > n0:
+                got = True
+                break
+        if got:
+            break
+        say("MARK level load not seen, retry", k + 1, nxt, attempt)
+    if not got:
+        bad += 1
+    time.sleep(3)
+    say("MARK level loaded", k + 1, nxt, "verified" if got else "NOT VERIFIED", Q.current_view(), Q.words(D.wait_state()))
+say("MARK levels done", len(ORDER), "unverified", bad, f"{time.time() - TT:.0f}")
 A.finish()
 open("/out/.dk_done", "w").write("ok\n")

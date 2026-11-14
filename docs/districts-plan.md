@@ -578,3 +578,33 @@ the game's art ship as release archives); it is built from the commit's own tool
 - City drives on the rebased stage (`dkc7_*`): 0 FAULT, all nine legs, largest free block min 996 / 617 / 576 MB
   (wil / ste / bil; gate 320).
 
+
+### 5090 ship check: one FAULT (run 1 of 3), resolved
+`C0000005 at gta2dx9.dll+0x10AF33 reading 2993D7BA`, after a level change from Industrial to Downtown. With the map of
+that exact build (c5bb93a3, md5 819336b0, `/tmp/rc-dist-wt/dll/build/gta2dx9.map`, image base 0x712C0000):
+- +0x10AF33 is in `density.o`, function `gta2dx9::DensityUpdate(bool, bool, float, float)` at +0x503, the inlined
+  `PlayerStars()` -> `game::PedWantedStars(ped)`: `movzwl 0x20a(%edi)` with edi = `ViewPlayer().ped` (0x2993D5B0 +
+  0x20A = the faulting address). The other stack words: `WorldView::MatchGameViewToFrame` (world_view.o, the caller of
+  `DensityUpdate`), `Overlay::RevertToWindowSize` (overlay.o) and `gbh_BeginScene` (dllmain.o).
+- **Not kit code** (none of kit_stream.o, district_style.o, post_fx.o, renderer.o, inflate.o): the view player is
+  refreshed only by the street camera's locate step and was never reset when a level loaded, so the density hook (and
+  city_ai's) could read the previous level's freed ped for the frames between the level change and the next locate.
+  `game::PlausiblePointer` checks the range, not that the page is still mapped. The kit's extra level-load allocations
+  most likely moved the old pool's pages from "freed but mapped" (a harmless stale read) to unmapped (a fault) - which
+  is why the stage without the kit never showed it - but the stale read is there in both.
+- **Fix** (`world_view.cpp`, LoadMap): the view player is reset when a new map loads and when the game goes back to the
+  menu, so nothing reads a ped pointer from another level until the locate step sets a fresh one.
+
+### Level-change check
+`linux/docker/districts_levels.py` (+ `keys_districts_levels*.sh`, `tools/districts/run/levels_run.sh`): Industrial ->
+Downtown -> Residential -> Downtown in one game process (frontend PLAYER QUIT, the next district swapped over level 1,
+START PLAY), each stop third person + walk + first person + classic; every load verified against the game log (the
+kit's stream line). The game's frontend changes after a saved status appears (RESUME SAVED STATUS on top), and after 7
+changes the scripted keys picked REPLAY PREVIOUS AREA on swapped files, which ends in GTA2's own script error dialog
+and a clean exit (exit 167, no FAULT): so each process does 2 laps (6 changes) and three processes give 6 laps.
+
+| level-change check (3 processes x 2 laps each) | level loads verified | FAULT |
+|---|---|---|
+| plain, fixed DLL (`dkl3_plain_*`) | 21 / 21 (kit streams bil bil wil ste wil bil wil ste per process) | 0 |
+| plain, the 5090's faulting DLL (`dkl3_old_*`) | 21 / 21 | 0 (the stale read is intermittent: not reproduced) |
+| RTX Remix, L4, fixed DLL (`dkl3_remix_*`) | 21 / 21 | 0 |
