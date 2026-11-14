@@ -285,6 +285,8 @@ bool PedTypeBuild(int remap, float* scale, float* width);
 // PEDS-VARIETY: a civilian of the street (a "civilian_*" type, or a remap with no type, which deals from the
 // plain "pedestrians" list): the crowd's curated outfits may dress him (identity.cpp CrowdVariety).
 bool PedRemapIsCivilian(int remap);
+// PEDS-CONSISTENT: the remap's ped_outfits row (top, bottom, hair 0-255: the sprite's shown colours), or null.
+const float* PedRemapOutfit(int remap);
 // PEDS-FACES: while set (one figure's draw), a texture file named in `from` is drawn as the one in `to` (hair colour,
 // cap colour); n 0 clears. And whether a texture file exists in the models folder (cached).
 void ModelSetTextureSwaps(const std::string* from, const std::string* to, int n);

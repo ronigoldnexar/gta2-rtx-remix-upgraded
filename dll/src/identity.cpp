@@ -117,7 +117,7 @@ bool JumpsuitAvatar(const std::string& name) {
     return false;
 }
 
-bool CivilianOutfit(uint32_t seed, bool female, bool formal, bool jumpsuit, Garment* top, Garment* bottom) {
+bool FreeOutfit(uint32_t seed, bool female, bool formal, bool jumpsuit, Garment* top, Garment* bottom) {
     uint32_t h = Mix(seed);
     if (h % 4 == 0) return false;
     if (!formal && (h >> 20) % 3 == 0) {
@@ -144,6 +144,39 @@ bool CivilianOutfit(uint32_t seed, bool female, bool formal, bool jumpsuit, Garm
     }
     return false;
 }
+
+// PEDS-CONSISTENT (14 Nov 2026): a civilian wears in 3D the colours his sprite shows from above (the remap's
+// ped_outfits row: what the classic view shows), the same hue, lightness and nearly the same saturation; the only
+// change is that a neon-bright sprite colour (chroma over 120 of 255) is calmed towards fabric (half the excess
+// chroma removed, the lightness kept). The variety comes from the narrow shade (CrowdVariety), the detail variants,
+// faces, head swaps, hair and accessories, not from another colour. outfits.py fabric() is the same.
+int Distance2(const Garment& a, const Garment& b) {
+    const int dr = a.r - b.r, dg = a.g - b.g, db = a.b - b.b;
+    return dr * dr + dg * dg + db * db;
+}
+Garment Fabric(const Garment& c) {
+    const int mx = (std::max)({c.r, c.g, c.b}), mn = (std::min)({c.r, c.g, c.b}), ch = mx - mn;
+    if (ch <= 120) return c;
+    const int want = 120 + (ch - 120) / 2, mid2 = mx + mn;   // twice the HLS lightness
+    auto f = [&](int v) { return static_cast<uint8_t>((std::max)(0, (std::min)(255, (mid2 + (2 * v - mid2) * want / ch) / 2))); };
+    return {f(c.r), f(c.g), f(c.b)};
+}
+// The sprite's (top, bottom) from a ped_outfits row, or false when either is unknown (outfits.py sprite_colours).
+bool SpriteColours(const float* row, Garment* top, Garment* bottom) {
+    if (!row || row[0] + row[1] + row[2] < 1.0f || row[3] + row[4] + row[5] < 1.0f) return false;
+    auto q = [](float v) { return static_cast<uint8_t>((std::max)(0, (std::min)(255, static_cast<int>(v + 0.5f)))); };
+    *top = {q(row[0]), q(row[1]), q(row[2])}; *bottom = {q(row[3]), q(row[4]), q(row[5])};
+    return true;
+}
+// The outfit for this seed and avatar kind: with the sprite's row (sprite != null) its colours as fabric, always;
+// without one, FreeOutfit (false: keep the colours he has).
+bool CivilianOutfit(uint32_t seed, bool female, bool formal, bool jumpsuit, const float* sprite, Garment* top, Garment* bottom) {
+    Garment st, sb;
+    if (!SpriteColours(sprite, &st, &sb)) return FreeOutfit(seed, female, formal, jumpsuit, top, bottom);
+    *top = Fabric(st); *bottom = Fabric(sb);
+    return true;
+}
+
 constexpr uint32_t kOutfitSalt = 0x632be5abu;   // the outfit's hash apart from the build's and the pool's
 
 // PEDS-VARIETY-3: the Haredi woman (human_haredi_female_*) always wears a modest outfit from a restricted muted
@@ -151,8 +184,10 @@ constexpr uint32_t kOutfitSalt = 0x632be5abu;   // the outfit's hash apart from 
 // light blouse and denim, never a curated, near-future or detail look). The Haredi men are fixed outfits (no zones).
 constexpr Garment kModestTops[] = {{40, 46, 72}, {32, 32, 36}, {66, 68, 72}, {92, 30, 40}};
 constexpr Garment kModestSkirts[] = {{30, 30, 34}, {58, 60, 64}};
-void ModestOutfit(uint32_t seed, Garment* top, Garment* bottom) {
+void ModestOutfit(uint32_t seed, const float* sprite, Garment* top, Garment* bottom) {
     const uint32_t h = Mix(seed);
+    Garment st, sb;
+    if (SpriteColours(sprite, &st, &sb)) { *top = Fabric(st); *bottom = Fabric(sb); return; }   // PEDS-CONSISTENT: the sprite's colours
     *top = kModestTops[(h >> 3) % std::size(kModestTops)];
     *bottom = kModestSkirts[(h >> 11) % std::size(kModestSkirts)];
 }
@@ -201,10 +236,12 @@ void CrowdVariety(IdentityRecord* r) {
         // artist's; the remap's sprite colours put men in hot pink and olive on olive), shaded +-6% once.
         Garment top, bottom;
         const bool modest = model.name.compare(0, 19, "human_haredi_female") == 0;
-        if (modest) ModestOutfit(r->seed ^ kOutfitSalt, &top, &bottom);
+        const float* sprite = PedRemapOutfit(remap);   // PEDS-CONSISTENT: the colours the classic view shows him in
+        if (modest) ModestOutfit(r->seed ^ kOutfitSalt, sprite, &top, &bottom);
         const bool dressed = modest || CivilianOutfit(r->seed ^ kOutfitSalt, model.name.find("female") != std::string::npos,
-                                                      model.name.find("business") != std::string::npos, JumpsuitAvatar(model.name), &top, &bottom);
-        const float s = 1.0f + (shade - 1.0f) * 0.5f;
+                                                      model.name.find("business") != std::string::npos, JumpsuitAvatar(model.name), sprite, &top, &bottom);
+        // PEDS-CONSISTENT: the sprite's colour in a shade of its own, +-12% (the variety within the remap's colours)
+        const float s = sprite ? shade : 1.0f + (shade - 1.0f) * 0.5f;
         const float ref = (std::max)(8.0f, model.zoneRef);
         const uint8_t outfit[2][3] = {{top.r, top.g, top.b}, {bottom.r, bottom.g, bottom.b}};
         for (int z = 0; z < 2; ++z) {

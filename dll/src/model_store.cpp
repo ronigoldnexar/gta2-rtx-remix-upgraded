@@ -2841,6 +2841,8 @@ bool ModelTextureFileExists(const std::string& file) {
     return ok;
 }
 
+const float* PedRemapOutfit(int remap) { return remap >= 0 && remap < 64 ? g_pedOutfit[remap] : nullptr; }
+
 bool PedRemapIsCivilian(int remap) {
     if (!PedRemapHasType(remap)) return true;
     return g_pedTypes[g_pedTypeByRemap[remap]].name.compare(0, 8, "civilian") == 0;

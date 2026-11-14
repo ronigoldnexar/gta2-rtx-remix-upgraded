@@ -40,7 +40,39 @@ for _t, _tc, _b, _bc in RETRO: assert dist(_tc, _bc) > 70 and not (sat(_tc) > 0.
 for _n, _c in COVERALLS: assert sat(_c) <= 0.28, _n
 
 
-def outfit(seed, female, formal=False, jumpsuit=False):
+# PEDS-CONSISTENT (14 Nov 2026): a civilian wears in 3D the colours his sprite shows from above (the remap's
+# ped_outfits row), the same hue and lightness and nearly the same saturation: a neon-bright colour (chroma over 120)
+# loses half its excess chroma (the lightness kept). Integer arithmetic; identity.cpp Fabric / CivilianOutfit are the same.
+def fabric(c):
+    r, g, b = (int(v) for v in c); mx, mn = max(r, g, b), min(r, g, b); ch = mx - mn
+    if ch <= 120: return (r, g, b)
+    want, mid2 = 120 + (ch - 120) // 2, mx + mn
+    f = lambda v: max(0, min(255, _cdiv(mid2 + _cdiv((2 * v - mid2) * want, ch), 2)))
+    return (f(r), f(g), f(b))
+
+
+def _cdiv(a, b):   # C++ integer division (truncates towards zero)
+    q = abs(a) // abs(b); return q if (a >= 0) == (b >= 0) else -q
+
+
+def _d2(a, b): return sum((int(x) - int(y)) ** 2 for x, y in zip(a, b))
+
+
+def sprite_colours(row):
+    """A ped_outfits row (9 numbers) as the sprite's (top, bottom) ints, or None when either is unknown."""
+    if not row or sum(row[0:3]) < 1 or sum(row[3:6]) < 1: return None
+    return tuple(int(v + 0.5) for v in row[0:3]), tuple(int(v + 0.5) for v in row[3:6])
+
+
+def outfit(seed, female, formal=False, jumpsuit=False, sprite=None):
+    """((top name, rgb), (bottom name, rgb)): with `sprite` (the remap's ped_outfits row) its colours as fabric
+    (PEDS-CONSISTENT); without one, the old free choice (None = own colours)."""
+    sc = sprite_colours(sprite)
+    if sc: return ('sprite', fabric(sc[0])), ('sprite', fabric(sc[1]))
+    return free_outfit(seed, female, formal, jumpsuit)
+
+
+def free_outfit(seed, female, formal=False, jumpsuit=False):
     """None = the avatar's own colours (about 1 in 4). ((top name, rgb), (bottom name, rgb))."""
     h = mix(seed)
     if h % 4 == 0: return None
@@ -64,9 +96,12 @@ MODEST_TOPS = [('navy', (40, 46, 72)), ('black', (32, 32, 36)), ('dark grey', (6
 MODEST_SKIRTS = [('black', (30, 30, 34)), ('charcoal', (58, 60, 64))]
 
 
-def modest_outfit(seed):
-    """identity.cpp ModestOutfit: the Haredi woman's restricted muted palette (always dressed)."""
+def modest_outfit(seed, sprite=None):
+    """identity.cpp ModestOutfit: the Haredi woman's restricted muted palette (always dressed); with the sprite's
+    colours (PEDS-CONSISTENT) the sprite's own (her pools are the dark, neutral remaps)."""
     h = mix(seed & 0xffffffff)
+    sc = sprite_colours(sprite)
+    if sc: return ('sprite', fabric(sc[0])), ('sprite', fabric(sc[1]))
     return MODEST_TOPS[(h >> 3) % len(MODEST_TOPS)], MODEST_SKIRTS[(h >> 11) % len(MODEST_SKIRTS)]
 
 
@@ -162,8 +197,8 @@ def crowd(seed, remap, model, entry, sprite_outfit, civilian=True, models=None):
     out = dict(height=height, width=width, zone=None, paint=None)
     if zoned and civilian:   # a curated outfit, else the avatar's own colours; shaded +-6% once
         modest = model.startswith('human_haredi_female')
-        o = modest_outfit(seed ^ OUTFIT_SALT) if modest else outfit(seed ^ OUTFIT_SALT, 'female' in model, 'business' in model, model in JUMPSUIT_AVATARS)
-        s = 1.0 + (shade - 1.0) * 0.5
+        o = modest_outfit(seed ^ OUTFIT_SALT, sprite_outfit) if modest else outfit(seed ^ OUTFIT_SALT, 'female' in model, 'business' in model, model in JUMPSUIT_AVATARS, sprite_outfit)
+        s = shade if sprite_colours(sprite_outfit) else 1.0 + (shade - 1.0) * 0.5   # PEDS-CONSISTENT: +-12% shade of the sprite's colour
         own = [entry.get('zone_rgb_t') or [ref] * 3, entry.get('zone_rgb_b') or [ref] * 3]
         cols = [o[0][1], o[1][1]] if o else own
         out.update(kind='outfit' if o else 'own', label=(o[0][0] + ' / ' + o[1][0]) if o else 'own colours',

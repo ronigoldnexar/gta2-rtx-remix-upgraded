@@ -265,6 +265,9 @@ m["ped_types"] = types
 m["ped_outfits"] = outfit_rows
 colours = json.load(open(os.path.join(here, "pedtypes", "ped_types.json")))["tint_colours"]
 m["ped_remap_colours"] = [colours.get(str(r), [0, 0, 0]) for r in range(53)]
+# PEDS-CONSISTENT: the fixed-look avatars only in the pools whose sprite is dark and neutral (ped_identity/consistent_pools.py)
+sys.path.insert(0, os.path.join(here, "ped_identity")); import consistent_pools
+print("fixed-look avatars dealt in", consistent_pools.restrict(m))
 json.dump(m, open(manifest_path, "w"), indent=1)
 print(len(new_models), "avatars;", len(types), "types;", len(civ), "civilians;", sum(1 for e in new_models if e.get("ped_zones")), "with clothing zones")
 # Left out of the tinted pools: Female_Adult_01 (a pink blouse partly read as skin), Male_Adult_02 (a beige sweater the skin test cannot tell
