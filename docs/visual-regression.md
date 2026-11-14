@@ -234,3 +234,16 @@ looked at (sheets not in git). `spawn_classic` was identical (0 tiles). Nothing 
 The night-light commits (d57f211, c836ec7) do not show: the clock is held at 12:30. Goldens in force: `goldens/afb3cb6`
 (3 captures, 93 samples, leave-one-out 0 WARN/FAIL of 93); a re-diff of capture 1 against them: PASS 31 of 31. The m37 shots
 still carry the soft roof (defect `pm-photo-tiles-roof-and-brick-softer-than-plain-hd`). `goldens/e93b53c` is kept.
+
+## Reseed of 14 Nov 2026 (LIGHTING-V1, goldens `4b7bd2ff`)
+
+LIGHTING-V1 (7ebf9571, staged with the effects-ini restage fix as `4b7bd2ff`) changes every street-view shot on purpose:
+`[visuals] enabled=1` ships (the play stage already ran it) and with it `[sky] follow_clock=auto` follows the clock in
+the plain renderer, so the held 12:30 now has a noon sun with sun shadows where the old goldens had the fixed 24 deg
+afternoon sun without the passes. One capture of the lighting stage against the `e93b53c`-era goldens: PASS 1, FAIL 30,
+0 faults; `spawn_classic` identical (0 tiles); every FAIL looked at is the look change (`spawn_third` sheet: the
+passes' shading and the noon sun). Reviewed and approved by the coordinator (gates A-C) before the reseed.
+
+Goldens in force: `goldens/4b7bd2ff` (5 captures of the staged `4b7bd2ff`, 155 samples), leave-one-out
+**0 WARN/FAIL of 155**. Branches that still carry the old look (or build on a camera-modes before 7ebf9571) will FAIL
+the street-view shots against these: rebase first.

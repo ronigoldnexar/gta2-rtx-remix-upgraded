@@ -31,6 +31,15 @@ Round-2 QA (scenarios, police/army/arrest, the city sweep, archives, fresh-clone
 `docs/qa-report.md`, section QA3. Highlights video of the round (local, not in git):
 `~/gta2-linux/deliverables/gta2_3d_round2_highlights.mp4` (2:59, 1280x720, 30 fps, H.264).
 
+### LIGHTING-V1 shipped (14 Nov 2026): compare against the new vreg goldens
+
+camera-modes `7ebf9571` (lighting) + `4b7bd2ff` (restage.sh stages `gta2dx9_effects.ini`), staged from `4b7bd2ff`.
+The day/night cycle runs in both renderers ([visuals] on by default; staggered lamp, window and car-lamp switching;
+Remix blue hour, the night pinned at exposure 3.0 by the meter's target, soft lamp pools at 350 %, a hazy moon);
+`package/rtx.conf` carries the play look; `package/gta2dx9_effects.ini` ships beside the ini (SirensVersion=2).
+**vreg goldens are now `goldens/4b7bd2ff`** (docs/visual-regression.md, "Reseed of 14 Nov 2026"): rebase onto
+camera-modes before a vreg check, or every street-view shot FAILs on the look change.
+
 ### Rules that cost hours when broken (multi-agent host)
 
 - **Never put a shell variable in an `rm` command** issued through an agent's shell tool
