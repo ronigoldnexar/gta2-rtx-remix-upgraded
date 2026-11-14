@@ -3,14 +3,14 @@
 # scripted runs and restage's stage check see gta2dx9_districts. Run ONCE, by hand, after the merge go-ahead:
 #     bash tools/districts/run/sync_gamerun.sh [REV] [BASE]
 # REV  (default camera-modes): the commit whose linux/docker versions are deployed (the merged branch).
-# BASE (default 4b7bd2ff): the commit the deployed files must still match before the sync (camera-modes before the
-#      merge; checked 14 Nov: all six deployed files equal it). A deployed file that matches neither BASE nor REV has
+# BASE (default b1df886f): the commit the deployed files must still match before the sync (camera-modes before the
+#      merge, with weather-v2; checked 14 Nov 17:00: all six deployed files equal it). A deployed file that matches neither BASE nor REV has
 #      local edits: the script refuses and changes nothing, so nobody's live change is overwritten.
 # For each file: back up the deployed one (gamerun/.sync_backup_<time>/), install REV's version via a temp file and an
 # atomic rename (a running container keeps the file it opened), then diff-check the installed file against REV's blob.
 # Undo: cp -p gamerun/.sync_backup_<time>/* gamerun/
 set -euo pipefail
-REV=${1:-camera-modes}; BASE=${2:-4b7bd2ff}
+REV=${1:-camera-modes}; BASE=${2:-b1df886f}
 cd "$(dirname "$0")/../../.."                       # the repo checkout
 G=$(cd ../gamerun && pwd)                           # the deployed launchers
 FILES="game_mounts.sh run_game.sh run_game_gpu.sh run_game_remix_gpu.sh play_game.sh stage_check.py"
