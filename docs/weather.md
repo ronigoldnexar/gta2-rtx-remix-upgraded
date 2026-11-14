@@ -309,3 +309,28 @@ For the 5090 test (does RR still hide Remix's own precipitation and volumetric f
 `rtx.volumetrics.transmittanceMeasurementDistanceMeters` (~40 for a fog bank), `rtx.weather.precipitation.enable = True`
 (the runtime's own rain), each with `rtx.enableRayReconstruction` True and False. Our translucent drops:
 `[weather] remix_rain=2` (default); their look `remix_drop_trans`, `remix_drop_ior`.
+
+## WEATHER-V2 phase 3: Remix runtime audit (5090 device losses, 14 Nov 2026)
+
+Everything the weather pushes into Remix at runtime, and what was changed (52af94c3):
+
+| Push | Before | Now |
+|---|---|---|
+| Chunk meshes (wet film, damp rims, puddle water, ripple phases) | built lazily for every chunk in view; a warp or camera cut built ~200 in one frame; never destroyed | 4 new meshes a frame at most, none in the second after the eye jumps > 20 blocks (logged `eye jumped`); past 1200 cached, far chunks (> 64 blocks) destroyed, 4 a frame |
+| Film material / generation | a new generation (material + all chunk meshes) each time the road crossed 2% wet (mode 0 <-> 3) | only on a real material change |
+| Puddle size level (8) | followed the wetness at once (each step rebuilt every puddle mesh in view) | one change every 6 s at most; drying to 0 at once |
+| API rain drops (`remix_rain=2`) | ~70 translucent instances a frame; DestroyMesh + re-create at each wind-length step | off by default (RR erases them on Linux and native Windows); meshes cached per (material, length), never destroyed |
+| Overcast -> `TimeOfDaySetOvercast` | 0.05 steps; each step re-pushed the cloud keys and the whole day look (~10 SetConfigVariable) | 0.1 steps, one change every 3 s at most (to / from a clear sky at once) |
+| Lightning distant light | CreateLight (update) every frame of a strike | only when its radiance moves > 8% or the strike's direction changes; drawn every flash frame |
+| Fog slabs | off by default | unchanged (off) |
+| Game values (`__weather.*`) | devtools only | unchanged |
+| Screen rain, lens drops | D3D9 draws in the UI layer (no Remix objects) | unchanged |
+| Wet car paint | one material a frame at most, only at wetness > 0 | unchanged |
+
+Nothing in the weather pushes upscaler, RR, NRC or other reset-class options. With `[weather] enabled=0` the weather
+creates no Remix object and pushes no key (the 5090's weather-off loss is not explained by this code; a difference of
+base between the test DLL and the stage DLL is worth ruling out).
+
+Phase 3 results (14 Nov): vreg same-base (seeded from camera-modes 2e077285, 2 captures) against the candidate stage:
+PASS 29, WARN 2 (spawn_first / spawn_third: the animated JESUS SAVES neon), FAIL 0; spawn_classic 0 tiles. Plain
+40-min soak with the cycle running: 0 FAULT, largest free block never below 646 MB. Second 40-min soak with forced spells (drizzle, rain, storm, rain, cloudy, fog, clear every 75 s; 29 lightning strikes): 0 FAULT, largest free block never below 645 MB. Remix on the 6000 (tdr1 warps, tdr2 cycle): 0 FAULT, no device loss (Linux/Wine never reproduced the 5090 losses); frame (busy) 53 ms clear, 55 rain, 59 storm. Plain (shared L4, contended): heavy rain vs clear within noise.
