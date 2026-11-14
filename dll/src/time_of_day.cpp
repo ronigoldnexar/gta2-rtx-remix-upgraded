@@ -247,8 +247,15 @@ void UpdateDayLook(float elevation) {
 bool TimeOfDayClearSkyOk() { return g_skyOk; }
 
 void TimeOfDaySetOvercast(float overcast) {
+    // WEATHER-V2 (5090 device-loss audit, 14 Nov): every change of g_overcast re-pushes the cloud keys and the whole
+    // day look (~10 SetConfigVariable calls); a 0.05 step during a fade made that a burst every few frames. Steps of
+    // 0.1, at most one change every 3 s, except going to or from a clear sky.
     overcast = overcast < 0.0f ? 0.0f : (overcast > 1.0f ? 1.0f : overcast);
-    g_overcast = std::floor(overcast * 20.0f + 0.5f) / 20.0f;
+    const float q = std::floor(overcast * 10.0f + 0.5f) / 10.0f;
+    static DWORD last = 0;
+    const DWORD now = GetTickCount();
+    if (q == g_overcast) return;
+    if ((q == 0.0f) != (g_overcast == 0.0f) || now - last >= 3000) { g_overcast = q; last = now; }
 }
 
 void TimeOfDayClassicGrade(float tint[3], float* amount, float* night) {

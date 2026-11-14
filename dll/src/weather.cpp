@@ -122,7 +122,7 @@ void ReadSettings() {
     s.drops = ReadInt("rain_drops", 1600);
     s.wetRoads = ReadInt("wet_roads", 1) != 0;
     s.remixStreaks = ReadInt("remix_streaks", 0) != 0;
-    s.remixRain = ReadInt("remix_rain", 2);
+    s.remixRain = ReadInt("remix_rain", 0);   // 14 Nov: RR erases the API drops (6000 and the 5090); 2 = the drops
     s.remixScreenRain = ReadInt("remix_screen_rain", 1) != 0;
     s.reflection = ReadInt("reflection_percent", 100) / 100.0f;
     s.wetPercent = ReadInt("wet_percent", -1);

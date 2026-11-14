@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <array>
 #include <map>
 #include <string>
 #include <utility>
@@ -48,6 +49,11 @@ int g_generation = 1;   // bumps when a material setting changes: meshes are reb
 remixapi_MaterialHandle g_film = nullptr, g_water = nullptr, g_puddle = nullptr;
 int g_filmGen = 0, g_waterGen = 0, g_puddleGen = 0;
 std::map<uint64_t, remixapi_MeshHandle> g_meshes;   // (kind, chunk, generation) -> mesh
+// 14 Nov device-loss audit (5090: TDRs 30-60 s after a warp): a warp or camera cut used to build every chunk mesh in
+// view in one frame (film, three rims, water, ripple phases: ~200 CreateMesh). Now at most kMeshBudget new meshes a
+// frame, none in the second after the eye jumps, and the cache is trimmed of far chunks and stale levels.
+constexpr int kMeshBudget = 4, kMeshCacheCap = 1200;
+int g_meshBudget = kMeshBudget;
 std::wstring g_puddlePath;
 
 int Dev(const char* key, int def) { return GetPrivateProfileIntA("devtools", key, def, g_ini); }
@@ -177,6 +183,8 @@ remixapi_MeshHandle ChunkMesh(const gta2::Map& map, int chunkX, int chunkZ, int 
                          (static_cast<uint64_t>(chunkX & 0xFF) << 8) | static_cast<uint64_t>(chunkZ & 0xFF);
     auto it = g_meshes.find(key);
     if (it != g_meshes.end()) return it->second;
+    if (g_meshBudget <= 0) return nullptr;   // built on a later frame
+    --g_meshBudget;
     g_meshes[key] = nullptr;
     std::vector<remixapi_HardcodedVertex> verts;
     std::vector<uint32_t> idx;
@@ -535,6 +543,8 @@ remixapi_MeshHandle PuddleMesh(const gta2::Map& map, int chunkX, int chunkZ, int
                          static_cast<uint64_t>(chunkZ & 0xFF);
     auto it = g_meshes.find(key);
     if (it != g_meshes.end()) return it->second;
+    if (g_meshBudget <= 0) return nullptr;   // built on a later frame
+    --g_meshBudget;
     g_meshes[key] = nullptr;
     constexpr int kSub = 6;
     std::vector<remixapi_HardcodedVertex> verts;
@@ -703,8 +713,17 @@ void DrawRemixRain(float ex, float ey, float ez, float viewMix) {
     // The streak's length: a drop's travel in a frame or two plus the drop, longer in wind (blocks).
     const float len = std::floor((0.18f + 0.22f * w.wind) * 20.0f + 0.5f) / 20.0f;
     if (len != g_rainLen) {
-        for (auto& m : g_rainMesh) { if (m && RemixApi()->DestroyMesh) RemixApi()->DestroyMesh(m); m = nullptr; }
-        for (int m = 0; m < kRainMeshes; ++m) g_rainMesh[m] = RainMesh(m, len);
+        // 14 Nov audit: no DestroyMesh / re-create while the wind eases (a rebuild every length step): one set per
+        // length, kept.
+        static std::map<std::pair<void*, int>, std::array<remixapi_MeshHandle, kRainMeshes>> byLen;   // (material, length)
+        const auto lk = std::make_pair(static_cast<void*>(g_rainMat), static_cast<int>(len * 20.0f + 0.5f));
+        auto it = byLen.find(lk);
+        if (it == byLen.end()) {
+            std::array<remixapi_MeshHandle, kRainMeshes> set{};
+            for (int m = 0; m < kRainMeshes; ++m) set[m] = RainMesh(m, len);
+            it = byLen.emplace(lk, set).first;
+        }
+        for (int m = 0; m < kRainMeshes; ++m) g_rainMesh[m] = it->second[m];
         g_rainLen = len;
     }
     const int meshes = (std::max)(1, (std::min)(kRainMeshes, static_cast<int>(std::ceil(w.rain * kRainMeshes))));
@@ -1000,7 +1019,7 @@ void DrawRainProxies(float ex, float ey, float ez, float viewMix) {
 constexpr int kFogSlabs = 12, kFogLevels = 8;
 remixapi_MeshHandle g_fogQuad = nullptr;
 std::map<uint64_t, remixapi_MaterialHandle> g_fogMat;
-int g_fogMode = 0, g_fogEmissivePct = 100;
+int g_fogMode = 0, g_fogEmissivePct = 100, g_fogDoorCycle = 0, g_fogDoorScale = 2;
 
 remixapi_MaterialHandle FogMaterial(int mode, int level) {
     const uint64_t key = (static_cast<uint64_t>(mode) << 40) | (static_cast<uint64_t>(level) << 32) | static_cast<uint32_t>(g_fogEmissivePct);
@@ -1089,13 +1108,13 @@ remixapi_MeshHandle FogQuad(remixapi_MaterialHandle mat, int variant = 0, float 
     // texture by a fraction of its tile, cycled by frame, so Ray Reconstruction averages the door into a veil.
     static std::map<std::pair<remixapi_MaterialHandle, int>, remixapi_MeshHandle> meshes;
     const int ak = static_cast<int>(aspect * 64.0f + 0.5f);
-    auto it = meshes.find({mat, variant * 4096 + ak});
+    auto it = meshes.find({mat, (variant * 4096 + ak) * 8 + g_fogDoorScale});
     if (it != meshes.end()) return it->second;
     remixapi_HardcodedVertex v[4] = {};
     const float px[4] = {-1, 1, 1, -1}, py[4] = {0, 0, 1, 1};
     for (int k = 0; k < 4; ++k) {
         v[k].position[0] = px[k]; v[k].position[1] = py[k]; v[k].position[2] = 0.0f;
-        v[k].normal[2] = -1.0f; v[k].texcoord[0] = px[k] * 12.0f + 0.37f * variant; v[k].texcoord[1] = py[k] * 24.0f * (ak / 64.0f) + 0.61f * variant;   // square texels (fx6: 4x tall ones drew vertical streaks)
+        v[k].normal[2] = -1.0f; v[k].texcoord[0] = px[k] * 12.0f * g_fogDoorScale + 0.37f * variant; v[k].texcoord[1] = py[k] * 24.0f * g_fogDoorScale * (ak / 64.0f) + 0.61f * variant;   // square texels (fx6: 4x tall ones drew vertical streaks)
         v[k].color = 0xFFFFFFFFu;
     }
     uint32_t idx[6] = {0, 1, 2, 0, 2, 3};
@@ -1104,11 +1123,11 @@ remixapi_MeshHandle FogQuad(remixapi_MaterialHandle mat, int variant = 0, float 
     surface.indices_values = idx; surface.indices_count = 6;
     surface.skinning_hasvalue = 0; surface.material = mat;
     remixapi_MeshInfo mesh = {};
-    mesh.sType = REMIXAPI_STRUCT_TYPE_MESH_INFO; mesh.hash = (0x464F475100000000ull ^ reinterpret_cast<uintptr_t>(mat)) + (static_cast<uint64_t>(variant) << 48) + (static_cast<uint64_t>(ak) << 36);
+    mesh.sType = REMIXAPI_STRUCT_TYPE_MESH_INFO; mesh.hash = (0x464F475100000000ull ^ reinterpret_cast<uintptr_t>(mat)) + (static_cast<uint64_t>(variant) << 48) + (static_cast<uint64_t>(ak) << 36) + (static_cast<uint64_t>(g_fogDoorScale) << 56);
     mesh.surfaces_values = &surface; mesh.surfaces_count = 1;
     remixapi_MeshHandle h = nullptr;
     if (RemixApi()->CreateMesh(&mesh, &h) != REMIXAPI_ERROR_CODE_SUCCESS) h = nullptr;
-    meshes[{mat, variant * 4096 + ak}] = h;
+    meshes[{mat, (variant * 4096 + ak) * 8 + g_fogDoorScale}] = h;
     return h;
 }
 
@@ -1116,7 +1135,10 @@ void DrawFogProxy(float ex, float ey, float ez, float viewMix, const float fwd[3
     const gta2::WeatherState& w = gta2::WeatherNow();
     static DWORD read = 0;
     if (GetTickCount() - read >= 1000) { read = GetTickCount(); g_fogMode = GetPrivateProfileIntA("weather", "remix_fog_proxy", 0, g_ini);
-        g_fogEmissivePct = GetPrivateProfileIntA("weather", "remix_fog_emissive_percent", 100, g_ini); }
+        g_fogEmissivePct = GetPrivateProfileIntA("weather", "remix_fog_emissive_percent", 100, g_ini);
+        // Phase-2 review: a tall bright band at building edges (RR ghosting where the cycled door meets a silhouette).
+        g_fogDoorCycle = GetPrivateProfileIntA("weather", "remix_fog_door_cycle", 0, g_ini);
+        g_fogDoorScale = (std::max)(1, (std::min)(4, static_cast<int>(GetPrivateProfileIntA("weather", "remix_fog_door_scale", 2, g_ini)))); }
     if (g_fogMode < 1 || g_fogMode > 3 || !w.active || w.fog < 0.03f || viewMix < 0.5f) return;
     // The fog length: the plain renderer's fog end eased the same way (fog 0.5 -> ~40 blocks, a bank -> ~12).
     const float fe = 1.0f - (1.0f - w.fog) * (1.0f - w.fog);
@@ -1143,7 +1165,7 @@ void DrawFogProxy(float ex, float ey, float ez, float viewMix, const float fwd[3
         const int a255 = (std::max)(0, (std::min)(255, static_cast<int>(a * 255.0f + 0.5f)));
         if (a255 < 2) continue;
         const float halfW = d * 1.7f + 2.0f, bottom = ey - 8.0f, height = 8.0f + d * 0.9f + 3.0f;
-        remixapi_MeshHandle quad = FogQuad(mat, g_fogMode == 3 ? static_cast<int>(frame & 7) : 0, height / (2.0f * halfW));
+        remixapi_MeshHandle quad = FogQuad(mat, g_fogMode == 3 && g_fogDoorCycle ? static_cast<int>(frame & 7) : 0, height / (2.0f * halfW));
         if (!quad) continue;
         const float ax[3] = {fz * halfW, 0.0f, -fx * halfW};   // right
         const float ay[3] = {0.0f, height, 0.0f};
@@ -1180,17 +1202,44 @@ void DrawLightning() {
     distant.angularDiameterDegrees = 70.0f;   // a lit cloud deck, not a point: fx1's 25 deg drew the rain drops' shadows as black lines
     distant.volumetricRadianceScale = 1.0f;
     info.pNext = &distant;
+    // 14 Nov audit: the light is updated (CreateLight on its handle) only when its radiance moves by > 8% or its
+    // direction changes, not every frame of a strike; it is drawn every frame of the flash.
+    static float lastR = -1.0f, lastDir[3] = {};
+    const bool dirChanged = lastDir[0] != w.flashDir[0] || lastDir[1] != w.flashDir[1] || lastDir[2] != w.flashDir[2];
     remixapi_LightHandle h = static_cast<remixapi_LightHandle>(g_flashHandle);
-    if (RemixApi()->CreateLight(&info, &h) == REMIXAPI_ERROR_CODE_SUCCESS) {
-        g_flashHandle = h;
-        RemixApi()->DrawLightInstance(h);
+    if (!h || dirChanged || std::fabs(r - lastR) > 0.08f * (std::max)(r, lastR)) {
+        if (RemixApi()->CreateLight(&info, &h) != REMIXAPI_ERROR_CODE_SUCCESS) return;
+        g_flashHandle = h; lastR = r;
+        for (int k = 0; k < 3; ++k) lastDir[k] = w.flashDir[k];
     }
+    RemixApi()->DrawLightInstance(h);
 }
 
 void RemixWetFrame(const gta2::Map& map, float eyeX, float eyeY, float eyeZ, float viewMix, const float fwd[3]) {
     const DWORD now = GetTickCount();
     if (!g_ini[0] || now - g_lastRead >= 1000) { g_lastRead = now; ReadSettings(); }
     if (!RemixApiHasInstances() || map.Empty() || viewMix < 0.01f) return;
+    {
+        static float px = 0, pz = 0; static bool have = false; static DWORD jumpAt = 0;
+        const float dx = eyeX - px, dz = eyeZ - pz;
+        if (have && dx * dx + dz * dz > 20.0f * 20.0f) { jumpAt = GetTickCount(); Log("remix wet: eye jumped %.0f blocks; mesh building paused 1 s", std::sqrt(dx * dx + dz * dz)); }
+        px = eyeX; pz = eyeZ; have = true;
+        g_meshBudget = GetTickCount() - jumpAt < 1000 ? 0 : kMeshBudget;
+        // Trim: up to 4 a frame, once the cache is past its cap, meshes of chunks > 64 blocks away.
+        if (g_meshes.size() > static_cast<size_t>(kMeshCacheCap) && RemixApi()->DestroyMesh) {
+            int dropped = 0;
+            for (auto it = g_meshes.begin(); it != g_meshes.end() && dropped < 4;) {
+                const int cxk = static_cast<int>((it->first >> 8) & 0xFF), czk = static_cast<int>(it->first & 0xFF);
+                const float mx = (cxk + 0.5f) * kChunk - eyeX, mz = (czk + 0.5f) * kChunk - eyeZ;
+                if (mx * mx + mz * mz > 64.0f * 64.0f) {
+                    if (it->second) RemixApi()->DestroyMesh(it->second);
+                    it = g_meshes.erase(it); ++dropped;
+                } else {
+                    ++it;
+                }
+            }
+        }
+    }
     DrawProbeBoard(map, eyeX, eyeY, eyeZ);
     DrawRemixRain(eyeX, eyeY, eyeZ, viewMix);
     DrawRainProxies(eyeX, eyeY, eyeZ, viewMix);
@@ -1241,7 +1290,10 @@ void RemixWetFrame(const gta2::Map& map, float eyeX, float eyeY, float eyeZ, flo
             e.waterIor = 100 + static_cast<int>(std::lround(1.25f * k));
             e.waterTrans = 100 - static_cast<int>(std::lround(0.75f * k));
         }
-        const bool material = e.mode != g_set.mode || e.rough != g_set.rough || e.albedo != g_set.albedo || e.filmStatic != g_set.filmStatic ||
+        // The film's material is the same whether it is drawn or not: the dry <-> wet switch (mode 0 <-> 3) made a new
+        // generation, so a new material and every chunk mesh again, each time the road crossed 2% wet (14 Nov audit).
+        const bool modeChange = e.mode != g_set.mode && e.mode != 0 && g_set.mode != 0;
+        const bool material = modeChange || e.rough != g_set.rough || e.albedo != g_set.albedo || e.filmStatic != g_set.filmStatic ||
                                e.waterIor != g_set.waterIor || e.waterTrans != g_set.waterTrans || e.puddleRough != g_set.puddleRough ||
                                e.vcolorAlpha != g_set.vcolorAlpha || e.liftMilli != g_set.liftMilli || (e.filmStatic && e.alpha != g_set.alpha);
         if (material) {
@@ -1301,6 +1353,10 @@ void RemixWetFrame(const gta2::Map& map, float eyeX, float eyeY, float eyeZ, flo
         // 8 sizes from wetness 0.30 up: the first threshold is above almost every point of the field,
         // so a puddle grows out of nothing instead of appearing at its size.
         puddleLevel = wet < 0.3f ? 0 : (std::min)(8, 1 + static_cast<int>((wet - 0.3f) / 0.7f * 8.0f));
+        // A level change builds every puddle mesh in view again: at most one change every 6 s (drying to 0 at once).
+        static int shown = 0; static DWORD changed = 0;
+        if (puddleLevel != shown && (puddleLevel == 0 || GetTickCount() - changed >= 6000)) { shown = puddleLevel; changed = GetTickCount(); }
+        puddleLevel = shown;
     }
     if (puddleLevel > 0 && !g_puddleWater) {
         remixapi_MaterialInfoTranslucentEXT tr = {};

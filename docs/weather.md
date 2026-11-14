@@ -288,3 +288,24 @@ rtx.conf keys).
   with the fog colour as emission. Open: faint vertical striations near the near slab, and it should be the default
   only after the owner sees it (remix_fog_proxy stays 0 in the shipped ini).
 - Plain: the night sky's stars fade out under fog and cloud (WeatherStarVisibility).
+
+## WEATHER-V2 phase 3: RTX 5090 (native Windows NGX) rtx.conf keys (14 Nov 2026)
+
+The weather needs no static key of its own in the shipped `rtx.conf`: every Remix key it changes is pushed live by
+`time_of_day.cpp` (owned by the lighting side; the weather's only input is `TimeOfDaySetOvercast`):
+`rtx.atmosphere.cloudEnabled`, `cloudCoverageMean` (0.29 + 0.66 overcast), `cloudShadowStrength`,
+`directionalLightRadianceScale` (x (1 - 0.7 overcast)), `sunShadowSoftnessDeg` (max with 0.4 + 5 overcast),
+`skyIndirectRadianceScale` (x (1 + 0.8 overcast)), `nightSkyBrightness` (x (1 - 0.6 overcast)). The staged
+`rtx.conf` (lighting play look) is the base; keep `rtx.enableRayReconstruction = True`. What the weather needs there:
+
+| Need | Where | Note |
+|---|---|---|
+| Wet road materials | `rtx-remix/mods/gta2hd/mod.usda` + `textures/*.w1-3.rtex.dds` | 321 prims (107 tiles x 3 levels) from `tools/remix_wet_levels.py` over the package layer; not yet merged into the package (an integration step) |
+| Remix API (bridge) | as shipped | rain drops, puddles, wet film, fog slabs and lightning are API instances / lights |
+| `[weather]` in `gta2dx9.ini` | as shipped (`enabled=0`) | `remix_fog_proxy=0` until the owner has seen fog; `remix_screen_rain=1`, `remix_rain=2` |
+
+For the 5090 test (does RR still hide Remix's own precipitation and volumetric fog on native NGX):
+`rtx.volumetrics.enable = True`, `rtx.volumetrics.enableFogRemap = True` (D3D9 fog to volumetric),
+`rtx.volumetrics.transmittanceMeasurementDistanceMeters` (~40 for a fog bank), `rtx.weather.precipitation.enable = True`
+(the runtime's own rain), each with `rtx.enableRayReconstruction` True and False. Our translucent drops:
+`[weather] remix_rain=2` (default); their look `remix_drop_trans`, `remix_drop_ior`.
