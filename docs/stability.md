@@ -196,7 +196,10 @@ ended up with the focus, nothing ever focused the game window again. Our own `ac
 | focus_m3_on | 1 | watchdog asks at 501 ms, posts WM_SETFOCUS at 1001 ms, GTA2 resumed after 1252 / 1247 ms; frames 496 -> 642, then 30 fps; PASS both |
 
 Mode 1 (our picture window made the foreground for real) hands the focus back in ~35 ms; Wine also recovers
-without the fix there (see above). Native Windows verification: `gamerun/focus_verify.ps1`.
+without the fix there (see above).
+
+**Native Windows (the 5090, 14 Nov):** `tools/focus_verify.ps1` (run in the interactive session with the game up;
+`-Only` picks steps) passed all 9 steps; the negative control with `focus_watchdog=0` froze, as before the fix.
 
 ## The no-input AV at +0x140380: a car-paint worker reading freed memory (FIX-STABILITY-2)
 
