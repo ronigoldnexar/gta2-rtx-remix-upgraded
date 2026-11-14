@@ -349,6 +349,9 @@ private:
     float kitAlpha_ = 1.0f;             // see SetKitPresentation
     KitStream kitStream_;
     std::vector<PostFx::StreamCaster> kitCasters_;
+    // round 6: the frame's kit draws (DrawKitStream), kept to reuse their storage
+    struct KitDrawRec { IDirect3DTexture9* tex; uint32_t flags; IDirect3DVertexBuffer9* vb; uint32_t vstart, vcount; float a; };
+    std::vector<KitDrawRec> kitDraws_, kitFading_;
     float kitSign_[32] = {};   // DISTRICTS round 5: the night share of each sign switch-on bucket (SetKitSignLights)   // the resident chunks as shadow casters (post_fx), refilled each frame
     void DrawKitStream(const Camera& camera);
     IDirect3DTexture9* KitMaterialTexture(const Style& style, int tile);

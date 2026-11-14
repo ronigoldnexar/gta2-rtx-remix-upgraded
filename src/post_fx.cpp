@@ -918,7 +918,9 @@ void PostFx::RenderShadows(int cascades, const Vec3& sunDirIn) {
                 }
                 // DISTRICTS streaming: the resident chunks of the streamed kit (their own vertex pages, renderer
                 // vertices), cut by the cascade's box like the world's chunks and dithered against the kit's fade
-                if (streamCasters_ && !streamCasters_->empty() && kitShadow_ > 0.02f && ditherTex_ && dbg != 12) {
+                // round 6: the near cascade only (the far ones cover the whole street from 14+ blocks, where the
+                // kit adds little to the shadow and cost most of its shadow time)
+                if (k == 0 && streamCasters_ && !streamCasters_->empty() && kitShadow_ > 0.02f && ditherTex_ && dbg != 12) {
                     device_->SetFVF(D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_TEX1);
                     device_->SetPixelShader(psShadowCutout_);
                     device_->SetTexture(0, ditherTex_);

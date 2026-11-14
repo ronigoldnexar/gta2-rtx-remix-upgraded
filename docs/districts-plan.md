@@ -476,3 +476,60 @@ To make it default-on (next release, about 2-3 weeks):
 
 Default-off for the release means: package the folder (or build it in CI), keep `facade_kit=0`, document the switch
 in the README as an experimental option, and note the Remix cost next to it.
+
+## 13. Round 6 (14 Nov): the Remix cost, plain cost, disk (next release; districts-poc only)
+
+### Remix cost: measured on the RTX PRO 6000 (under /gta2/remix.lock, one run at a time, no reboot)
+Same wil city route as round 5 (nine legs, 12:30), stage = the shared stage + my DLL, ini and kit; layer = the
+shipped gta2hd with the kit's three emissive sign materials added.
+
+| run (6000) | frame (busy) avg | world pass | resident stream | FAULT |
+|---|---|---|---|---|
+| kit off (`r6_wil_off`) | 49.2 ms | 0.36 ms | – | 0 |
+| kit on, merged draws + own buffers (`r6_wil_on`) | 48.6 ms | 13.6 ms | 194k tris mean | 0 |
+| kit on, + draws sorted and state cached (`r6b_wil_on`) | **50.2 ms (+1.0)** | 7.3 ms | 244k tris mean | 0 |
+
+**+1.0 ms with the kit on the 6000 (target ≤ +10 ms).** The 6000 frame is bound by Remix's GPU work (present), so
+the kit's CPU cost in the world pass is mostly hidden behind it. What changed:
+- **Draws merged by material:** a chunk's groups of one material are laid out together and drawn as one range
+  (the emissive sign buckets only matter to the night pass, which keeps their sub-ranges).
+- **Stable geometry under Remix:** each resident chunk gets a buffer of its own, written once and never locked again
+  (a write into a shared page made the bridge re-hash every chunk in that page), no crossfade (blended chunks go
+  through Remix's translucent path), hysteresis 6 blocks (fewer new meshes).
+- **Draws sorted across chunks** by texture, then state, then buffer, with every state set only on change: about
+  1.3 device calls a draw instead of ~7 (each call is a bridge message).
+- **Emissive signs:** the three `_lit` kit textures are emissive materials in the gta2hd layer
+  (`remix_nopom.py emissive`). At dusk on the 6000 the sign lettering reads lit
+  (`scratchpad/districts/r6_remix6000_neon_dusk.jpg`); the light they throw on the street is faint.
+
+On the Tokyo L4 the frame is still much slower with the kit (145 ms vs 73 ms kit off; the world pass went 51 → 36
+ms): the L4 is GPU-starved under Remix and the kit's ~250k extra triangles cost it path-tracing time. The 6000 is
+the reference for the release; the L4 stays a look-check rig.
+
+### Plain cost
+| run (Tokyo, plain, wil route) | busy avg | world pass | largest free block min |
+|---|---|---|---|
+| round 5 kit on / off | 20.6 / 16.4 ms (+4.2) | 3.22 / 1.72 ms | 680 / 1 234 MB |
+| round 6 kit on / off (`dkc6c_wil` / `dkc6co_wil`) | 18.6 / 17.7 ms (**+1.0**) | 2.84 / 2.27 ms | 994 / 646 MB |
+
+- **Near-cascade-only shadows** for the streamed chunks (the far cascades skip them).
+- **A lighter level beyond 13 blocks, without more data:** fine detail (dentils, brackets, sills, hood mouldings,
+  balcony, stoop and fire-escape rails, dock bumpers) is flagged in the kit (flag 32) and drawn only when the
+  chunk is within 13 blocks of the eye; it never casts shadows. (A separate "lean" middle level would have added
+  ~70 % of LOD0 to the files; `pack_kit.py --mid` and the lod-2 code path are kept but unused.)
+- The vertex pool went to 24 pages (48 MB): at 32 MB the city drive refused chunks (`dkc6_wil`). With 48 MB: 0
+  refused, and the largest free block stayed ≥ 994 MB (gate 320).
+
+### Disk
+| | round 5 | round 6 |
+|---|---|---|
+| wil.kit2 | 172 MB | 45.8 MB |
+| ste.kit2 | 125 MB | 33.0 MB |
+| bil.kit2 | 70 MB | 17.0 MB |
+| **total** | **367 MB** | **95.8 MB** |
+
+Every chunk entry is raw-deflated (`pack_kit.py`, GDK2 version 3; 3.7-3.9x) and inflated when it streams in by a
+small decoder written for this (`src/inflate.cpp`, checked byte-for-byte against Python's zlib on chunk data,
+random data and text). Deflate's LZ matches take most of the repetition that instancing the repeated details was
+meant to remove (the same sill, hood and dentil geometry thousands of times), so shared vertices and instancing
+were not needed for the 150 MB target; they remain possible if the GPU-side memory needs to shrink too.

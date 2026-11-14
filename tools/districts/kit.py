@@ -24,7 +24,7 @@ Output (little endian): b"GDK1", u32 version 1, u32 groups; per group i32 tile (
 material k), u32 flags (1 alpha test, 2 double sided, 4 wrap uv), u32 vertex count, u32 index count, vertices
 (x y z nx ny nz u v floats), u32 indices (group-relative). Sidecar <out>.owners.json: per group, which building
 owns which index range (qa.py)."""
-import json, math, os, struct, sys
+import contextlib, json, math, os, struct, sys
 from collections import defaultdict
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gmap
@@ -139,8 +139,12 @@ class Mesh:
         self.owner = defaultdict(list)          # key -> [(building, first index, index count)]
         self.cur = None
         self.anchors = []                       # [building, kind, x, y, base height]: roof parts' host cells (qa.py)
+        self.detail = False                     # round 6: parts built while set get flag 32 (fine detail: the stream
+                                                # draws it only within 12-14 blocks of the eye)
 
     def poly(self, key, pts, uvs, n):
+        if self.detail:
+            key = (key[0], key[1] | 32)
         vs, ix = self.g[key]
         b = len(vs)
         for p, uv in zip(pts, uvs):
@@ -306,12 +310,23 @@ class Builder:
         self.mesh = Mesh()
         self.report = []
         self.lean = False
+        self.force_lean = False      # --lean: every building lean (the streams' middle level of detail, round 6)
         self.rows = []      # per district index (catalogue.py), its style row (styles.json; overrides/<lvl>.json picks it)
         dp = os.path.join(work, f"{lvl}_districts.json") if work else None
         if dp and os.path.exists(dp):
             for d in json.load(open(dp))["districts"]:
                 name = d.get("style") if d.get("style") in STYLES else "default"
                 self.rows.append((name, STYLES[name]))
+
+    @contextlib.contextmanager
+    def fine(self):
+        """parts built in here are fine detail (Mesh.detail: flag 32), drawn by the stream only near the eye"""
+        old = self.mesh.detail
+        self.mesh.detail = True
+        try:
+            yield
+        finally:
+            self.mesh.detail = old
 
     def row(self, b):
         d = b.get("district", -1)
@@ -440,7 +455,7 @@ class Builder:
         face, fewer ribs and balconies: qa.py's budget), then appended to the level's mesh"""
         main = self.mesh
         n = None
-        for lean in (False, True):
+        for lean in ((True,) if self.force_lean else (False, True)):
             self.lean = lean
             self.mesh = Mesh(); self.mesh.cur = bid
             n = self._build(bid)
@@ -576,13 +591,15 @@ class Builder:
                 # a sill ledge (the art under the window) and a hood mould with a drip over it
                 s0, s1 = max(elo, h0 - 0.025), min(ehi, h1 + 0.025)
                 proud = min(0.04, max(0.012, 0.15 * (h1 - h0)))      # at most 0.19 deep: the piers are at 0.195    # a small window gets a small sill (half of round 2)
-                self.sill(wl, st["trim"], s0, s1, max(level + 0.002, yy0 - 0.012 - 0.25 * proud), yy0, proud, stats)
+                with self.fine():
+                    self.sill(wl, st["trim"], s0, s1, max(level + 0.002, yy0 - 0.012 - 0.25 * proud), yy0, proud, stats)
                 stats["sills"] += 1
                 if st.get("hoods") and yy1 < level + 0.94 and not self.lean:
                     hy1 = min(level + 0.995, yy1 + 0.045)
                     hp = min(0.05, max(0.02, 0.25 * (h1 - h0)))
-                    self.trim(wl, st["trim"], max(elo, h0 - 0.02), min(ehi, h1 + 0.02), yy1, hy1, SKIN, SKIN + hp, stats=stats)
-                    box(self.mesh, wl, st["trim"], max(elo, h0 - 0.02), min(ehi, h1 + 0.02), yy1, yy1 + 0.012, SKIN + hp, SKIN + hp + 0.015, "blrf")
+                    with self.fine():
+                        self.trim(wl, st["trim"], max(elo, h0 - 0.02), min(ehi, h1 + 0.02), yy1, hy1, SKIN, SKIN + hp, stats=stats)
+                        box(self.mesh, wl, st["trim"], max(elo, h0 - 0.02), min(ehi, h1 + 0.02), yy1, yy1 + 0.012, SKIN + hp, SKIN + hp + 0.015, "blrf")
                     stats["hoods"] += 1
                 if st.get("balconies") and upper and h32(x, y, ord(side), level, int(round(h0 * 8)), 9) % (8 if self.lean else 4) == 1:
                     self.balcony(wl, max(elo, h0 - 0.04), min(ehi, h1 + 0.04), yy0 - 0.03)
@@ -733,13 +750,14 @@ class Builder:
             l, r = ex(0.17); self.band(wl, l, r, top - 0.26, top - 0.16, SKIN, 0.17, b0, b1, "blrf")
             l, r = ex(0.19); self.band(wl, l, r, top - 0.16, top - 0.13, SKIN, 0.19, b0, b1, "blrf")
             n = 0 if self.lean else 16
-            for k in range(n):
-                hc = (k + 0.5) / n
-                self.band(wl, hc - 0.012, hc + 0.012, top - 0.13, top - 0.095, 0.19, 0.205, b0, b1, "blrf")
             nb = 2 if self.lean else 4
-            for k in range(nb):
-                hc = (k + 0.5) / nb
-                self.band(wl, hc - 0.02, hc + 0.02, top - 0.13, top - 0.06, SKIN, 0.225, b0, b1, "blrf")
+            with self.fine():
+                for k in range(n):
+                    hc = (k + 0.5) / n
+                    self.band(wl, hc - 0.012, hc + 0.012, top - 0.13, top - 0.095, 0.19, 0.205, b0, b1, "blrf")
+                for k in range(nb):
+                    hc = (k + 0.5) / nb
+                    self.band(wl, hc - 0.02, hc + 0.02, top - 0.13, top - 0.06, SKIN, 0.225, b0, b1, "blrf")
             l, r = ex(MAXO); self.band(wl, l, r, top - 0.06, top + 0.0, SKIN, MAXO, b0, b1, "tblrf")
             l, r = ex(0.24); self.band(wl, l, r, top, top + 0.025, SKIN, 0.24, b0, b1, "tlrf")
             stats["dentils"] += n
@@ -846,11 +864,13 @@ class Builder:
         for hh in (a - 0.03, b_):
             box(self.mesh, wl, "stone_brown", hh, hh + 0.03, level, level + 0.16, SKIN, 0.245, "tlrf")
             # the rail: posts at the ends of the cheek wall and a sloped handrail
+            self.mesh.detail, was = True, self.mesh.detail
             for dp in (SKIN + 0.01, 0.235):
                 box(self.mesh, wl, "metal_dark", hh + 0.01, hh + 0.02, level + 0.16, level + 0.29, dp - 0.006, dp + 0.006, "lrf")
             P = wl.w
             self.mesh.kit("metal_dark", [P(hh + 0.01, level + 0.29, SKIN), P(hh + 0.01, level + 0.29, 0.24), P(hh + 0.01, level + 0.275, 0.24),
                                          P(hh + 0.01, level + 0.275, SKIN)], (wl.ha[0], 0.0, wl.ha[2]), scale=4.0)
+            self.mesh.detail = was
         stats["stoops"] += 1
 
     def bay(self, wl, hl, el, er, stats):
@@ -867,10 +887,11 @@ class Builder:
         self.wanchor("balcony", wl)
         # 0.235 deep: the fire escape's landings stand at 0.245 (two parts never share a plane: qa.py coplanar)
         box(self.mesh, wl, "stone_light", h0, h1, yb - 0.03, yb, SKIN, 0.235, "tblrf")
-        for k in range(6):
-            hc = h0 + (h1 - h0) * k / 5
-            box(self.mesh, wl, "metal_dark", hc - 0.005, hc + 0.005, yb, yb + 0.1, 0.225, 0.235, "lrf")
-        box(self.mesh, wl, "metal_dark", h0, h1, yb + 0.1, yb + 0.112, SKIN, 0.235, "tbf")
+        with self.fine():
+            for k in range(6):
+                hc = h0 + (h1 - h0) * k / 5
+                box(self.mesh, wl, "metal_dark", hc - 0.005, hc + 0.005, yb, yb + 0.1, 0.225, 0.235, "lrf")
+            box(self.mesh, wl, "metal_dark", h0, h1, yb + 0.1, yb + 0.112, SKIN, 0.235, "tbf")
 
     def dock(self, wl, h0, h1, level, ytop, stats, hole=None):
         """a loading dock: concrete platform, rubber bumpers, a roller shutter in the opening (closed, or part way up)
@@ -888,8 +909,9 @@ class Builder:
             ytop = max(ytop, y1 + 0.07)
             stats["roller_doors"] += 1
         box(self.mesh, wl, "concrete", h0, h1, level, level + 0.13, 0.0, 0.235, "tlrf")
-        for hc in (h0 + 0.05, h1 - 0.05):
-            box(self.mesh, wl, "rubber", hc - 0.025, hc + 0.025, level + 0.03, level + 0.11, 0.235, MAXO, "tblrf")
+        with self.fine():
+            for hc in (h0 + 0.05, h1 - 0.05):
+                box(self.mesh, wl, "rubber", hc - 0.025, hc + 0.025, level + 0.03, level + 0.11, 0.235, MAXO, "tblrf")
         box(self.mesh, wl, "metal_galv", h0 - 0.02, h1 + 0.02, ytop, ytop + 0.035, SKIN, MAXO, "tblrf")
         P = wl.w
         for hh in (h0, h1 - 0.02):
@@ -935,13 +957,14 @@ class Builder:
                 self.wanchor("fire_escape", wl)
                 self.mesh.kit("grate", [P(0, yf, SKIN), P(1, yf, SKIN), P(1, yf, dep), P(0, yf, dep)], (0.0, 1.0, 0.0), scale=6.0)
                 box(self.mesh, wl, "metal_dark", 0.0, 1.0, yf - 0.028, yf - 0.004, dep - 0.012, dep, "tbf")
-                for ry in (yf + 0.12, yf + 0.065):
-                    box(self.mesh, wl, "metal_dark", 0.0, 1.0, ry - 0.008, ry, dep - 0.01, dep, "tbf")
-                for k in range(5):
-                    hc = k / 4.0
-                    box(self.mesh, wl, "metal_dark", hc - 0.006, hc + 0.006, yf, yf + 0.12, dep - 0.012, dep, "lrf")
-                for hc in (0.093, 0.907):      # off the round numbers sills and hoods end on (qa.py coplanar)
-                    self.mesh.kit("metal_dark", [P(hc, yf, SKIN), P(hc, yf, dep - 0.01), P(hc, yf - 0.12, SKIN)], (wl.ha[0], 0.0, wl.ha[2]), scale=4.0)
+                with self.fine():
+                    for ry in (yf + 0.12, yf + 0.065):
+                        box(self.mesh, wl, "metal_dark", 0.0, 1.0, ry - 0.008, ry, dep - 0.01, dep, "tbf")
+                    for k in range(5):
+                        hc = k / 4.0
+                        box(self.mesh, wl, "metal_dark", hc - 0.006, hc + 0.006, yf, yf + 0.12, dep - 0.012, dep, "lrf")
+                    for hc in (0.093, 0.907):      # off the round numbers sills and hoods end on (qa.py coplanar)
+                        self.mesh.kit("metal_dark", [P(hc, yf, SKIN), P(hc, yf, dep - 0.01), P(hc, yf - 0.12, SKIN)], (wl.ha[0], 0.0, wl.ha[2]), scale=4.0)
             stats["fire_landings"] += 1
             wl = wls[i % len(wls)]
             P = wl.w
@@ -1305,6 +1328,7 @@ def main():
     m = gmap.Map(os.path.join(data, f"{lvl}.gmp"))
     hd = sys.argv[sys.argv.index("--hd") + 1] if "--hd" in sys.argv else "/mnt/gta2/gta2-linux/repo/assets/textures_hd"
     bld = Builder(m, cat, an, lvl, hd if os.path.isdir(hd) else None, coarse="--coarse" in sys.argv, work=work)
+    bld.force_lean = "--lean" in sys.argv
     if "--district" in sys.argv:
         # every building of one district of the map (catalogue.py's district keys: gang:..., nav:..., local_nav:...)
         dk = sys.argv[sys.argv.index("--district") + 1]

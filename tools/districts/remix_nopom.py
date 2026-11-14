@@ -6,6 +6,9 @@ skin already stands those walls out and cuts real openings, so the parallax woul
                                                                          every style tile a kit draws its skin with
     remix_nopom.py patch <hashes.json> <layer dir>                       in mod.usda / mod_wet.usda of a layer copy:
                                                                          drop height_texture, displace_in = 0 for those
+    remix_nopom.py emissive <kit dir> <layer dir>                        round 6: the kit's lit sign and neon textures
+                                                                         (kit_NN.dds of the "_lit" materials) as
+                                                                         emissive materials in mod.usda / mod_wet.usda
 The patch unlinks before writing (safe on a hard-link copy of the shipped layer). Deterministic."""
 import json, os, re, struct, sys
 
@@ -23,6 +26,55 @@ def kit_tiles(path):
 
 
 def main():
+    if sys.argv[1] == "emissive":
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import remix_materials as rmat, shutil
+        from kit import KIT
+        kd, layer = sys.argv[2], sys.argv[3]
+        entries = []
+        for k, name in enumerate(KIT):
+            if not name.endswith("_lit"):
+                continue
+            src = os.path.join(kd, f"kit_{k:02d}.dds")
+            h = rmat.dds_hash(src)
+            if not h:
+                continue
+            dst = os.path.join(layer, "textures", f"{h}.e.rtex.dds")
+            if os.path.lexists(dst): os.unlink(dst)
+            shutil.copyfile(src, dst)
+            entries.append(f"""        over "mat_{h}"
+        {{
+            over "Shader"
+            {{
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @AperturePBR_Opacity.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "AperturePBR_Opacity"
+                custom asset inputs:diffuse_texture = @./textures/{h}.e.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom float inputs:reflection_roughness_constant = 0.6
+                custom asset inputs:emissive_mask_texture = @./textures/{h}.e.rtex.dds@ (
+                    colorSpace = "sRGB"
+                )
+                custom bool inputs:enable_emission = 1
+                custom float inputs:emissive_intensity = 8
+                token outputs:out
+            }}
+        }}
+""")
+            print(f"{name}: kit_{k:02d}.dds -> mat_{h} (emissive)")
+        for name in ("mod.usda", "mod_wet.usda"):
+            path = os.path.join(layer, name)
+            if not os.path.exists(path): continue
+            t = open(path).read()
+            if "DISTRICTS emissive" in t: continue
+            anchor = '    over "Looks"\n    {\n'
+            assert anchor in t, name
+            t = t.replace(anchor, anchor + "        # DISTRICTS emissive: the facade kit's lit signs and neon\n" + "".join(entries), 1)
+            os.unlink(path); open(path, "w").write(t)
+            print(f"{name}: {len(entries)} emissive kit materials")
+        return
     if sys.argv[1] == "hashes":
         sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
         import remix_materials as rmat

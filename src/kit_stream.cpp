@@ -8,6 +8,7 @@
 #include <map>
 
 #include "world_mesh.h"
+#include "inflate.h"
 
 namespace gta2 {
 namespace {
@@ -30,26 +31,32 @@ bool KitStream::Load(const std::string& path, int tileBase) {
     const long size = ftell(f);
     fseek(f, 0, SEEK_SET);
     uint8_t head[16];
-    if (size < 16 || fread(head, 1, 16, f) != 16 || memcmp(head, "GDK2", 4) != 0 || Rd<uint32_t>(head + 4) != 2) { fclose(f); return false; }
+    const uint32_t ver = size >= 16 && fread(head, 1, 16, f) == 16 && memcmp(head, "GDK2", 4) == 0 ? Rd<uint32_t>(head + 4) : 0;
+    if (ver != 2 && ver != 3) { fclose(f); return false; }    // 3 (round 6): each entry raw-deflated, its raw size after it
     const uint32_t n = Rd<uint32_t>(head + 12);
-    const size_t rec = 2 + 2 + 4 + 24 + 12;
+    const size_t rec = 2 + 2 + 4 + 24 + (ver == 3 ? 16 : 12);
     if (16 + static_cast<size_t>(n) * rec > static_cast<size_t>(size)) { fclose(f); return false; }
     std::vector<uint8_t> table(static_cast<size_t>(n) * rec);
     if (fread(table.data(), 1, table.size(), f) != table.size()) { fclose(f); return false; }
-    size_t largest = 0;
+    size_t largest = 0, largestPacked = 0;
+    hasMid_ = false;
     for (uint32_t i = 0; i < n; ++i) {
         const uint8_t* p = &table[i * rec];
         Entry e;
         e.cx = Rd<int16_t>(p); e.cz = Rd<int16_t>(p + 2); e.lod = p[4];
         for (int k = 0; k < 6; ++k) e.bb[k] = Rd<float>(p + 8 + 4 * k);
         e.groups = Rd<uint32_t>(p + 32); e.offset = Rd<uint32_t>(p + 36); e.bytes = Rd<uint32_t>(p + 40);
+        e.raw = ver == 3 ? Rd<uint32_t>(p + 44) : 0;
         if (static_cast<size_t>(e.offset) + e.bytes > static_cast<size_t>(size)) { fclose(f); entries_.clear(); return false; }
-        largest = (std::max)(largest, static_cast<size_t>(e.bytes));
+        largest = (std::max)(largest, static_cast<size_t>((std::max)(e.bytes, e.raw)));
+        largestPacked = (std::max)(largestPacked, static_cast<size_t>(e.raw ? e.bytes : 0));
+        if (e.lod == 2) hasMid_ = true;
         entries_.push_back(e);
     }
     file_ = f;
     path_ = path;
     buf_.reserve(largest);
+    zbuf_.reserve(largestPacked);
     tileBase_ = tileBase;
     st_ = KitStreamStats{};
     st_.entries = static_cast<int>(entries_.size());
@@ -84,12 +91,15 @@ void KitStream::Free(int page, uint32_t at, uint32_t n) {
 }
 
 void KitStream::Release() {
+    for (Resident& r : res_) if (r.vb) r.vb->Release();
     res_.clear();
     for (PageBuf& p : pages_) if (p.vb) p.vb->Release();
     pages_.clear();
     if (file_) { fclose(file_); file_ = nullptr; }
     buf_.clear();
     buf_.shrink_to_fit();
+    zbuf_.clear();
+    zbuf_.shrink_to_fit();
     entries_.clear();
 }
 
@@ -108,44 +118,81 @@ bool KitStream::CreatePool(IDirect3DDevice9* device) {
 bool KitStream::Create(IDirect3DDevice9* device, int ei, Resident* r) {
     const Entry& e = entries_[static_cast<size_t>(ei)];
     if (!file_) return false;
-    buf_.resize(e.bytes);
-    if (fseek(file_, static_cast<long>(e.offset), SEEK_SET) != 0 || fread(buf_.data(), 1, e.bytes, file_) != e.bytes) return false;
-    const std::vector<uint8_t>& data_ = buf_;
+    if (e.raw) {     // version 3: inflate the entry
+        zbuf_.resize(e.bytes);
+        buf_.resize(e.raw);
+        if (fseek(file_, static_cast<long>(e.offset), SEEK_SET) != 0 || fread(zbuf_.data(), 1, e.bytes, file_) != e.bytes) return false;
+        if (!Inflate(zbuf_.data(), zbuf_.size(), buf_.data(), buf_.size())) { ++st_.badEntries; return false; }
+    } else {
+        buf_.resize(e.bytes);
+        if (fseek(file_, static_cast<long>(e.offset), SEEK_SET) != 0 || fread(buf_.data(), 1, e.bytes, file_) != e.bytes) return false;
+    }
+    struct Src { int tile; uint32_t flags, v; const uint8_t* p; };
+    std::vector<Src> src;
+    src.reserve(e.groups);
     uint32_t nv = 0;
     size_t at = 0;
     for (uint32_t g = 0; g < e.groups; ++g) {
-        const uint32_t v = Rd<uint32_t>(&data_[at + 8]), i = Rd<uint32_t>(&data_[at + 12]);
+        const uint8_t* p = &buf_[at];
+        const int32_t tile = Rd<int32_t>(p);
+        const uint32_t v = Rd<uint32_t>(p + 8), i = Rd<uint32_t>(p + 12);
+        if (v) src.push_back({tile >= 0 ? tile : tileBase_ + (-1 - tile), Rd<uint32_t>(p + 4), v, p});
         nv += v;
         at += 16 + 20 + static_cast<size_t>(v) * 14 + static_cast<size_t>(i) * 2 + ((i % 2) ? 2 : 0);
     }
     if (!nv) return false;
-    if (pages_.empty() && !CreatePool(device)) return false;
-    at = 0;
-    for (uint32_t g = 0; g < e.groups; ++g) {
-        const uint8_t* p = &data_[at];
-        Group gr;
-        gr.tile = Rd<int32_t>(p);
-        gr.flags = Rd<uint32_t>(p + 4);
-        const uint32_t v = Rd<uint32_t>(p + 8), i = Rd<uint32_t>(p + 12);
-        const float ox = Rd<float>(p + 16), oy = Rd<float>(p + 20), oz = Rd<float>(p + 24), ub = Rd<float>(p + 28), vb = Rd<float>(p + 32);
-        at += 16 + 20 + static_cast<size_t>(v) * 14 + static_cast<size_t>(i) * 2 + ((i % 2) ? 2 : 0);
+    // one material's groups together (the switch-on bucket last, so a material's emissive groups stay one range)
+    std::stable_sort(src.begin(), src.end(), [](const Src& x, const Src& y) {
+        const uint32_t fx = x.flags & ~0x1F00u, fy = y.flags & ~0x1F00u;
+        if (x.tile != y.tile) return x.tile < y.tile;
+        if (fx != fy) return fx < fy;
+        return (x.flags & 0x1F00u) < (y.flags & 0x1F00u);
+    });
+    // where the vertices go: its own buffer (OwnBuffers), else one range of a page, else a range a group (all or none)
+    std::vector<std::pair<int, uint32_t>> place(src.size(), {-1, 0u});
+    if (OwnBuffers) {
+        if (FAILED(device->CreateVertexBuffer(nv * sizeof(Vertex), D3DUSAGE_WRITEONLY, 0, D3DPOOL_MANAGED, &r->vb, nullptr))) { ++st_.refused; return false; }
+        uint32_t o = 0;
+        for (size_t k = 0; k < src.size(); ++k) { place[k] = {-1, o}; o += src[k].v; }
+    } else {
+        if (pages_.empty() && !CreatePool(device)) return false;
         int page = -1;
         uint32_t base = 0;
+        if (nv <= kPageVertices && Alloc(nv, &page, &base)) {
+            r->allocs.push_back({0, 0u, page, base, nv});
+            uint32_t o = base;
+            for (size_t k = 0; k < src.size(); ++k) { place[k] = {page, o}; o += src[k].v; }
+        } else {
+            for (size_t k = 0; k < src.size(); ++k) {
+                if (!Alloc(src[k].v, &page, &base)) {
+                    // all or nothing: a chunk with some groups missing stayed resident with walls missing (round 4)
+                    ++st_.refused;
+                    for (const Group& q : r->allocs) Free(q.page, q.vstart, q.vcount);
+                    r->allocs.clear();
+                    return false;
+                }
+                r->allocs.push_back({0, 0u, page, base, src[k].v});
+                place[k] = {page, base};
+            }
+        }
+    }
+    // unpack
+    for (size_t k = 0; k < src.size(); ++k) {
+        const uint8_t* p = src[k].p;
+        const uint32_t v = src[k].v;
+        const float ox = Rd<float>(p + 16), oy = Rd<float>(p + 20), oz = Rd<float>(p + 24), ub = Rd<float>(p + 28), vb = Rd<float>(p + 32);
+        IDirect3DVertexBuffer9* target = place[k].first >= 0 ? pages_[static_cast<size_t>(place[k].first)].vb : r->vb;
         Vertex* vd = nullptr;
-        if (!Alloc(v, &page, &base)) {
-            // all or nothing: a chunk with some of its groups missing would stay resident with walls missing (the
-            // round-4 ste frames); give back what it took and let a later plan try again
-            ++st_.refused;
-            for (const Group& q : r->groups) Free(q.page, q.vstart, q.vcount);
-            r->groups.clear(); r->tris = 0; r->bytes = 0;
+        if (!target || FAILED(target->Lock(place[k].second * sizeof(Vertex), v * sizeof(Vertex), reinterpret_cast<void**>(&vd), 0))) {
+            for (const Group& q : r->allocs) Free(q.page, q.vstart, q.vcount);
+            r->allocs.clear();
+            if (r->vb) { r->vb->Release(); r->vb = nullptr; }
+            r->groups.clear(); r->lit.clear();
             return false;
         }
-        if (FAILED(pages_[static_cast<size_t>(page)].vb->Lock(base * sizeof(Vertex), v * sizeof(Vertex), reinterpret_cast<void**>(&vd), 0))) {
-            Free(page, base, v); break;
-        }
         const uint8_t* vp = p + 36;
-        for (uint32_t k = 0; k < v; ++k, vp += 14) {
-            Vertex& o = vd[k];
+        for (uint32_t q = 0; q < v; ++q, vp += 14) {
+            Vertex& o = vd[q];
             o.x = ox + Rd<int16_t>(vp) / 1024.0f;
             o.y = oy + Rd<int16_t>(vp + 2) / 1024.0f;
             o.z = oz + Rd<int16_t>(vp + 4) / 1024.0f;
@@ -155,14 +202,23 @@ bool KitStream::Create(IDirect3DDevice9* device, int ei, Resident* r) {
             o.u = ub + Half(Rd<uint16_t>(vp + 10));
             o.v = vb + Half(Rd<uint16_t>(vp + 12));
         }
-        pages_[static_cast<size_t>(page)].vb->Unlock();
-        gr.tile = gr.tile >= 0 ? gr.tile : tileBase_ + (-1 - gr.tile);
-        gr.page = page; gr.vstart = base; gr.vcount = v;
-        r->groups.push_back(gr);
+        target->Unlock();
+        // draws: a material's consecutive ranges merge into one (main pass); emissive ranges also go to the night list
+        const Group g{src[k].tile, src[k].flags, place[k].first, place[k].second, v};
+        if (!r->groups.empty()) {
+            Group& last = r->groups.back();
+            if (last.tile == g.tile && (last.flags & ~0x1F00u) == (g.flags & ~0x1F00u) && last.page == g.page && last.vstart + last.vcount == g.vstart) {
+                last.vcount += v;
+            } else {
+                r->groups.push_back(g);
+            }
+        } else {
+            r->groups.push_back(g);
+        }
+        if (g.flags & 16) r->lit.push_back(g);
         r->tris += static_cast<int>(v / 3);
         r->bytes += v * sizeof(Vertex);
     }
-    if (r->groups.empty()) return false;
     r->entry = ei;
     return true;
 }
@@ -176,7 +232,8 @@ void KitStream::Update(IDirect3DDevice9* device, float eyeX, float eyeZ, double 
     }
     for (size_t i = 0; i < res_.size();) {
         if (res_[i].dying && res_[i].alpha <= 0.0f) {
-            for (const Group& g : res_[i].groups) Free(g.page, g.vstart, g.vcount);
+            for (const Group& g : res_[i].allocs) Free(g.page, g.vstart, g.vcount);
+            if (res_[i].vb) res_[i].vb->Release();
             res_.erase(res_.begin() + static_cast<long>(i));
             ++st_.released;
         } else {
@@ -197,9 +254,12 @@ void KitStream::Update(IDirect3DDevice9* device, float eyeX, float eyeZ, double 
         const float dz = (std::max)({0.0f, e.bb[2] - eyeZ, eyeZ - e.bb[5]});
         const float d = std::sqrt(dx * dx + dz * dz);
         const auto cur = current.find({e.cx, e.cz});
-        const float hy0 = (cur != current.end() && cur->second == 0) ? 2.0f : 0.0f;
-        const float hy1 = (cur != current.end()) ? 2.0f : 0.0f;
-        const int lod = d < Radius0 + hy0 ? 0 : (d < Radius1 + hy1 ? 1 : -1);
+        const float hy0 = (cur != current.end() && cur->second == 0) ? Hysteresis : 0.0f;
+        const float hy1 = (cur != current.end()) ? Hysteresis : 0.0f;
+        // round 6: with a middle level (lod 2, the lean kit) LOD0 is kept to MidRadius0, the middle level to RadiusMid
+        const float r0 = hasMid_ ? MidRadius0 : Radius0;
+        const float hym = (cur != current.end() && (cur->second == 0 || cur->second == 2)) ? Hysteresis : 0.0f;
+        const int lod = d < r0 + hy0 ? 0 : (hasMid_ && d < RadiusMid + hym ? 2 : (d < Radius1 + hy1 ? 1 : -1));
         if (lod == e.lod) { want[{e.cx, e.cz}] = static_cast<int>(i); order.push_back({d, static_cast<int>(i)}); }
     }
     // retire what is no longer wanted (fade out), bring in what is missing (fade in), nearest first
@@ -236,7 +296,7 @@ KitStreamStats KitStream::Stats() const {
     s.lod0 = s.lod1 = s.fading = s.triangles = 0;
     s.gpuBytes = 0;
     for (const Resident& r : res_) {
-        if (entries_[static_cast<size_t>(r.entry)].lod == 0) ++s.lod0; else ++s.lod1;
+        if (entries_[static_cast<size_t>(r.entry)].lod == 1) ++s.lod1; else ++s.lod0;   // LOD0 and the middle level
         if (r.dying || r.alpha < 1.0f) ++s.fading;
         s.triangles += r.tris;
         s.gpuBytes += r.bytes;

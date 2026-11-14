@@ -1271,7 +1271,14 @@ IDirect3DTexture9* Renderer::KitMaterialTexture(const Style& style, int tile) {
 }
 
 bool Renderer::LoadKitStream(const std::string& path, const Style& style) {
-    if (!device_ || !kitStream_.Load(path, KitTileIndex(style, 0)) || !kitStream_.CreatePool(device_)) return false;
+    if (!device_ || !kitStream_.Load(path, KitTileIndex(style, 0))) return false;
+    if (remixDevice_) {      // round 6: see KitStream::OwnBuffers
+        kitStream_.OwnBuffers = true;
+        kitStream_.FadeSeconds = 0.0f;
+        kitStream_.Hysteresis = 6.0f;
+    } else if (!kitStream_.CreatePool(device_)) {
+        return false;
+    }
     for (int k = 0; k < kKitMaterials; ++k) KitMaterialTexture(style, KitTileIndex(style, k));
     return true;
 }
@@ -1807,41 +1814,79 @@ void Renderer::DrawKitStream(const Camera& camera) {
     device_->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
     device_->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
     device_->SetFVF(kWorldFvf);
-    int boundPage = -1;
+    // round 6: the frame's kit draws gathered, the opaque ones sorted by texture, then state, then buffer, and drawn
+    // with each state set only when it changes (under the Remix bridge every device call is a message: the round-5
+    // loop made ~7 calls a draw, ~7 000 a frame); the fading chunks after, as before
+    kitDraws_.clear();
+    kitFading_.clear();
     for (const KitStream::Resident& r : kitStream_.Residents()) {
         if (const float* bb = kitStream_.Bounds(r.entry)) {   // shadow casters: the solid groups (no grates)
             for (const KitStream::Group& g : r.groups) {
-                if ((g.flags & 1) || !kitStream_.Page(g.page)) continue;
-                kitCasters_.push_back({kitStream_.Page(g.page), g.vstart, g.vcount, {bb[0], bb[1], bb[2]}, {bb[3], bb[4], bb[5]}, r.alpha});
+                if ((g.flags & (1 | 32)) || !kitStream_.BufferOf(r, g)) continue;   // no grates, no fine detail in the shadows
+                kitCasters_.push_back({kitStream_.BufferOf(r, g), g.vstart, g.vcount, {bb[0], bb[1], bb[2]}, {bb[3], bb[4], bb[5]}, r.alpha});
             }
         }
         const float a = r.alpha * kitAlpha_;
         if (a <= 0.02f) continue;
-        const bool blend = a < 0.999f;
-        device_->SetRenderState(D3DRS_ALPHABLENDENABLE, blend ? TRUE : FALSE);
-        device_->SetRenderState(D3DRS_ZWRITEENABLE, blend ? FALSE : TRUE);
-        if (blend) {
-            device_->SetRenderState(D3DRS_TEXTUREFACTOR, D3DCOLOR_ARGB(static_cast<int>(a * 255.0f + 0.5f), 255, 255, 255));
-            device_->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
-            device_->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
-            device_->SetTextureStageState(0, D3DTSS_ALPHAARG2, D3DTA_TFACTOR);
-        } else {
-            device_->SetTextureStageState(0, D3DTSS_ALPHAOP, aop);
-            device_->SetTextureStageState(0, D3DTSS_ALPHAARG1, a1);
-            device_->SetTextureStageState(0, D3DTSS_ALPHAARG2, a2);
+        // fine detail (flag 32) only near the eye: beyond DetailRadius of the chunk's box it is skipped
+        bool nearDetail = true;
+        if (const float* bb = kitStream_.Bounds(r.entry)) {
+            const float dx = (std::max)({0.0f, bb[0] - eye.x, eye.x - bb[3]}), dz = (std::max)({0.0f, bb[2] - eye.z, eye.z - bb[5]});
+            nearDetail = dx * dx + dz * dz < kitStream_.DetailRadius * kitStream_.DetailRadius;
         }
         for (const KitStream::Group& g : r.groups) {
+            if ((g.flags & 32) && !nearDetail) continue;
             IDirect3DTexture9* tex = g.tile >= 0 && g.tile < static_cast<int>(textures_.size()) ? BoundTileTexture(g.tile) : nullptr;
-            if (!tex) continue;
-            device_->SetTexture(0, tex);
-            device_->SetRenderState(D3DRS_CULLMODE, (g.flags & 2) ? D3DCULL_NONE : cullMode_);
-            device_->SetRenderState(D3DRS_ALPHATESTENABLE, (g.flags & 1) ? TRUE : FALSE);
-            const DWORD addr = (g.flags & 4) ? D3DTADDRESS_WRAP : D3DTADDRESS_CLAMP;
-            device_->SetSamplerState(0, D3DSAMP_ADDRESSU, addr);
-            device_->SetSamplerState(0, D3DSAMP_ADDRESSV, addr);
-            if (g.page != boundPage) { device_->SetStreamSource(0, kitStream_.Page(g.page), 0, sizeof(Vertex)); boundPage = g.page; }
-            device_->DrawPrimitive(D3DPT_TRIANGLELIST, g.vstart, g.vcount / 3);
+            IDirect3DVertexBuffer9* vb = kitStream_.BufferOf(r, g);
+            if (!tex || !vb) continue;
+            const KitDrawRec d{tex, g.flags & 7u, vb, g.vstart, g.vcount, a};
+            (a < 0.999f ? kitFading_ : kitDraws_).push_back(d);
         }
+    }
+    std::sort(kitDraws_.begin(), kitDraws_.end(), [](const KitDrawRec& x, const KitDrawRec& y) {
+        if (x.tex != y.tex) return x.tex < y.tex;
+        if (x.flags != y.flags) return x.flags < y.flags;
+        if (x.vb != y.vb) return x.vb < y.vb;
+        return x.vstart < y.vstart;
+    });
+    IDirect3DVertexBuffer9* boundVb = nullptr;
+    IDirect3DTexture9* boundTex = nullptr;
+    uint32_t boundFlags = 0xFFFFFFFFu;
+    auto drawList = [&](const std::vector<KitDrawRec>& list, bool fading) {
+        float lastA = -1.0f;
+        for (const KitDrawRec& d : list) {
+            if (fading && d.a != lastA) {
+                device_->SetRenderState(D3DRS_TEXTUREFACTOR, D3DCOLOR_ARGB(static_cast<int>(d.a * 255.0f + 0.5f), 255, 255, 255));
+                lastA = d.a;
+            }
+            if (d.tex != boundTex) { device_->SetTexture(0, d.tex); boundTex = d.tex; }
+            if (d.flags != boundFlags) {
+                if (boundFlags == 0xFFFFFFFFu || ((d.flags ^ boundFlags) & 2)) device_->SetRenderState(D3DRS_CULLMODE, (d.flags & 2) ? D3DCULL_NONE : cullMode_);
+                if (boundFlags == 0xFFFFFFFFu || ((d.flags ^ boundFlags) & 1)) device_->SetRenderState(D3DRS_ALPHATESTENABLE, (d.flags & 1) ? TRUE : FALSE);
+                if (boundFlags == 0xFFFFFFFFu || ((d.flags ^ boundFlags) & 4)) {
+                    const DWORD addr = (d.flags & 4) ? D3DTADDRESS_WRAP : D3DTADDRESS_CLAMP;
+                    device_->SetSamplerState(0, D3DSAMP_ADDRESSU, addr);
+                    device_->SetSamplerState(0, D3DSAMP_ADDRESSV, addr);
+                }
+                boundFlags = d.flags;
+            }
+            if (d.vb != boundVb) { device_->SetStreamSource(0, d.vb, 0, sizeof(Vertex)); boundVb = d.vb; }
+            device_->DrawPrimitive(D3DPT_TRIANGLELIST, d.vstart, d.vcount / 3);
+        }
+    };
+    device_->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
+    device_->SetRenderState(D3DRS_ZWRITEENABLE, TRUE);
+    device_->SetTextureStageState(0, D3DTSS_ALPHAOP, aop);
+    device_->SetTextureStageState(0, D3DTSS_ALPHAARG1, a1);
+    device_->SetTextureStageState(0, D3DTSS_ALPHAARG2, a2);
+    drawList(kitDraws_, false);
+    if (!kitFading_.empty()) {
+        device_->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+        device_->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+        device_->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
+        device_->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+        device_->SetTextureStageState(0, D3DTSS_ALPHAARG2, D3DTA_TFACTOR);
+        drawList(kitFading_, true);
     }
     // DISTRICTS round 5: the lit signs and neon: each emissive group's "_lit" material added on top, unlit and unfogged,
     // at its switch-on bucket's share (SetKitSignLights) times the chunk's and the kit's fade
@@ -1871,8 +1916,7 @@ void Renderer::DrawKitStream(const Camera& camera) {
         for (const KitStream::Resident& r : kitStream_.Residents()) {
             const float fade = r.alpha * kitAlpha_;
             if (fade <= 0.02f) continue;
-            for (const KitStream::Group& g : r.groups) {
-                if (!(g.flags & 16)) continue;
+            for (const KitStream::Group& g : r.lit) {
                 const float a = fade * kitSign_[(g.flags >> 8) & 31];
                 if (a <= 0.004f) continue;
                 IDirect3DTexture9* tex = g.tile + 1 < static_cast<int>(textures_.size()) ? BoundTileTexture(g.tile + 1) : nullptr;   // the "_lit" material
@@ -1881,7 +1925,8 @@ void Renderer::DrawKitStream(const Camera& camera) {
                 device_->SetRenderState(D3DRS_TEXTUREFACTOR, D3DCOLOR_ARGB(255, c, c, c));
                 device_->SetTexture(0, tex);
                 device_->SetRenderState(D3DRS_CULLMODE, (g.flags & 2) ? D3DCULL_NONE : cullMode_);
-                if (g.page != boundPage) { device_->SetStreamSource(0, kitStream_.Page(g.page), 0, sizeof(Vertex)); boundPage = g.page; }
+                IDirect3DVertexBuffer9* src = kitStream_.BufferOf(r, g);
+                if (src != boundVb) { device_->SetStreamSource(0, src, 0, sizeof(Vertex)); boundVb = src; }
                 device_->DrawPrimitive(D3DPT_TRIANGLELIST, g.vstart, g.vcount / 3);
             }
         }

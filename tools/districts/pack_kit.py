@@ -7,11 +7,11 @@ streams around the eye (src/kit_stream.cpp).
 Triangles go to the chunk of their centroid (chunk x 16 x 16 cells in plan); within a chunk and LOD they are grouped
 by texture, split at 4 096 triangles (12 288 vertices). Vertex: 14 bytes (int16 x y z at 1/1024 block from the group's origin, int8
 normal, half-float u v relative to the group's integer uv base) against 32 bytes as floats; indices 16-bit.
-Layout (little endian): b"GDK2", u32 version 2, f32 chunk size, u32 entries; entry: i16 cx, i16 cz, u8 lod, 3 pad,
+Layout (little endian): b"GDK2", u32 version 3 (round 6: each entry's bytes raw-deflated, its raw size after them), f32 chunk size, u32 entries; entry: i16 cx, i16 cz, u8 lod, 3 pad,
 f32 bbox[6] (x0 y0 z0 x1 y1 z1), u32 groups, u32 offset, u32 bytes; at offset, per group: i32 tile, u32 flags,
 u32 vertices, u32 indices, f32 origin[3], f32 uv base[2], vertices, u16 indices (padded to 4 bytes).
 Deterministic: entries sorted by (cz, cx, lod), groups by (tile, flags)."""
-import struct, sys
+import struct, sys, zlib
 from collections import defaultdict
 import numpy as np
 
@@ -30,9 +30,10 @@ def read_kit(path):
 
 def main():
     l0, l1, outp = sys.argv[1:4]
+    lm = sys.argv[sys.argv.index("--mid") + 1] if "--mid" in sys.argv else None   # round 6: lod 2, the middle level
     cs = float(sys.argv[sys.argv.index("--chunk") + 1]) if "--chunk" in sys.argv else 16.0
     buckets = defaultdict(list)    # (cz, cx, lod, tile, flags) -> list of triangle vertex arrays (n, 3, 8)
-    for lod, path in ((0, l0), (1, l1)):
+    for lod, path in ((0, l0), (1, l1)) + (((2, lm),) if lm else ()):
         for tile, flags, vs, ix in read_kit(path):
             tri = vs[ix]                                   # (n, 3, 8)
             cen = tri[:, :, :3].mean(1)
@@ -65,19 +66,22 @@ def main():
                 gb += struct.pack("<iIII3f2f", tile, flags, len(t), len(idx), *origin.tolist(), *uvb.tolist())
                 gb += v.tobytes() + idx.tobytes() + (b"\0\0" if len(idx) % 2 else b"")
                 ngroups += 1
-        table.append((cx, cz, lod, bb, ngroups, len(gb)))
-        blobs.append(gb)
-    head = b"GDK2" + struct.pack("<IfI", 2, cs, len(table))
-    off = len(head) + len(table) * (2 + 2 + 4 + 24 + 12)
+        co = zlib.compressobj(9, zlib.DEFLATED, -15)     # round 6: raw deflate (src/inflate.cpp), ~3.8x smaller
+        cb = co.compress(gb) + co.flush()
+        table.append((cx, cz, lod, bb, ngroups, len(cb), len(gb)))
+        blobs.append(cb)
+    head = b"GDK2" + struct.pack("<IfI", 3, cs, len(table))
+    off = len(head) + len(table) * (2 + 2 + 4 + 24 + 16)
     tb = b""
-    for (cx, cz, lod, bb, ng, nb) in table:
-        tb += struct.pack("<hhB3x6fIII", cx, cz, lod, *[float(v) for v in bb], ng, off, nb)
+    for (cx, cz, lod, bb, ng, nb, raw) in table:
+        tb += struct.pack("<hhB3x6fIIII", cx, cz, lod, *[float(v) for v in bb], ng, off, nb, raw)
         off += nb
     with open(outp, "wb") as f:
         f.write(head + tb + b"".join(blobs))
     tris = [sum(len(t) for _, _, t in entries[k]) for k in sorted(entries)]
     n0 = sum(t for k, t in zip(sorted(entries), tris) if k[2] == 0); n1 = sum(t for k, t in zip(sorted(entries), tris) if k[2] == 1)
-    print(f"{outp}: {len(table)} chunk entries, LOD0 {n0} triangles, LOD1 {n1} triangles, {(len(head) + len(tb) + sum(map(len, blobs))) / 1024:.0f} KB")
+    n2 = sum(t for k, t in zip(sorted(entries), tris) if k[2] == 2)
+    print(f"{outp}: {len(table)} chunk entries, LOD0 {n0} triangles, middle {n2}, LOD1 {n1} triangles, {(len(head) + len(tb) + sum(map(len, blobs))) / 1024:.0f} KB")
 
 
 if __name__ == "__main__":
