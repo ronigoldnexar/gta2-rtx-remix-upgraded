@@ -282,3 +282,9 @@ rtx.conf keys).
   H.264 with `+faststart`.
 - Gate-1 pose moved to the pavement (167.5,127.5): in the lane at 169.6 traffic killed the player and the game
   respawned him in a courtyard (wil 219,70) mid-matrix.
+- Remix fog under RR (fx1-fx7, gta2-rtx6000): alpha-blended slabs render but always dark grey (emission and
+  colour ignored by that blend path); the volumetric fog is not seen. What reads: mode 3, opaque emissive slabs cut
+  by an alpha test against white noise (a screen door, coverage per slab, 8 offsets cycled by frame), black albedo
+  with the fog colour as emission. Open: faint vertical striations near the near slab, and it should be the default
+  only after the owner sees it (remix_fog_proxy stays 0 in the shipped ini).
+- Plain: the night sky's stars fade out under fog and cloud (WeatherStarVisibility).

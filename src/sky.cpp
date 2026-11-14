@@ -1,6 +1,7 @@
 #include "sky.h"
 
 #include "post_fx.h"
+#include "weather_fx.h"
 
 #include <algorithm>
 #include <cmath>
@@ -351,14 +352,14 @@ void Sky::Draw(IDirect3DDevice9* device, const Camera& camera, float aspect, con
     // Added over the night dome ([visuals] only), fading in after sunset and toward the
     // horizon's haze; the clouds are drawn over them.
     const float starAmount = (!g_skyRemix && VisualsConfig().enabled && stars_) ? 1.0f - Smooth(-10.0f, -1.0f, sunEl * 57.29578f) : 0.0f;
-    if (starAmount > 0.01f) {
+    if (starAmount * WeatherStarVisibility() > 0.01f) {   // WEATHER-V2: no stars through a fog bank or a cloud deck
         for (size_t i = 0; i < domeDirs_.size(); ++i) {
             const Vec3& d = domeDirs_[i];
             DomeVertex& v = domeScratch_[i];
             const float denom = std::max(d.y, 0.02f) + 0.35f;
             v.u = d.x / denom * 1.6f;
             v.v = d.z / denom * 1.6f;
-            v.colour = ToColour(Vec3{1.0f, 1.0f, 1.0f} * (starAmount * blend * Smooth(0.04f, 0.35f, domeElevation_[i])), 1.0f);
+            v.colour = ToColour(Vec3{1.0f, 1.0f, 1.0f} * (starAmount * WeatherStarVisibility() * blend * Smooth(0.04f, 0.35f, domeElevation_[i])), 1.0f);
         }
         device->SetTexture(0, stars_);
         device->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_WRAP);

@@ -346,6 +346,7 @@ void WeatherFx::DrawRain(const WorldShading& shading) {
 void SetWeatherCover(WeatherCoverFn fn) { g_cover = fn; }
 void SetScreenRainLights(const std::vector<ScreenRainLight>& lights) { g_srLights = lights; }
 bool WeatherCovered(float x, float y, float z) { return g_cover && g_cover(x, y, z); }
+float WeatherStarVisibility() { return g_now.active ? Clamp01((1.0f - g_fogHere) * (1.0f - 0.9f * g_overcast)) : 1.0f; }
 
 void WeatherFx::SetPuddleField(const std::vector<uint8_t>& texels, int size) {
     field_ = texels; fieldSize_ = size;

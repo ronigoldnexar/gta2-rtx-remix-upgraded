@@ -58,6 +58,8 @@ void WeatherPoll();
 using WeatherCoverFn = bool (*)(float x, float y, float z);
 void SetWeatherCover(WeatherCoverFn fn);
 bool WeatherCovered(float x, float y, float z);
+// WEATHER-V2 phase 2: how much of the night sky's stars shows through this frame's fog and cloud (1 clear).
+float WeatherStarVisibility();
 // WEATHER-V2: lights near the eye for the screen-space rain under Remix (set by the DLL each frame).
 struct ScreenRainLight { float pos[3]; float rgb[3]; float intensity; float radius; bool spot; float dir[3]; float coneDeg; };
 void SetScreenRainLights(const std::vector<ScreenRainLight>& lights);
