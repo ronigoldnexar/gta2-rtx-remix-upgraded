@@ -13,7 +13,7 @@ i686-w64-mingw32-g++ -O1 -static -o "$WORK/shc.exe" tools/shc.cpp
 cp src/shaders/visuals.hlsl "$WORK/"
 ENTRIES="vs_shadow_world:vs_3_0 vs_shadow_model:vs_3_0 ps_shadow_world:ps_3_0 ps_shadow_solid:ps_3_0 ps_shadow_cutout:ps_3_0
 vs_quad:vs_3_0 ps_shadowmask:ps_3_0 ps_composite:ps_3_0 ps_ssao8:ps_3_0 ps_ssao12:ps_3_0 ps_ao_blur:ps_3_0 ps_ao_blur4:ps_3_0 vs_light:vs_3_0 ps_light:ps_3_0 ps_light_apply:ps_3_0
-ps_bright:ps_3_0 ps_blur:ps_3_0 ps_final:ps_3_0"
+ps_bright:ps_3_0 ps_blur:ps_3_0 ps_final:ps_3_0 ps_classic_night:ps_3_0 ps_classic_pool:ps_3_0"
 SCRIPT='export WINEDEBUG=-all; wineboot -i >/dev/null 2>&1; set -e; for e in '"$(echo $ENTRIES)"'; do n=${e%%:*}; p=${e##*:}; wine shc.exe visuals.hlsl $n $p $n.h k_$n $n.txt >/dev/null || { echo "FAILED $n"; wine shc.exe visuals.hlsl $n $p $n.h k_$n; exit 1; }; done'
 ${DOCKER:-sudo -n docker} run --rm --cpuset-cpus=0-4 -v "$WORK:/w" -w /w "${SHC_IMAGE:-gta2-wine2510}" bash -c "$SCRIPT"
 # Wine's GLSL path declares r0-r31 only (and vkd3d copies every uniform into a temporary):

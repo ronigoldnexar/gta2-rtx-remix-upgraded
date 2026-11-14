@@ -137,6 +137,11 @@ void TimeOfDayAngles(float* elevationDeg, float* rotationDeg);
 // raises its coverage, dims the sun's direct light, softens its shadows and raises the sky fill.
 void TimeOfDaySetOvercast(float overcast);
 
+// LIGHTING-V1: the plain renderer's classic (top-down) view at this hour and weather: a tint for the game's frame and how
+// much of it applies (0 = untouched, the original pixels: full day and a clear sky), and the night share for the lamps'
+// pools (0 by day .. 1 at night). Composed here with the clock and TimeOfDaySetOvercast, like the Remix keys.
+void TimeOfDayClassicGrade(float tint[3], float* amount, float* night);
+
 // Whether the last push went through, and how many have.
 bool        TimeOfDayPushed();
 int         TimeOfDayPushCount();

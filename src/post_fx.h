@@ -119,6 +119,11 @@ public:
     ~PostFx() { Release(); }
     // remix: the device is RTX Remix's; nothing here ever runs then.
     void Init(IDirect3DDevice9* device, int width, int height, bool remix);
+    // LIGHTING-V1: grade the back buffer (the game's classic frame drawn so far) toward night. tint/amount from the clock
+    // and weather (time_of_day.cpp TimeOfDayClassicGrade); pools: screen-space light pools (x, y in pixels, radius in
+    // pixels, rgb already weighted). False when it could not run (no shaders/targets): the frame is left as drawn.
+    struct ClassicPool { float x, y, r; float rgb[3]; };
+    bool ClassicNight(const float tint[3], float amount, const std::vector<ClassicPool>& pools);
     void Release();
     void ReleaseWorld();
     // The world's shadow copy: the same vertex buffer, an index buffer by map chunk, and
@@ -247,6 +252,12 @@ private:
     IDirect3DPixelShader9* psAoBlur_ = nullptr;
     IDirect3DPixelShader9* psAoBlur4_ = nullptr;   // FIX-CAR-SHADING-2
     IDirect3DPixelShader9* psLight_ = nullptr;
+    IDirect3DPixelShader9* psClassicNight_ = nullptr;   // LIGHTING-V1
+    IDirect3DPixelShader9* psClassicPool_ = nullptr;
+    IDirect3DTexture9* classicCopy_ = nullptr;
+    IDirect3DTexture9* classicLight_ = nullptr;
+    int classicW_ = 0, classicH_ = 0;
+    bool classicFailed_ = false;
     IDirect3DPixelShader9* psBright_ = nullptr;
     IDirect3DPixelShader9* psBlur_ = nullptr;
     IDirect3DPixelShader9* psFinal_ = nullptr;

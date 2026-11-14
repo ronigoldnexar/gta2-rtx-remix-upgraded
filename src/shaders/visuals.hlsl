@@ -393,3 +393,33 @@ float4 ps_final(QuadOut i) : COLOR0 {
     float3 raw = tex2D(sRaw, i.uv).rgb;
     return float4(lerp(saturate(raw), c, cFinal.w), 1);
 }
+
+// --- LIGHTING-V1 classic night (the plain renderer's top-down view at dusk and night) ---------------------------------
+// The game's classic frame is graded toward the street views' hour: every texel times the hour's tint plus the light the
+// game's lamps, car lamps and signs throw (summed into sClassicLight by ps_classic_pool), except the lit things
+// themselves (near-white texels: lamp heads, light cones; saturated bright ones: neon, tail lamps), which keep their own
+// brightness. cClassic: tint rgb, amount (0 by day: the pass does not run at all then). cClassic2: the lit-texel bands.
+sampler2D sClassicScene : register(s0);
+sampler2D sClassicLight : register(s1);
+float4 cClassic  : register(c2);
+float4 cClassic2 : register(c3);   // white lo, white hi, saturation lo, light gain
+float4 ps_classic_night(QuadOut i) : COLOR0 {
+    float3 c = tex2D(sClassicScene, i.uv).rgb;
+    float3 L = tex2D(sClassicLight, i.uv).rgb;
+    float m = max(c.r, max(c.g, c.b));
+    float n = min(c.r, min(c.g, c.b));
+    float sat = (m - n) / max(m, 1e-3);
+    float keepWhite = smoothstep(cClassic2.x, cClassic2.y, n);
+    float keepNeon = smoothstep(cClassic2.z, 1.0, sat) * smoothstep(0.55, 0.85, m);
+    float keep = max(keepWhite, keepNeon);
+    float3 lit = c * min(cClassic.rgb + min(L, 0.85) * cClassic2.w, 1.1);
+    float3 graded = lerp(lit, c, keep);
+    return float4(lerp(c, graded, cClassic.w), 1.0);
+}
+float4 cPool : register(c2);   // rgb of one light's pool (already weighted)
+float4 ps_classic_pool(QuadOut i) : COLOR0 {
+    float2 d = i.uv * 2.0 - 1.0;
+    float a = saturate(1.0 - dot(d, d));
+    return float4(cPool.rgb * (a * a), 0.0);
+}
+

@@ -160,6 +160,8 @@ void PostFx::ReleaseTargets() {
     SafeRelease(psShadowWorld_); SafeRelease(psShadowSolid_); SafeRelease(psShadowCutout_);
     SafeRelease(psComposite_); SafeRelease(psSsao8_); SafeRelease(psSsao12_); SafeRelease(psAoBlur_); SafeRelease(psAoBlur4_);
     SafeRelease(psLight_); SafeRelease(psBright_); SafeRelease(psBlur_); SafeRelease(psFinal_);
+    SafeRelease(psClassicNight_); SafeRelease(psClassicPool_); SafeRelease(classicCopy_); SafeRelease(classicLight_);
+    classicW_ = classicH_ = 0; classicFailed_ = false;
     SafeRelease(quadDecl_); SafeRelease(lightDecl_); SafeRelease(shadowWorldDecl_);
     for (int f = 0; f < 4; ++f) {
         for (int s = 0; s < 4; ++s) SafeRelease(tsQuery_[f][s]);
@@ -573,6 +575,100 @@ void PostFx::SetTarget(IDirect3DSurface9* s, int w, int h) {
     device_->SetRenderTarget(0, s);
     D3DVIEWPORT9 vp = {0, 0, static_cast<DWORD>(w), static_cast<DWORD>(h), 0.0f, 1.0f};
     device_->SetViewport(&vp);
+}
+
+bool PostFx::ClassicNight(const float tint[3], float amount, const std::vector<ClassicPool>& pools) {
+    if (!device_ || remix_ || classicFailed_ || amount <= 0.0f) return false;
+    IDirect3DSurface9* back = nullptr;
+    if (FAILED(device_->GetRenderTarget(0, &back)) || !back) return false;
+    D3DSURFACE_DESC bd = {};
+    back->GetDesc(&bd);
+    const int w = static_cast<int>(bd.Width), h = static_cast<int>(bd.Height);
+    if (!psClassicNight_) {
+        if (FAILED(device_->CreatePixelShader(k_ps_classic_night, &psClassicNight_)) ||
+            FAILED(device_->CreatePixelShader(k_ps_classic_pool, &psClassicPool_)) || (!vsQuad_ && FAILED(device_->CreateVertexShader(k_vs_quad, &vsQuad_)))) {
+            classicFailed_ = true; back->Release();
+            RendererTrace("classic night: shaders refused; the classic view stays as drawn");
+            return false;
+        }
+    }
+    if (!quadDecl_) {
+        const D3DVERTEXELEMENT9 quad[] = {{0, 0, D3DDECLTYPE_FLOAT4, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_POSITION, 0},
+                                          {0, 16, D3DDECLTYPE_FLOAT2, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_TEXCOORD, 0}, D3DDECL_END()};
+        if (FAILED(device_->CreateVertexDeclaration(quad, &quadDecl_))) { classicFailed_ = true; back->Release(); return false; }
+    }
+    if (classicW_ != w || classicH_ != h || !classicCopy_) {
+        SafeRelease(classicCopy_); SafeRelease(classicLight_);
+        if (FAILED(device_->CreateTexture(w, h, 1, D3DUSAGE_RENDERTARGET, bd.Format, D3DPOOL_DEFAULT, &classicCopy_, nullptr)) ||
+            FAILED(device_->CreateTexture(w / 2, h / 2, 1, D3DUSAGE_RENDERTARGET, D3DFMT_A16B16G16R16F, D3DPOOL_DEFAULT, &classicLight_, nullptr))) {
+            SafeRelease(classicCopy_); SafeRelease(classicLight_); classicFailed_ = true; back->Release();
+            RendererTrace("classic night: no targets; the classic view stays as drawn");
+            return false;
+        }
+        classicW_ = w; classicH_ = h;
+        RendererTrace("classic night: ready (%dx%d)", w, h);
+    }
+    IDirect3DStateBlock9* saved = nullptr;
+    device_->CreateStateBlock(D3DSBT_ALL, &saved);
+    IDirect3DSurface9* copy = nullptr; IDirect3DSurface9* light = nullptr; IDirect3DSurface9* depth = nullptr;
+    classicCopy_->GetSurfaceLevel(0, &copy);
+    classicLight_->GetSurfaceLevel(0, &light);
+    device_->GetDepthStencilSurface(&depth);
+    device_->StretchRect(back, nullptr, copy, nullptr, D3DTEXF_NONE);
+    device_->SetDepthStencilSurface(nullptr);
+    device_->SetRenderState(D3DRS_ZENABLE, D3DZB_FALSE);
+    device_->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+    device_->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+    device_->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
+    device_->SetRenderState(D3DRS_FOGENABLE, FALSE);
+    device_->SetRenderState(D3DRS_STENCILENABLE, FALSE);
+    device_->SetRenderState(D3DRS_SCISSORTESTENABLE, FALSE);
+    device_->SetRenderState(D3DRS_COLORWRITEENABLE, 0xF);
+    device_->SetRenderState(D3DRS_SRGBWRITEENABLE, FALSE);
+    device_->SetVertexShader(vsQuad_);
+    device_->SetVertexDeclaration(quadDecl_);
+    // The pools, summed at half resolution.
+    device_->SetRenderTarget(0, light);
+    D3DVIEWPORT9 vp = {0, 0, static_cast<DWORD>(w / 2), static_cast<DWORD>(h / 2), 0.0f, 1.0f};
+    device_->SetViewport(&vp);
+    device_->Clear(0, nullptr, D3DCLEAR_TARGET, 0, 1.0f, 0);
+    device_->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+    device_->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_ONE);
+    device_->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_ONE);
+    device_->SetPixelShader(psClassicPool_);
+    for (const ClassicPool& p : pools) {
+        const float x0 = (p.x - p.r) / w * 2.0f - 1.0f, x1 = (p.x + p.r) / w * 2.0f - 1.0f;
+        const float y0 = 1.0f - (p.y - p.r) / h * 2.0f, y1 = 1.0f - (p.y + p.r) / h * 2.0f;
+        const QuadVertex q[4] = {{x0, y0, 0.5f, 1.0f, 0.0f, 0.0f}, {x1, y0, 0.5f, 1.0f, 1.0f, 0.0f},
+                                 {x0, y1, 0.5f, 1.0f, 0.0f, 1.0f}, {x1, y1, 0.5f, 1.0f, 1.0f, 1.0f}};
+        const float c[4] = {p.rgb[0], p.rgb[1], p.rgb[2], 0.0f};
+        device_->SetPixelShaderConstantF(2, c, 1);
+        device_->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, q, sizeof(QuadVertex));
+    }
+    // The grade, back into the frame.
+    device_->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
+    device_->SetRenderTarget(0, back);
+    vp.Width = static_cast<DWORD>(w); vp.Height = static_cast<DWORD>(h);
+    device_->SetViewport(&vp);
+    for (DWORD st = 0; st < 2; ++st) {
+        device_->SetSamplerState(st, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+        device_->SetSamplerState(st, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+        device_->SetSamplerState(st, D3DSAMP_MINFILTER, st ? D3DTEXF_LINEAR : D3DTEXF_POINT);
+        device_->SetSamplerState(st, D3DSAMP_MAGFILTER, st ? D3DTEXF_LINEAR : D3DTEXF_POINT);
+        device_->SetSamplerState(st, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+        device_->SetSamplerState(st, D3DSAMP_SRGBTEXTURE, FALSE);
+    }
+    device_->SetTexture(0, classicCopy_);
+    device_->SetTexture(1, classicLight_);
+    const float k[8] = {tint[0], tint[1], tint[2], amount, 0.86f, 0.97f, 0.62f, 1.0f};
+    device_->SetPixelShaderConstantF(2, k, 2);
+    device_->SetPixelShader(psClassicNight_);
+    DrawQuad(w, h);
+    if (saved) { saved->Apply(); saved->Release(); }
+    device_->SetRenderTarget(0, back);
+    device_->SetDepthStencilSurface(depth);
+    SafeRelease(depth); SafeRelease(light); SafeRelease(copy); back->Release();
+    return true;
 }
 
 void PostFx::DrawQuad(int w, int h) {

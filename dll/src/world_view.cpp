@@ -3765,6 +3765,90 @@ void WorldView::DrawSkyAndShading() {
 // that are never shown, every device state captured before and put back after. The classic
 // frame itself is already complete (and kept for the dissolve) when this runs; what is presented
 // is unchanged. GTA2DX9_GHOST_FRAME=0 turns it off for a before/after run.
+// LIGHTING-V1 (owner: day/night must agree between the classic view and the street views in both renderers). By day and
+// under a clear sky nothing runs and the classic frame is the game's own, pixel for pixel (vreg spawn_classic at 12:30).
+// As the clock leaves full day the frame (world and sprites, not the HUD) is graded with the hour's tint
+// (TimeOfDayClassicGrade: the street views' daylight curve and the weather's overcast, composed in time_of_day.cpp), and
+// the game's lights lay pools on it: the map's lamps (at their own staggered switching), car head lamps ahead of the car,
+// brake lamps, sirens and fires, projected with the classic camera. Lit texels (lamp heads, neon, tail lamps) keep their
+// own brightness in the shader. GTA2DX9_CLASSIC_NIGHT=0: off (the classic view always as drawn).
+void WorldView::ApplyClassicNight() {
+    static int off = -1;
+    if (off < 0) { char b[8] = {}; off = GetEnvironmentVariableA("GTA2DX9_CLASSIC_NIGHT", b, sizeof b) && b[0] == '0' ? 1 : 0; }
+    if (off) return;
+    float tint[3], amount = 0.0f, night = 0.0f;
+    TimeOfDayClassicGrade(tint, &amount, &night);
+    if (amount <= 0.0f) return;
+    const int w = renderer_.Width(), h = renderer_.Height();
+    const gta2::Mat4 view = camera_.ViewMatrix();
+    const gta2::Mat4 proj = camera_.ProjectionMatrix(static_cast<float>(w) / static_cast<float>((std::max)(1, h)));
+    auto toScreen = [&](float x, float y, float z, float* sx, float* sy) {
+        const float vx = x * view.m[0][0] + y * view.m[1][0] + z * view.m[2][0] + view.m[3][0];
+        const float vy = x * view.m[0][1] + y * view.m[1][1] + z * view.m[2][1] + view.m[3][1];
+        const float vz = x * view.m[0][2] + y * view.m[1][2] + z * view.m[2][2] + view.m[3][2];
+        const float cx = vx * proj.m[0][0] + vy * proj.m[1][0] + vz * proj.m[2][0] + proj.m[3][0];
+        const float cy = vx * proj.m[0][1] + vy * proj.m[1][1] + vz * proj.m[2][1] + proj.m[3][1];
+        const float cw = vx * proj.m[0][3] + vy * proj.m[1][3] + vz * proj.m[2][3] + proj.m[3][3];
+        if (!(cw > 0.05f)) return false;
+        *sx = (0.5f + 0.5f * cx / cw) * w;
+        *sy = (0.5f - 0.5f * cy / cw) * h;
+        return true;
+    };
+    std::vector<gta2::PostFx::ClassicPool> pools;
+    if (night > 0.02f) {
+        for (const RemixTrackedLight& t : LightsTracked()) {
+            const RemixLightDesc& d = t.def;
+            if (d.intensity < 0.02f) continue;
+            float pos[3] = {d.pos[0], d.pos[1], d.pos[2]}, reach = 0.0f, gain = 0.0f, share = night;
+            float rgb[3] = {d.rgb[0], d.rgb[1], d.rgb[2]};
+            switch (d.source) {
+                case kLightSourceGame: {
+                    const float own = LightsTrackedDaylight(t);
+                    share = own >= 0.0f ? own : 1.0f;   // ungated classes (signals) at every hour
+                    if (d.spot) continue;               // the Remix pool under a fitted lamp: the lamp itself stands for it
+                    reach = (std::min)(3.0f, (std::max)(1.2f, d.radius * 0.7f));
+                    gain = 0.32f * (std::min)(1.0f, d.intensity);
+                    // As the street views draw them (visuals.cpp FIX-WORLD-20/21, FIX-REMIX-NIGHT-8): a street-class lamp is
+                    // a sodium amber at its own luminance, a sign keeps 30 % of its hue over a warm white; the game's raw
+                    // colours (#FF8080, #80FF00 ...) summed over the plaza washed the classic frame pink and green.
+                    {
+                        const uint8_t klass = ClassifyGameLight(d, false);
+                        static const float kSodium[3] = {1.0f, 0.64f, 0.28f}, kWarm[3] = {1.0f, 0.86f, 0.66f};
+                        const float* to = klass == kGameLightStreet ? kSodium : kWarm;
+                        const float keep = klass == kGameLightStreet ? 0.0f : 0.3f;
+                        const float lum = (std::max)(0.45f, 0.2126f * rgb[0] + 0.7152f * rgb[1] + 0.0722f * rgb[2]);
+                        const float tl = 0.2126f * to[0] + 0.7152f * to[1] + 0.0722f * to[2];
+                        for (int i = 0; i < 3; ++i) rgb[i] = keep * rgb[i] + (1.0f - keep) * to[i] * lum / tl;
+                    }
+                    break;
+                }
+                case kLightSourceHeadlight:
+                    for (int i = 0; i < 3; ++i) pos[i] += d.dir[i] * 1.3f;
+                    reach = 1.7f; gain = 0.45f; break;
+                case kLightSourceBrake: reach = 0.7f; gain = 0.35f; break;
+                case kLightSourceSiren: reach = d.spot ? 0.0f : 2.4f; gain = 0.40f; share = (std::max)(night, 0.3f); break;
+                case kLightSourceFire: reach = 2.4f; gain = 0.6f; share = 1.0f; break;
+                default: continue;
+            }
+            if (reach <= 0.0f || share <= 0.01f) continue;
+            float sx, sy, ex, ey;
+            if (!toScreen(pos[0], pos[1], pos[2], &sx, &sy) || !toScreen(pos[0] + reach, pos[1], pos[2], &ex, &ey)) continue;
+            const float r = std::sqrt((ex - sx) * (ex - sx) + (ey - sy) * (ey - sy));
+            if (r < 2.0f || sx < -r || sy < -r || sx > w + r || sy > h + r) continue;
+            gta2::PostFx::ClassicPool p{sx, sy, r, {rgb[0] * gain * share, rgb[1] * gain * share, rgb[2] * gain * share}};
+            pools.push_back(p);
+            if (pools.size() >= 160) break;
+        }
+    }
+    const bool ok = renderer_.ClassicNight(tint, amount, pools);
+    static int logged = 0;
+    if ((frameCount_ % 600) == 0 && logged < 40) {
+        ++logged;
+        Log("classic night: tint %.2f %.2f %.2f night %.2f, %d pools%s", tint[0], tint[1], tint[2], night,
+            static_cast<int>(pools.size()), ok ? "" : " (pass unavailable)");
+    }
+}
+
 void WorldView::GhostStreetFrame() {
     LARGE_INTEGER a, b, f;
     QueryPerformanceCounter(&a);
@@ -4096,6 +4180,11 @@ void WorldView::RenderFrame() {
         // are depth tested against the static mesh rather than painted over it.
         live_.Draw(renderer_.Device(), camera_, renderer_.Width(), renderer_.Height());
         renderer_.EndWorldShading();
+        // LIGHTING-V1: the plain classic view takes the hour too (the street views and the Remix classic view already
+        // do): graded here, after the world and its sprites and before the 2D layer, so the HUD stays as drawn.
+        if (CurrentViewMode() == ViewMode::Classic && !g_viewActive && skyBlend_ <= 0.0f && worldUploaded_ && !renderer_.IsRemixDevice() &&
+            gta2::SkyConfig().followClock)
+            ApplyClassicNight();
         QueryPerformanceCounter(&stamp[3]);
         // The 2D stream goes into a layer that is kept between frames, because
         // GTA2's menu only redraws what changed and clears the screen just when

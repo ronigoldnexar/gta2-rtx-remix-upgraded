@@ -251,6 +251,35 @@ void TimeOfDaySetOvercast(float overcast) {
     g_overcast = std::floor(overcast * 20.0f + 0.5f) / 20.0f;
 }
 
+void TimeOfDayClassicGrade(float tint[3], float* amount, float* night) {
+    tint[0] = tint[1] = tint[2] = 1.0f;
+    *amount = 0.0f; *night = 0.0f;
+    if (!g_settings.enabled) return;
+    // The same daylight curve the plain street views take from the sun (renderer.cpp: smoothstep of the sun from 8 deg
+    // below to 12 deg above the horizon), so the classic view darkens exactly as the third-person view does.
+    // (Shifted 4 deg lower than the street views' sun term: their ground keeps the twilight sky's fill to the sun's -8 deg,
+    // qav7, so at 18:30 the third-person street is a dusk, not a night; the classic view follows that.)
+    float d = (g_elevation + 12.0f) / 24.0f;
+    d = d < 0.0f ? 0.0f : (d > 1.0f ? 1.0f : d);
+    d = d * d * (3.0f - 2.0f * d);
+    const float n = 1.0f - d;
+    // Dusk/dawn: a warm violet; night: a cool, dark blue that keeps kerbs and cars readable (third-person night ~30/255
+    // against the classic's ~115 by day).
+    static const float kDusk[3] = {0.80f, 0.66f, 0.78f};
+    static const float kNight[3] = {0.27f, 0.31f, 0.46f};
+    float u = n * 2.0f; u = u > 1.0f ? 1.0f : u;
+    float v = n * 2.0f - 1.0f; v = v < 0.0f ? 0.0f : v;
+    for (int i = 0; i < 3; ++i) {
+        const float dusk = 1.0f + (kDusk[i] - 1.0f) * (u * u * (3.0f - 2.0f * u));
+        tint[i] = dusk + (kNight[i] - dusk) * (v * v * (3.0f - 2.0f * v));
+    }
+    // Weather: an overcast or rain sky greys and darkens the frame by day as well (WEATHER-V2's single input).
+    static const float kOvercast[3] = {0.74f, 0.76f, 0.80f};
+    for (int i = 0; i < 3; ++i) tint[i] *= 1.0f + (kOvercast[i] - 1.0f) * g_overcast;
+    *night = n;
+    *amount = (n > 0.002f || g_overcast > 0.002f) ? 1.0f : 0.0f;
+}
+
 TimeOfDaySettings& TimeOfDay() { return g_settings; }
 
 float TimeOfDayHour() { return g_hour; }

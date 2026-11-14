@@ -226,6 +226,10 @@ public:
     // last classic frame bit for bit. Plain renderer only: under RTX Remix the back
     // buffer does not hold the path-traced picture, so KeepFrame keeps nothing.
     void KeepFrame();
+    // LIGHTING-V1: the classic frame graded toward night (post_fx.h PostFx::ClassicNight); never on a Remix device.
+    bool ClassicNight(const float tint[3], float amount, const std::vector<PostFx::ClassicPool>& pools) {
+        return !remixDevice_ && post_.ClassicNight(tint, amount, pools);
+    }
     bool HasKeptFrame() const { return keptValid_; }
     void DropKeptFrame() { keptValid_ = false; }
     void DrawKeptFrame(float alpha);
