@@ -1315,6 +1315,7 @@ bool WorldView::EnsureWorldLoaded() {
             overlay_.TraceNextFrames(3);
         }
         loadedMapObject_ = nullptr;
+        g_viewPlayer = PlayerState{};   // back at the menu: the level's people are gone (see below)
         return false;
     }
     if (mapObject == loadedMapObject_) return true;
@@ -1324,6 +1325,10 @@ bool WorldView::EnsureWorldLoaded() {
     // rebuild, so a level that fails to load leaves sprites on the fixed lift
     // instead of on a floor from the district before it.
     ground_.Clear();
+    // The old level's people are freed with it: the view player (his ped pointer, read once a frame by the density
+    // and city-ai hooks, density.cpp PlayerStars) must not outlive them until the next locate refreshes it. 5090 ship
+    // check run 1: C0000005 in DensityUpdate reading ped+0x20A after a level change from Industrial to Downtown.
+    g_viewPlayer = PlayerState{};
     if (!ReadLiveMap(mapObject, &map_, &error)) {
         Log("live map read failed: %s", error.c_str());
         loadedMapObject_ = mapObject;  // Do not retry every frame on a bad map.

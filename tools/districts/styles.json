@@ -1,5 +1,5 @@
 {
- "_comment": "DISTRICTS style tables. A district picks a row in tools/districts/overrides/<lvl>.json 'styles' (a row not defined here is the default row); every row is complete. kit: what kit.py builds (fire_escapes none|side|front, water_towers / roof_units / awnings.rate as shares, stacks per factory, parapet in blocks, cornice heavy|archetype); props: multipliers on the renderer's street rules (furniture = bins, benches, hydrants, mailboxes; roof = AC units, vents, water-tower props; trees; meters; containers); grade: per-channel multipliers on the street views' fog and ambient (plain renderer), eased over a few seconds as the camera crosses districts; remix: rtx options pushed through the Remix API when the camera enters the district (the same keys in every row, so leaving one resets them). recast: the district's architecture, archetype -> archetype for its generic buildings ('industrial': factory at 3+ levels, else warehouse). storefronts: a fascia sign band (lit sign boxes, neon) and a canopy along every street-facing ground floor; crowns: setback storey, stepped crown and mast on 4+ level towers; flagpoles on the front roof edge. base: a row is its base row (default if none) with its own keys merged over it.",
+ "_comment": "DISTRICTS style tables. A district picks a row in tools/districts/overrides/<lvl>.json 'styles' (a row not defined here is the default row); every row is complete. kit: what kit.py builds (fire_escapes none|side|front, water_towers / roof_units / awnings.rate as shares, stacks per factory, parapet in blocks, cornice heavy|archetype); props: multipliers on the renderer's street rules (furniture = bins, benches, hydrants, mailboxes; roof = AC units, vents, water-tower props; trees; meters; containers); grade: per-channel multipliers on the street views' fog and ambient (plain renderer), eased over a few seconds as the camera crosses districts; remix: rtx options pushed through the Remix API when the camera enters the district (the same keys in every row, so leaving one resets them). recast: the district's architecture, archetype -> archetype for its generic buildings ('industrial': factory at 3+ levels, else warehouse). storefronts: a fascia sign band (lit sign boxes, neon) and a canopy along every street-facing ground floor; crowns: setback storey, stepped crown and mast on 4+ level towers; flagpoles on the front roof edge. base: a row is its base row (default if none) with its own keys merged over it. signs: the words the district's sign boxes may show (kit.SIGN_WORDS).",
  "styles": {
   "default": {
    "kit": {
@@ -213,7 +213,16 @@
       "canvas_green"
      ],
      "striped": 0.2
-    }
+    },
+    "signs": [
+     "BANK",
+     "HOTEL",
+     "CAFE",
+     "DELI",
+     "BOOKS",
+     "SHOES",
+     "TAXI"
+    ]
    },
    "grade": {
     "fog": [
@@ -240,7 +249,18 @@
       "canvas_red",
       "canvas_ochre"
      ]
-    }
+    },
+    "signs": [
+     "BAR",
+     "HOTEL",
+     "PAWN",
+     "24H",
+     "LIQUOR",
+     "CLUB",
+     "MOTEL",
+     "TAXI",
+     "RADIO"
+    ]
    },
    "grade": {
     "fog": [
@@ -339,7 +359,16 @@
   "residential_mall": {
    "base": "downtown_core",
    "kit": {
-    "crowns": false
+    "crowns": false,
+    "signs": [
+     "DINER",
+     "PIZZA",
+     "CAFE",
+     "SHOES",
+     "BOOKS",
+     "DELI",
+     "BANK"
+    ]
    }
   },
   "residential_prison": {

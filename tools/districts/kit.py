@@ -39,6 +39,10 @@ ALPHA = {K["grate"]}
 # illuminated parts: drawn with the day material, plus (renderer, at night) the next material, the "_lit" one, added
 # at its own staggered switch-on time: flags 16 = emissive, bits 8..12 = one of 32 switch-on buckets (time_of_day.h)
 EMISSIVE = {K["sign_warm"], K["sign_cool"], K["neon_pink"]}
+# the words on the sign boxes: one 16-px row of the sign texture each (kit_textures.py draws them); a district row may
+# narrow them (styles.json kit.signs)
+SIGN_WORDS = {"sign_warm": ["BAR", "HOTEL", "PAWN", "DINER", "24H", "PIZZA", "LIQUOR", "CAFE"],
+              "sign_cool": ["BANK", "MOTEL", "CLUB", "TAXI", "RADIO", "DELI", "SHOES", "BOOKS"]}
 
 SKIN = 0.15          # wall proud of the box face: the window reveal depth (~60 cm at 4 m a block)
 MAXO = 0.25          # nothing stands further out than this from the box face
@@ -365,6 +369,7 @@ class Builder:
             st["vents"] = True
         st["awnings"] = k.get("awnings") or STYLES["default"]["kit"]["awnings"]
         st["neon"] = k.get("neon", 0.25)
+        st["signs"] = k.get("signs")
         for key in ("storefronts", "crowns", "flagpoles"):
             if k.get(key) and not ind and arch != "house":
                 st[key] = k[key]
@@ -1016,13 +1021,14 @@ class Builder:
         t = self.m.top(x + ox, y + oy)
         return t[2] in (1, 2) and t[0] <= level + 1
 
-    def sign_box(self, wl, mat, h0, h1, y0, y1, d0, d1, bucket):
+    def sign_box(self, wl, mat, h0, h1, y0, y1, d0, d1, bucket, word=0):
         """an illuminated sign box: the sign material's letters across its face (u 0..1 along, v 0..1 down), a dark
         metal case; the face is emissive (Mesh.kit flags) and lights at its bucket's switch-on time"""
         P = wl.w
         fl = 2 | 4 | 16 | ((bucket & 31) << 8)
+        v0, v1 = word / 8.0, (word + 1) / 8.0       # the word's row of the sign texture
         self.mesh.poly((-1 - K[mat], fl), [P(h0, y0, d1), P(h1, y0, d1), P(h1, y1, d1), P(h0, y1, d1)],
-                       [(0.0, 1.0), (1.0, 1.0), (1.0, 0.0), (0.0, 0.0)], wl.n)
+                       [(0.0, v1), (1.0, v1), (1.0, v0), (0.0, v0)], wl.n)
         box(self.mesh, wl, "metal_dark", h0, h1, y0, y1, d0, d1, "tblr")
 
     def storefront(self, b, st, wl, x, y, side, level, holes, el, er, stats):
@@ -1041,7 +1047,10 @@ class Builder:
             return
         if v % 4:
             mat = ("sign_warm", "sign_cool")[(h32(b["id"], 5) >> 3) & 1]
-            self.sign_box(wl, mat, 0.1, 0.9, y0 + 0.02, y1 - 0.02, 0.208, 0.226, bucket)
+            words = SIGN_WORDS[mat]
+            allowed = [i for i, w_ in enumerate(words) if w_ in (st.get("signs") or words)] or list(range(len(words)))
+            word = allowed[h32(b["id"], wl.x, wl.y, 29) % len(allowed)]     # one word a shop (cell)
+            self.sign_box(wl, mat, 0.1, 0.9, y0 + 0.02, y1 - 0.02, 0.208, 0.226, bucket, word)
             stats["sign_boxes"] += 1
         names = sorted(n for n in (st["awnings"].get("palette") or []) if n in CANVAS) or sorted(CANVAS)
         mat = names[h32(b["id"], 9) % len(names)]
