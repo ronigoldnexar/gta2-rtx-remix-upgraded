@@ -25,6 +25,7 @@ G=/tmp/wp/drive_c/Games/GTA2; mkdir -p "$G"
 if mountpoint -q "$G/data" 2>/dev/null; then (cd /game && for f in *; do [ "$f" = data ] || cp -r "$f" "$G"/; done); else cp -r /game/. "$G"/; fi; mkdir -p "$G/player"   # data/ may be a read-only bind mount (game_mounts.sh)
 (cd /release && for f in * .[!.]*; do [ -e "$f" ] || continue; mountpoint -q "$G/$f" 2>/dev/null && continue; cp -r "$f" "$G"/; done)   # upstream v1.1: HD cars, voices, Remix mods, ini files (mounted folders are skipped)
 cp /stage/*.dll /stage/gta2dx9.ini $(ls /stage/gta2dx9_effects.ini 2>/dev/null) "$G"/; mountpoint -q "$G/gta2dx9_models" 2>/dev/null || { rm -rf "$G/gta2dx9_models"; cp -r /stage/gta2dx9_models "$G"/; }   # this build: DLLs, ini, models
+[ -f /work/stage_copy_check.sh ] && { bash /work/stage_copy_check.sh "$G" || exit 3; }   # the stage build, not /release v1.1, is what runs (a stage rewritten mid-copy left v1.1 in place)
 mountpoint -q "$G/gta2dx9_textures_hd" 2>/dev/null || { rm -rf "$G/gta2dx9_textures_hd"; [ -d /stage/gta2dx9_textures_hd ] && cp -r /stage/gta2dx9_textures_hd "$G"/; }   # HD tiles (DDS/TGA), when generated
 [ "${LAA:-1}" = 1 ] && sh /work/laa.sh "$G/gta2.exe"   # 4 GB address space for the copy in the prefix (HD tiles)
 [ -f "${INI_EXTRA:-/work/gta2dx9.ini.extra}" ] && cat "${INI_EXTRA:-/work/gta2dx9.ini.extra}" >> "$G/gta2dx9.ini"   # INI_EXTRA: a run's own [camera]/[renderer] additions

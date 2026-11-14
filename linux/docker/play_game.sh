@@ -50,6 +50,7 @@ G=/tmp/wp/drive_c/Games/GTA2; mkdir -p "$G"
 cp -r /game/. "$G"/; mkdir -p "$G/player"
 cp -r /release/. "$G"/
 cp /stage/*.dll /stage/gta2dx9.ini $(ls /stage/gta2dx9_effects.ini 2>/dev/null) "$G"/; rm -rf "$G/gta2dx9_models"; cp -r /stage/gta2dx9_models "$G"/
+[ -f /work/stage_copy_check.sh ] && { bash /work/stage_copy_check.sh "$G" || exit 3; }   # the stage build, not /release v1.1, is what runs (a stage rewritten mid-copy left v1.1 in place)
 rm -rf "$G/gta2dx9_textures_hd"; [ -d /stage/gta2dx9_textures_hd ] && cp -r /stage/gta2dx9_textures_hd "$G"/
 [ "${LAA:-1}" = 1 ] && sh /work/laa.sh "$G/gta2.exe"
 if [ "${PLAY_DEVTOOLS:-0}" = 1 ]; then sed -i 's/^warp_key=.*/warp_key=F9/; s/^scene_key=.*/scene_key=F11/' "$G/gta2dx9.ini"; fi

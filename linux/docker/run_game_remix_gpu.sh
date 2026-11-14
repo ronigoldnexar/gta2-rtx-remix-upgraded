@@ -44,6 +44,7 @@ G=/tmp/wp/drive_c/Games/GTA2; mkdir -p "$G"
 if mountpoint -q "$G/data" 2>/dev/null; then (cd /game && for f in *; do [ "$f" = data ] || cp -r "$f" "$G"/; done); else cp -r /game/. "$G"/; fi; mkdir -p "$G/player"   # data/ may be a read-only bind mount (game_mounts.sh)
 (cd /release && for f in * .[!.]*; do [ -e "$f" ] || continue; mountpoint -q "$G/$f" 2>/dev/null && continue; cp -r "$f" "$G"/; done)   # upstream v1.1: HD cars, voices, Remix mods, ini files (mounted folders are skipped)
 cp /stage/*.dll /stage/gta2dx9.ini $(ls /stage/gta2dx9_effects.ini 2>/dev/null) "$G"/; mountpoint -q "$G/gta2dx9_models" 2>/dev/null || { rm -rf "$G/gta2dx9_models"; cp -r /stage/gta2dx9_models "$G"/; }   # this build: DLLs, ini, models
+[ -f /work/stage_copy_check.sh ] && { bash /work/stage_copy_check.sh "$G" || exit 3; }   # the stage build, not /release v1.1, is what runs (a stage rewritten mid-copy left v1.1 in place)
 rm -rf "$G/gta2dx9_textures_hd"; [ "${NO_HD:-0}" = 0 ] && [ -d /stage/gta2dx9_textures_hd ] && cp -r /stage/gta2dx9_textures_hd "$G"/   # HD tiles (DDS/TGA), when generated; NO_HD=1 leaves them out
 [ "${NO_MODELS:-0}" = 1 ] && rm -rf "$G/gta2dx9_models"
 [ "${NO_CARHD:-0}" = 1 ] && rm -rf "$G/gta2dx9_hd"   # NO_CARHD=1: the upstream HD car maps (402 MB) stay out of the 32-bit process   # NO_MODELS=1: no 3D cars/people/props (32-bit address space under the bridge)
