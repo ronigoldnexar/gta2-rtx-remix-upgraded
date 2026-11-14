@@ -69,10 +69,22 @@ stage: dll/build/gta2dx9.dll vid/build/gta2dx9_vid.dll
 	rm -rf stage/gta2dx9_models && cp -r assets/models stage/gta2dx9_models
 	# High-resolution tiles, when they have been generated (tools/upscale_textures.py; not in git, 400 MB).
 	rm -rf stage/gta2dx9_textures_hd; if [ -d assets/textures_hd ]; then cp -r assets/textures_hd stage/gta2dx9_textures_hd; fi
-	# DISTRICTS facade kit: regenerated here from the map, deterministically, never committed (docs/districts-plan.md).
-	# Only with DISTRICTS_DATA=<game data dir> (and DISTRICTS_PY=<python with numpy+Pillow>); DISTRICTS_MODE=all for every building.
-	rm -rf stage/gta2dx9_districts; if [ -n "$(DISTRICTS_DATA)" ]; then bash tools/districts/build_kits.sh "$(DISTRICTS_DATA)" assets/textures_hd stage/gta2dx9_districts $(or $(DISTRICTS_MODE),poc); fi
+	# DISTRICTS facade kit: generated from the game's maps, deterministically, never committed (docs/districts-plan.md):
+	# `make districts` (or DISTRICTS_DATA=<game data dir> here) builds it; a stage keeps the kit it has otherwise.
+	if [ -n "$(DISTRICTS_DATA)" ]; then $(MAKE) districts; fi
 	@echo "Staged in stage/: unzip-equivalent of the release, see linux/README.md"
+
+# DISTRICTS: the facade kit into stage/gta2dx9_districts (the streams of every building, the style tables, the
+# materials; ~7 min). DISTRICTS_DATA: the game's data dir (default ../game/data); DISTRICTS_PY: a python with
+# numpy and Pillow (default ../vreg/venv/bin/python, else python3); DISTRICTS_HD: the HD tiles (default
+# assets/textures_hd; the analysis needs them). restage.sh builds it for the play stage.
+DISTRICTS_DATA_DIR = $(or $(DISTRICTS_DATA),../game/data)
+DISTRICTS_HD_DIR = $(or $(DISTRICTS_HD),assets/textures_hd)
+DISTRICTS_PYTHON = $(or $(DISTRICTS_PY),$(if $(wildcard ../vreg/venv/bin/python),../vreg/venv/bin/python,python3))
+districts:
+	rm -rf stage/gta2dx9_districts.new
+	DISTRICTS_PY=$(DISTRICTS_PYTHON) bash tools/districts/build_kits.sh "$(DISTRICTS_DATA_DIR)" "$(DISTRICTS_HD_DIR)" stage/gta2dx9_districts.new ship
+	rm -rf stage/gta2dx9_districts && mv stage/gta2dx9_districts.new stage/gta2dx9_districts
 
 # Loads both DLLs under Wine and resolves every export GTA2 asks for. See
 # linux/loadcheck.cpp. Needs wine (32-bit support) on the PATH.
@@ -102,4 +114,4 @@ linux/build/gta2dx9_laa.exe: tools/laa/gta2dx9_laa.cpp
 clean:
 	rm -rf dll/build vid/build stage linux/build
 
-.PHONY: all stage check clean laa-tool
+.PHONY: all stage check clean laa-tool districts

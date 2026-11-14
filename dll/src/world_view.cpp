@@ -1741,12 +1741,15 @@ bool WorldView::EnsureWorldLoaded() {
         Log("weather: %d road/pavement lid tiles, %d wet variant textures made at level load", n, made);
         MemStatsLog("level load: wet variants", 1);
     }
+    eyecol::SetWallClearance(0.0f);
     if (!kitStreamFile_.empty()) {
         const bool ok = renderer_.LoadKitStream(kitStreamFile_, style);
         const gta2::KitStreamStats ks = renderer_.KitStreamStatus();
         Log("districts: facade kit stream %s %s: %d chunk entries, %u KB packed in memory", kitStreamFile_.c_str(), ok ? "loaded" : "NOT loaded",
             ks.entries, static_cast<unsigned>(ks.fileBytes / 1024));
         MemStatsLog("level load: facade kit stream loaded", 1);
+        // the street cameras keep clear of the kit too (it stands up to 0.25 out of the walls the collision knows)
+        eyecol::SetWallClearance(ok ? 0.13f : 0.0f);
     }
     if (game::ViewRotation() != 0xFF) {
         Log("WARNING: view rotation is %u, not the 0xFF the tile orientation assumes",

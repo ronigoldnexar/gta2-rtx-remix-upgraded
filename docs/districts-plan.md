@@ -443,7 +443,8 @@ legs into differently styled districts, labelled): `r5_highlight_{wil,ste,bil}_p
 ## 12. Shipping proposal
 
 **Ship behind `[districts] facade_kit` (already in `package/gta2dx9.ini`), default OFF for this release; plan
-default-on for the next one once the Remix cost is fixed.**
+default-on for the next one once the Remix cost is fixed.** (Superseded by section 14: round 6 removed the blockers
+and the kit is a ship candidate, default on, pending the 5090 check.)
 
 Why not default-on now:
 - **Remix:** +46 ms a frame on the L4 is not shippable as a default; the 6000 will be faster, but most of the cost is
@@ -533,3 +534,44 @@ small decoder written for this (`src/inflate.cpp`, checked byte-for-byte against
 random data and text). Deflate's LZ matches take most of the repetition that instancing the repeated details was
 meant to remove (the same sill, hood and dentil geometry thousands of times), so shared vertices and instancing
 were not needed for the 150 MB target; they remain possible if the GPU-side memory needs to shrink too.
+
+## 14. Ship candidate (14 Nov)
+
+Rebased onto camera-modes 4b7bd2ff (lighting-v1 with the effects-ini restage change, CITYMAP-1). `facade_kit=1` is the
+default in `package/gta2dx9.ini` (one line to turn back), pending the 5090 test agent's kit on/off drive.
+
+### The kit in the normal staging path
+The kit is made from the game's maps and HD tiles, so it is never committed (AGENTS.md: generated assets that embed
+the game's art ship as release archives); it is built from the commit's own tools, deterministically:
+- `tools/districts/build_kits.sh ... ship`: every building of the three levels as streams, the style tables and the
+  materials, nothing else; it fails (and so does the caller) with no HD tiles, a missing file or a level stream under
+  4 MB. Two builds of the same commit, maps and tiles are byte-identical (checked: sha256 of all 34 files). ~3 min.
+- `make districts` builds it into `stage/gta2dx9_districts` (DISTRICTS_DATA, DISTRICTS_HD, DISTRICTS_PY override the
+  defaults ../game/data, assets/textures_hd, ../vreg/venv/bin/python); `make stage` keeps the kit the stage has.
+- `linux/docker/restage.sh` builds it into the candidate from the candidate worktree and refuses the candidate if it
+  does not build; the folder swaps in with the models and HD tiles. `linux/docker/stage_check.py` refuses a stage whose
+  ini has `facade_kit=1` without the three streams and style tables.
+- Every game launcher copies or mounts `gta2dx9_districts` beside gta2.exe like the HD tiles (game_mounts.sh,
+  run_game.sh, run_game_gpu.sh, run_game_remix_gpu.sh, play_game.sh), and `linux/install.sh` installs it.
+- `tools/pack_release.py districts` writes `gta2dx9_districts.zip` (store-only: the streams are deflated) from the
+  stage; it is in the default set of archives.
+
+### Full-city visual QA (plain)
+- **Flag list (final kit):** 16 / 5 / 17 buildings (wil / ste / bil; 2 / 1 / 2 %), all small coplanar caps; corner
+  drips now hang 4 mm under their hoods, E/W top caps and level trims sit a hair off the N/S ones and the sills.
+  8 809 wall and 1 640 roof anchors on their hosts, 0 off.
+- **50-building random sample** (unflagged, 2+ levels, seeded; in-game street and across views, kit on and off;
+  `scratchpad/districts/ship_sample50_*`). What it found and what was fixed:
+  - Setback storeys on big flat roofs became storey-high boxes the size of a car park (wil 259, 309): a setback is now
+    a tower's (5+ levels over the street) and at most 3 x 3 cells, centred.
+  - Neon tube supports were open pairs of side faces that read as black slabs close up: now closed thin boxes.
+  - **Street cameras inside the kit:** the camera collision keeps 0.12-0.24 block from the walls it knows, and the kit
+    stands up to 0.25 out of them, so a camera close to a wall sat inside sills, cornices and canopies. While the kit
+    is loaded the collision keeps a further 0.13 from walls (`eyecol::SetWallClearance`).
+  - Not kit defects: a few "buildings" in the catalogue are crates, fences or girder bridges (wil 13, bil 140, 818,
+    1066); the kit leaves them as they are (lattice tiles are never dressed; crates get no openings). Some test poses
+    stand in odd places (frame_plan's poses target a building's middle, not a framed shot).
+- vreg spawn_classic 0 tiles, 0 FAULT on the rebased stage (`dk_vreg7`, `dk_vreg8`).
+- City drives on the rebased stage (`dkc7_*`): 0 FAULT, all nine legs, largest free block min 996 / 617 / 576 MB
+  (wil / ste / bil; gate 320).
+

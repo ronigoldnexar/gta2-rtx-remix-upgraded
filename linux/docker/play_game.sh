@@ -52,6 +52,7 @@ cp -r /release/. "$G"/
 cp /stage/*.dll /stage/gta2dx9.ini $(ls /stage/gta2dx9_effects.ini 2>/dev/null) "$G"/; rm -rf "$G/gta2dx9_models"; cp -r /stage/gta2dx9_models "$G"/
 [ -f /work/stage_copy_check.sh ] && { bash /work/stage_copy_check.sh "$G" || exit 3; }   # the stage build, not /release v1.1, is what runs (a stage rewritten mid-copy left v1.1 in place)
 rm -rf "$G/gta2dx9_textures_hd"; [ -d /stage/gta2dx9_textures_hd ] && cp -r /stage/gta2dx9_textures_hd "$G"/
+rm -rf "$G/gta2dx9_districts"; [ -d /stage/gta2dx9_districts ] && cp -r /stage/gta2dx9_districts "$G"/   # the facade kit
 [ "${LAA:-1}" = 1 ] && sh /work/laa.sh "$G/gta2.exe"
 if [ "${PLAY_DEVTOOLS:-0}" = 1 ]; then sed -i 's/^warp_key=.*/warp_key=F9/; s/^scene_key=.*/scene_key=F11/' "$G/gta2dx9.ini"; fi
 # Mouse look is off for a browser session unless asked for: a VNC client's pointer is absolute, so the warp-to-centre look scheme jumps.

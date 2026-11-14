@@ -8,3 +8,5 @@ G=/tmp/wp/drive_c/Games/GTA2; R=${ROOT:-$PWD}
 case "${SWAP_LEVEL:-}" in ""|wil) printf -- '-v %s:%s:ro ' "$R/game/data" "$G/data";; esac
 printf -- '-v %s:%s:ro ' "$R/upstream-release/files/gta2dx9_hd" "$G/gta2dx9_hd" "$R/upstream-release/files/gta2dx9_voice" "$G/gta2dx9_voice" \
   "${STAGE:-$R/repo/stage}/gta2dx9_models" "$G/gta2dx9_models" "${STAGE:-$R/repo/stage}/gta2dx9_textures_hd" "$G/gta2dx9_textures_hd"
+# the facade kit (make districts / restage.sh), when the stage has it
+[ -d "${STAGE:-$R/repo/stage}/gta2dx9_districts" ] && printf -- '-v %s:%s:ro ' "${STAGE:-$R/repo/stage}/gta2dx9_districts" "$G/gta2dx9_districts"

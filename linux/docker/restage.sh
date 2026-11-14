@@ -6,6 +6,9 @@
 #   ini       : package/gta2dx9.ini from that worktree, with the running stage's overrides re-applied (merge_stage_ini.py)
 #   models    : this repo's assets/models (the avatar/car art is not in git; it ships as archives)
 #   HD tiles  : this repo's assets/textures_hd
+#   districts : the facade kit (gta2dx9_districts: the streamed kit of every building, the style tables, the kit's
+#               materials), generated from the game's maps and the HD tiles by that worktree's tools/districts/build_kits.sh
+#               ship (deterministic: the same commit, maps and tiles give the same bytes; never committed, AGENTS.md)
 # Usage: restage.sh [--no-smoke]      (--no-smoke skips the game run; the inventory check always runs)
 set -e
 cd "$(dirname "$0")/../.."
@@ -49,6 +52,11 @@ for f in install.reg uninstall.reg; do [ -f "stage/$f" ] && cp "stage/$f" "$C/$f
 cp "$W/package/gta2dx9_effects.ini" "$C/gta2dx9_effects.ini" 2>/dev/null || true
 cp -al assets/models "$C/gta2dx9_models" 2>/dev/null || cp -a assets/models "$C/gta2dx9_models"
 [ -d assets/textures_hd ] && { cp -al assets/textures_hd "$C/gta2dx9_textures_hd" 2>/dev/null || cp -a assets/textures_hd "$C/gta2dx9_textures_hd"; }
+# DISTRICTS (14 Nov): the facade kit, built by the candidate commit's own tools (~7 min, a python with numpy and Pillow:
+# DISTRICTS_PY, default the vreg venv's); a candidate without it is refused
+DPY=${DISTRICTS_PY:-$R/../vreg/venv/bin/python}; [ -x "$DPY" ] || DPY=python3
+( cd "$W" && DISTRICTS_PY="$DPY" nice -n 10 bash tools/districts/build_kits.sh "${DISTRICTS_DATA:-$R/../game/data}" "$R/assets/textures_hd" "$C/gta2dx9_districts" ship >> "$W_LOG" 2>&1 ) \
+  || { tail -20 "$W_LOG"; echo "restage refused: the facade kit (gta2dx9_districts) did not build"; exit 1; }
 git worktree remove --force "$W" 2>/dev/null || true
 python3 ../gamerun/stage_check.py "$C" "$R" || { echo "restage refused: candidate failed the inventory check"; exit 1; }
 if [ "${1:-}" != "--no-smoke" ]; then
@@ -58,7 +66,7 @@ fi
 for f in gta2dx9.dll d3ddll.dll gta2dx9_vid.dll Dmavideo.dll DMAGlide.dll gta2dx9.ini gta2dx9_effects.ini install.reg uninstall.reg; do
   [ -f "$C/$f" ] && { cp "$C/$f" "stage/.$f.new" && mv -f "stage/.$f.new" "stage/$f"; }
 done
-for d in gta2dx9_models gta2dx9_textures_hd; do
+for d in gta2dx9_models gta2dx9_textures_hd gta2dx9_districts; do
   [ -d "$C/$d" ] || continue
   rm -rf "/home/roni_goldshmidt/gta2-linux/repo/stage/.$d.old"
   [ -d "stage/$d" ] && mv "stage/$d" "stage/.$d.old"; mv "$C/$d" "stage/$d"; rm -rf "/home/roni_goldshmidt/gta2-linux/repo/stage/.$d.old"

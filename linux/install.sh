@@ -80,6 +80,7 @@ done
 echo "== 3D models and high-resolution tiles"
 rm -rf "$DEST/gta2dx9_models"; [ -d "$FILES/gta2dx9_models" ] && cp -r "$FILES/gta2dx9_models" "$DEST/"
 rm -rf "$DEST/gta2dx9_textures_hd"; [ -d "$FILES/gta2dx9_textures_hd" ] && cp -r "$FILES/gta2dx9_textures_hd" "$DEST/"
+rm -rf "$DEST/gta2dx9_districts"; [ -d "$FILES/gta2dx9_districts" ] && cp -r "$FILES/gta2dx9_districts" "$DEST/"   # the facade kit (gta2dx9_districts.zip)
 echo "== Marking the installed gta2.exe large-address-aware (4 GB for the HD tiles; the original is untouched)"
 sh "$HERE/linux/laa.sh" "$DEST/gta2.exe" || true
 

@@ -42,6 +42,10 @@ bool Ready();
 // Moves *p out of every surface closer than radius (a few passes for corners). Returns the
 // distance moved (0 when nothing was near).
 float Push(gta2::Vec3* p, float radius);
+// DISTRICTS (ship candidate): extra clearance from walls (one-sided faces with a horizontal normal) on top of every
+// radius, while the facade kit is on: the kit stands up to 0.25 block out of the walls the collision knows, and a
+// street camera at 0.12-0.24 from a wall sat inside it (sills, cornices and canopies across the lens). 0 = none.
+void SetWallClearance(float extra);
 
 // Push against the railings' sheets only (WorldMesh::railingPanels): a wider berth for the
 // chase camera than the general surfaces get, the bars' spear tops being thick near the lens.

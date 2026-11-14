@@ -599,7 +599,8 @@ class Builder:
                     hp = min(0.05, max(0.02, 0.25 * (h1 - h0)))
                     with self.fine():
                         self.trim(wl, st["trim"], max(elo, h0 - 0.02), min(ehi, h1 + 0.02), yy1, hy1, SKIN, SKIN + hp, stats=stats)
-                        box(self.mesh, wl, st["trim"], max(elo, h0 - 0.02), min(ehi, h1 + 0.02), yy1, yy1 + 0.012, SKIN + hp, SKIN + hp + 0.015, "blrf")
+                        # the drip hangs 4 mm under the hood's soffit (corner walls' hoods met it in one plane: qa.py)
+                        box(self.mesh, wl, st["trim"], max(elo, h0 - 0.02), min(ehi, h1 + 0.02), yy1 - 0.004, yy1 + 0.012, SKIN + hp, SKIN + hp + 0.015, "blrf")
                     stats["hoods"] += 1
                 if st.get("balconies") and upper and h32(x, y, ord(side), level, int(round(h0 * 8)), 9) % (8 if self.lean else 4) == 1:
                     self.balcony(wl, max(elo, h0 - 0.04), min(ehi, h1 + 0.04), yy0 - 0.03)
@@ -704,12 +705,13 @@ class Builder:
                 self.mesh.poly((wl.tile, 2), [wl.w(hh, level, 0), wl.w(hh, level, SKIN), wl.w(hh, level + 1, SKIN), wl.w(hh, level + 1, 0)],
                                [wl.uv(hu, level), wl.uv(hu, level), wl.uv(hu, level + 1), wl.uv(hu, level + 1)], (wl.ha[0] * s, 0.0, wl.ha[2] * s))
         if (x, y, side, level + 1) not in walls and level + 1 < roof:
-            self.mesh.poly((wl.tile, 2), [wl.w(-el, level + 1, 0), wl.w(1 + er, level + 1, 0), wl.w(1 + er, level + 1, SKIN), wl.w(-el, level + 1, SKIN)],
+            yt = level + 1 - (0.0 if side in "NS" else 0.002)    # the corner's two caps a hair apart (qa.py coplanar)
+            self.mesh.poly((wl.tile, 2), [wl.w(-el, yt, 0), wl.w(1 + er, yt, 0), wl.w(1 + er, yt, SKIN), wl.w(-el, yt, SKIN)],
                            [wl.uv(0, level + 0.98), wl.uv(1, level + 0.98), wl.uv(1, level + 0.98), wl.uv(0, level + 0.98)], (0.0, 1.0, 0.0))
         if (x, y, side, level - 1) not in walls and level > street:
             # N/S and E/W walls' trims meet at a corner: their tops a hair apart (qa.py coplanar)
             ns = side in "NS"
-            self.trim(wl, st["trim"], -el, 1 + er, level + (0.0 if ns else 0.002), level + (0.035 if ns else 0.032), SKIN, 0.165, "tbf", stats)
+            self.trim(wl, st["trim"], -el, 1 + er, level + (0.0 if ns else 0.003), level + (0.035 if ns else 0.032), SKIN, 0.165, "tbf", stats)   # 0.002 is a sill's floor
 
     def skin(self, wl, holes, h_lo, h_hi, stats):
         lvl = wl.level
@@ -1058,7 +1060,7 @@ class Builder:
                         wl.w(hc + 0.008, y1 + 0.42, 0.226), wl.w(hc - 0.008, y1 + 0.42, 0.226)]
                 self.mesh.poly((-1 - K["neon_pink"], 2 | 4 | 16 | (((bucket + 1) & 31) << 8)), tube,
                                [(0.0, 0.5), (0.0, 0.5), (1.0, 0.5), (1.0, 0.5)], wl.n)
-                box(self.mesh, wl, "metal_dark", hc - 0.004, hc + 0.004, y1 + 0.02, y1 + 0.42, SKIN, 0.222, "lr")
+                box(self.mesh, wl, "metal_dark", hc - 0.003, hc + 0.003, y1 + 0.02, y1 + 0.42, 0.2, 0.222, "lrf")   # closed (open sides read as black slabs)
             stats["neon"] += 1
 
     def inner_rect(self, inner):
@@ -1084,6 +1086,13 @@ class Builder:
             return
         area, x0, y0, x1, y1 = best
         R = b["roof"]
+        # ship QA: on a big flat roof the whole inner rectangle made a storey-high box the size of a car park
+        # (wil 259, 309): a setback is a tower's, 5+ levels over the street, and at most 3 x 3 cells, centred
+        if R - b["street"] < 5:
+            return
+        while x1 - x0 > 2: x0, x1 = (x0 + 1, x1) if (x1 - x0) % 2 == 0 else (x0, x1 - 1)
+        while y1 - y0 > 2: y0, y1 = (y0 + 1, y1) if (y1 - y0) % 2 == 0 else (y0, y1 - 1)
+        area = (x1 - x0 + 1) * (y1 - y0 + 1)
         tiles = defaultdict(int)
         for (x, y, side, level) in walls:
             if level >= R - 2:

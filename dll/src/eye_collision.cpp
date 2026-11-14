@@ -310,21 +310,27 @@ float PushPanels(Vec3* p, float radius) {
     return moved;
 }
 
-float Push(Vec3* p, float radius) {
+namespace { float g_wallExtra = 0.0f; }
+void SetWallClearance(float extra) { g_wallExtra = (std::max)(0.0f, extra); }
+
+float Push(Vec3* p, float radius0) {
     if (!g_ready) return 0.0f;
     const Vec3 start = *p;
+    const float reach = radius0 + g_wallExtra;
     for (int pass = 0; pass < 6; ++pass) {
         // The deepest overlap first, one at a time: in a corner the two pushes add up
         // instead of fighting.
         float bestDepth = 0.0f;
         Vec3 bestDir{};
-        ForTris(p->x - radius, p->z - radius, p->x + radius, p->z + radius, [&](const Tri& t) {
+        ForTris(p->x - reach, p->z - reach, p->x + reach, p->z + reach, [&](const Tri& t) {
             // Flat floors count too: the floor under him is 0.43 below the eye, out of reach, but
             // the top of a low wall or a planter at eye height is not.
             if (g_panelsOnly && !(t.flags & kPanel)) return;
             const Vec3& a = g_pos[t.v[0]]; const Vec3& b = g_pos[t.v[1]]; const Vec3& c = g_pos[t.v[2]];
-            if (p->y < (std::min)({a.y, b.y, c.y}) - radius || p->y > (std::max)({a.y, b.y, c.y}) + radius) return;
             const Vec3 n = N(t);
+            // a wall (one-sided, horizontal normal) keeps the eye a further g_wallExtra away (SetWallClearance)
+            const float radius = radius0 + ((!(t.flags & kTwoSided) && std::fabs(n.y) < 0.5f) ? g_wallExtra : 0.0f);
+            if (p->y < (std::min)({a.y, b.y, c.y}) - radius || p->y > (std::max)({a.y, b.y, c.y}) + radius) return;
             const float s = gta2::Dot(Sub(*p, a), n);
             if (std::fabs(s) >= radius) return;
             const Vec3 q = ClosestOnTri(*p, a, b, c);

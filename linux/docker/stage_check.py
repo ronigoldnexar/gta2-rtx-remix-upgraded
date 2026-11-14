@@ -41,6 +41,14 @@ if os.path.isdir(hd):
         if not os.path.isdir(p) or len(os.listdir(p)) < 500: bad.append(f"HD tiles for {d} missing or incomplete")
 else:
     bad.append("no gta2dx9_textures_hd folder")
+# DISTRICTS: with the facade kit on in the stage ini, its streams must be there (restage.sh / make districts build them)
+ini = open(os.path.join(stage, 'gta2dx9.ini'), encoding='latin-1').read() if os.path.isfile(os.path.join(stage, 'gta2dx9.ini')) else ''
+if '\nfacade_kit=1' in ini:
+    dk = os.path.join(stage, 'gta2dx9_districts')
+    for f in ('wil.kit2', 'ste.kit2', 'bil.kit2', 'wil.dstyle', 'ste.dstyle', 'bil.dstyle'):
+        p = os.path.join(dk, f)
+        if not os.path.isfile(p) or os.path.getsize(p) < (4000000 if f.endswith('.kit2') else 100):
+            bad.append(f"facade_kit=1 but gta2dx9_districts/{f} is missing or too small")
 if bad:
     print("STAGE CHECK FAILED for", stage); [print(" -", b) for b in bad]; sys.exit(1)
 print(f"stage check ok: {stage} ({len(os.listdir(models))} model files, {sum(len(os.listdir(os.path.join(hd, d))) for d in ('wil','ste','bil'))} HD tiles)")

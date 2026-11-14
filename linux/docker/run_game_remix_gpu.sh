@@ -46,6 +46,7 @@ if mountpoint -q "$G/data" 2>/dev/null; then (cd /game && for f in *; do [ "$f" 
 cp /stage/*.dll /stage/gta2dx9.ini $(ls /stage/gta2dx9_effects.ini 2>/dev/null) "$G"/; mountpoint -q "$G/gta2dx9_models" 2>/dev/null || { rm -rf "$G/gta2dx9_models"; cp -r /stage/gta2dx9_models "$G"/; }   # this build: DLLs, ini, models
 [ -f /work/stage_copy_check.sh ] && { bash /work/stage_copy_check.sh "$G" || exit 3; }   # the stage build, not /release v1.1, is what runs (a stage rewritten mid-copy left v1.1 in place)
 rm -rf "$G/gta2dx9_textures_hd"; [ "${NO_HD:-0}" = 0 ] && [ -d /stage/gta2dx9_textures_hd ] && cp -r /stage/gta2dx9_textures_hd "$G"/   # HD tiles (DDS/TGA), when generated; NO_HD=1 leaves them out
+mountpoint -q "$G/gta2dx9_districts" 2>/dev/null || { rm -rf "$G/gta2dx9_districts"; [ -d /stage/gta2dx9_districts ] && cp -r /stage/gta2dx9_districts "$G"/; }   # the facade kit (make districts / restage.sh)
 [ "${NO_MODELS:-0}" = 1 ] && rm -rf "$G/gta2dx9_models"
 [ "${NO_CARHD:-0}" = 1 ] && rm -rf "$G/gta2dx9_hd"   # NO_CARHD=1: the upstream HD car maps (402 MB) stay out of the 32-bit process   # NO_MODELS=1: no 3D cars/people/props (32-bit address space under the bridge)
 [ "${LAA:-1}" = 1 ] && sh /work/laa.sh "$G/gta2.exe"   # 4 GB address space for the copy in the prefix (HD tiles)
