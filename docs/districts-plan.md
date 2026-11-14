@@ -412,3 +412,67 @@ the level's mixed row (`default_style` in `overrides/<lvl>.json`); a row can inh
 wil 3.26 M / 0.40 M triangles (LOD0 / LOD1, 172 MB), ste 2.40 M / 0.26 M (125 MB), bil 1.26 M / 0.22 M (70 MB). The
 vertex pool went to 16 pages (32 MB) and LOD0 to 20 blocks: a dense Downtown chunk is 17 000 triangles at LOD0, and
 with 8 pages the pool filled with 10 chunks and refused the rest.
+
+### City drives (one leg into each styled district, about 14 min a level, 12:30, kit on unless said)
+| run | busy avg (max window) | world pass | resident stream (mean / max triangles) | largest free block min | FAULT |
+|---|---|---|---|---|---|
+| wil plain, kit on | 20.6 ms (30.8) | 3.22 ms | 214k / 338k | 680 MB | 0 |
+| wil plain, kit off | 16.4 ms (33.5) | 1.72 ms | – | 1 234 MB | 0 |
+| ste plain, kit on | 24.3 ms (41.9) | 3.13 ms | 220k / 299k | 629 MB | 0 |
+| ste plain, kit off | 17.8 ms (27.6) | 1.67 ms | – | 577 MB | 0 |
+| bil plain, kit on | 21.4 ms (41.6) | 3.22 ms | 108k / 188k | 721 MB | 0 |
+| bil plain, kit off | 14.6 ms (35.0) | 1.89 ms | – | 1 052 MB | 0 |
+| wil Remix L4, kit on | 119 ms (139) | 51.5 ms | 251k / 284k | 2 048 MB* | 0 |
+| wil Remix L4, kit off | 73 ms (95) | 1.1 ms | – | 2 048 MB* | 0 |
+| ste Remix L4, kit on | 161 ms (189) | 70.2 ms | 200k / 218k | 2 048 MB* | 0 |
+| bil Remix L4, kit on | 150 ms (165) | 77.6 ms | 122k / 139k | 2 048 MB* | 0 |
+
+\* under Remix the game process keeps its address space free (the bridge holds the GPU side). All nine legs driven
+in every run; the drives re-board after losing the car (1-6 times a plain run). The memory gate (320 MB) holds
+everywhere with at least 300 MB to spare. Plain cost of the whole city: +4.2 / +6.5 / +6.8 ms a frame (1.4 ms of it
+in the world pass, the rest the shadow pass and the post passes over more geometry), from 15-18 ms to 21-24 ms,
+under the 33 ms of the 30 fps cap. **Under Remix on the L4 the kit costs ~+46 ms a frame** (the world pass from 1 to
+51-78 ms): every streamed group is its own draw call into the bridge, and chunk streaming makes new geometry for
+Remix to build every few seconds. That is the release blocker for Remix (below).
+
+Videos (`deliverables/districts/`, H.264 1280x720 15 fps, faststart, ffprobe-checked, 75 s each, five pieces from
+legs into differently styled districts, labelled): `r5_highlight_{wil,ste,bil}_plain.mp4`,
+`r5_highlight_{wil,ste,bil}_remixL4.mp4`. The full drives are `out/dkc_<lvl>/game.mp4` (plain) and
+`out/dkcr_<lvl>/game.mp4` (Remix).
+
+## 12. Shipping proposal
+
+**Ship behind `[districts] facade_kit` (already in `package/gta2dx9.ini`), default OFF for this release; plan
+default-on for the next one once the Remix cost is fixed.**
+
+Why not default-on now:
+- **Remix:** +46 ms a frame on the L4 is not shippable as a default; the 6000 will be faster, but most of the cost is
+  draw calls into the bridge (CPU), which scales less with the GPU. To measure before deciding: one drive on the
+  6000 under `/gta2/remix.lock`, kit on and off.
+- **Plain:** +4 to +7 ms a frame is affordable at 30 fps, but it is 30-45 % more frame time for a look that is still
+  uneven (Downtown reads less than Industrial and Residential; 65 buildings with small z-fighting caps; Qwen labels
+  are right about two times in three).
+- **Size:** the streams are 367 MB on disk for the three levels (the stage-time build takes ~7 min and needs Python
+  with numpy and Pillow in the build).
+
+What is safe already: the classic view is pixel-identical (vreg `spawn_classic` 0, every round), nothing pops (the
+kit fades with the move), 0 FAULT in every run of rounds 1-5, the address-space gate holds with room to spare,
+the build is deterministic (byte-identical across two builds), and the switch is read at level load, so a player
+who turns it on and dislikes it turns it off with no other effect.
+
+To make it default-on (next release, about 2-3 weeks):
+1. **Remix draw cost:** merge a chunk's groups by material into one draw per material per chunk (today a chunk is
+   up to ~40 draws after the 4 096-triangle split and the sign buckets), keep chunk geometry stable under Remix
+   (a larger LOD0 radius and no crossfade, so the bridge sees few new meshes), and give the lit sign textures an
+   emissive entry in the gta2hd layer. Target: under +5 ms on the 6000.
+2. **Plain cost:** let the streamed chunks into the shadow pass only within the near cascade, and drop dentil and
+   bracket detail from LOD0 beyond 12 blocks (an LOD0.5). Target: under +3 ms.
+3. **Size:** shared vertices with 16-bit indices per group and a deduplicated window detail (the same sill and
+   hood geometry repeats thousands of times) should take the streams from 367 MB to well under 150 MB.
+4. **Look:** a full-city visual QA pass per district with the per-building QA flags as the work list; finish the
+   Downtown ground floors; rows for the remaining unnamed districts; Qwen kept only as a tie-breaker.
+5. **Build:** ship the generated `gta2dx9_districts` folder in the release package (built once by CI) rather than
+   asking the player's install to run Python.
+
+Default-off for the release means: package the folder (or build it in CI), keep `facade_kit=0`, document the switch
+in the README as an experimental option, and note the Remix cost next to it.

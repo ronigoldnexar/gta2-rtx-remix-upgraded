@@ -38,7 +38,13 @@ def board():
     return D.wait_state()
 
 
-T.warp(wp[0][0], wp[0][1], 2, why="districts drive start")
+for attempt in range(6):      # the game's state can be briefly unreadable right after the level loads
+    D.wait_state(40)
+    try:
+        T.warp(wp[0][0], wp[0][1], 2, why="districts drive start")
+        break
+    except TypeError:
+        time.sleep(5.0)
 time.sleep(3.0)
 s = board()
 if not (s and s["driving"]):
