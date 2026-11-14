@@ -25,6 +25,7 @@
 #include <cstring>
 
 #include "log.h"
+#include "remix_api.h"
 #include "time_of_day.h"
 
 #include "../../src/sky.h"
@@ -70,8 +71,11 @@ int g_lastHour = -2;
 // The cycle.
 struct Spell { const char* name; float rain, cloud, fog, wind; int weight; };
 const Spell kSpells[] = {
-    {"clear", 0.0f, 0.10f, 0.0f, 0.20f, 4},
-    {"cloudy", 0.0f, 0.70f, 0.05f, 0.35f, 3},
+    // Weights (WEATHER-V2 release cycle): mostly clear and cloudy, now and then drizzle into rain, a storm rarely
+    // (only out of rain, a third of the time), fog now and then (plain only: skipped under Remix while its fog
+    // proxy is off).
+    {"clear", 0.0f, 0.0f, 0.0f, 0.20f, 6},   // cloud 0: a clear spell is the picture without weather
+    {"cloudy", 0.0f, 0.70f, 0.05f, 0.35f, 4},
     {"drizzle", 0.35f, 0.85f, 0.10f, 0.25f, 2},
     {"rain", 0.75f, 1.00f, 0.15f, 0.45f, 2},
     {"storm", 1.00f, 1.00f, 0.20f, 0.90f, 1},
@@ -189,12 +193,16 @@ void Step(double dt) {
         rain = s.rain; cloud = s.cloud; fog = s.fog; wind = s.wind;
     } else if (g_set.cycle) {
         if (g_clock >= g_spellEnds) {
+            // Fog is a spell of the plain renderer only while Remix's fog proxy is off (the volumetric fog is not seen
+            // under Ray Reconstruction).
+            const bool noFog = RemixApiHasInstances() && GetPrivateProfileIntA("weather", "remix_fog_proxy", 0, g_ini) == 0;
+            auto allowed = [&](int c) { return c >= 0 && !(noFog && c == 5); };
             int total = 0;
-            for (int j = 0; j < 3; ++j) if (kNext[g_spell][j] >= 0) total += kSpells[kNext[g_spell][j]].weight;
+            for (int j = 0; j < 3; ++j) if (allowed(kNext[g_spell][j])) total += kSpells[kNext[g_spell][j]].weight;
             int pick = static_cast<int>(Rand01() * total), next = kNext[g_spell][0];
             for (int j = 0; j < 3; ++j) {
                 const int c = kNext[g_spell][j];
-                if (c < 0) continue;
+                if (!allowed(c)) continue;
                 pick -= kSpells[c].weight;
                 if (pick < 0) { next = c; break; }
             }

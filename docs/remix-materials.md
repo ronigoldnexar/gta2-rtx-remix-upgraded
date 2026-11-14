@@ -2114,3 +2114,24 @@ Still short of the GTA5-class bar:
 - **Panel gaps:** they are only as good as the textures paint them. The kit rear decks have none.
 - **The owner's preset:** DLSS-RR on the 5090 and Ultra, which this host cannot run (TAA-U), may denoise the coat
   differently.
+
+## WEATHER-V2: the wet road materials in the shipped layer (14 Nov 2026)
+
+Under Remix the wet road is three stepped material variants of every road and pavement lid tile (damp, wet,
+soaked): the DLL draws such a tile, while the road is wet, with a copy of its texture that differs in one byte of
+the uploaded top mip, so Remix keys a material of its own (docs/weather.md). Those prims are part of the release
+layer and are made by the pipeline, after `remix_materials.py` / `remix_layer_merge.py`:
+
+    python3 tools/remix_wet_levels.py tools/remix_wet_manifest.txt --merge package/rtx-remix/mods/gta2hd \
+        [--tex-out <deploy bundle>/textures]
+
+It inserts one prim per (tile, level) into `mod.usda` and `mod_wet.usda` (the dry tile's prim with its roughness
+map replaced by `<DRY>.w<K>.rtex.dds`, blended from the dry roughness toward the tile's wet map by 0.35 / 0.70 /
+1.0; a prim of the same hash is replaced, every other line is left alone) and writes the level maps (256 px BC4).
+`tools/remix_wet_manifest.txt` (hashes only) lists the variants of all three districts; regenerate it when the
+tile art changes, from Remix runs with `[weather] enabled=1` at level load in wil, bil and ste:
+
+    python3 tools/remix_wet_levels.py <gta2dx9.log of each district>... --merge <scratch layer> \
+        --manifest-out tools/remix_wet_manifest.txt
+
+`tools/pack_release.py remix` packs the maps with the rest of `textures/`.
