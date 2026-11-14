@@ -544,6 +544,8 @@ def build(m, spec, src, log):
     hw = float(np.abs(V[:, 0]).max()); height = float(V[:, 1].max()); L = float(V[:, 2].max() - V[:, 2].min())
 
     # texture edits (recolours) before anything samples the picture
+    if spec.get('delight', True):
+        delight(img, log, V, F, UV)
     if spec.get('smooth_chrome', True):
         smooth_chrome(V, F, UV, img, log)
     img0 = img
@@ -601,8 +603,12 @@ def build(m, spec, src, log):
                         cap = cap * np.clip(lugd, 0.45, 1.0)[..., None] ** 0.5
                         fimg = np.where(mid[..., None], cap, fimg)
                 wh['band'] = None if livery else paint_band(fprof, paint_rgb)
-                wh['face_mat'] = f'hubface_{ai}{"r" if side > 0 else "l"}'
-                kc.materials[wh['face_mat']] = Image.fromarray((np.clip(fimg, 0, 1) * 255).astype(np.uint8))
+                if 'wheel_band' in spec:   # specs "wheel_band": null (002: the whole face read as one flat painted disc)
+                    wh['band'] = spec['wheel_band']
+                # one hub picture per car, 96 px (the per-car texture budget: at or under the shipped car's)
+                wh['face_mat'] = 'hubface_0'
+                if 'hubface_0' not in kc.materials:
+                    kc.materials['hubface_0'] = Image.fromarray((np.clip(fimg, 0, 1) * 255).astype(np.uint8)).resize((96, 96), Image.LANCZOS)
                 wheels.append(wh)
                 kill |= cut_wheel(V, F, UV, img, wh, side, spec.get('body_rgb', paint_rgb))
                 arch_parts(kc, wh, side, angs, prof, hw)
@@ -784,6 +790,109 @@ def flank_paint_mask(V, F, UV, img, size, e, sty, spr, sw, sh, kx, kz, log):
     return m
 
 
+def surface_median(V, F, UV, img, r=0.035):
+    """each vertex's neighbourhood colour on the surface: the median of the (2 px blurred) picture at the welded
+    vertices within r in model space (UV islands do not matter). -> (n verts, 3)"""
+    from scipy import ndimage
+    from scipy.spatial import cKDTree
+    W_ = img.shape[1]; sg = 2.0 * W_ / 1024
+    blur = np.stack([ndimage.gaussian_filter(img[..., c], sg) for c in range(3)], -1)
+    c = tex_at(blur, UV)
+    tree = cKDTree(V)
+    nb = tree.query_ball_point(V, r)
+    return np.array([np.median(c[ix], 0) for ix in nb])
+
+
+def chrome_texels(V, F, UV, img, vmed=None):
+    """the bumpers' and grilles' texels by their faces: a shell face at the car's ends below the belt whose surface
+    neighbourhood (surface_median) is bright and grey. A baked highlight on a bonnet or a wing sits among paint, so
+    it is not chrome. -> mask (H, W) bool, or None"""
+    from scipy import ndimage
+    import texmap
+    Hh, W_ = img.shape[:2]
+    if Hh != W_: return None
+    if vmed is None: vmed = surface_median(V, F, UV, img)
+    c = vmed[F].mean(1); C = V[F].mean(1)
+    H = V[:, 1].max(); zl, zh = V[:, 2].min(), V[:, 2].max(); Lz = zh - zl
+    ends = (C[:, 1] < 0.55 * H) & ((C[:, 2] < zl + 0.22 * Lz) | (C[:, 2] > zh - 0.22 * Lz))
+    cf = ends & (lum(c) > 0.45) & (sat(c) < 0.16)
+    _, _, valid, fid = texmap.texel_maps(V, F, UV, W_, with_faces=True)
+    m = valid & np.concatenate([cf, [False]])[fid]
+    return ndimage.binary_dilation(m, iterations=max(1, int(round(2 * W_ / 1024))))
+
+
+def delight(img, log, V=None, F=None, UV=None, ratio=(1.3, 1.5), sat_max=0.15, base=15):
+    """the generator bakes specular highlights and reflections into the albedo; Remix lights them again and they
+    read as snow or plaster over the bonnet and wings (001, 000, 008), and the paint split leaves them out of the
+    paint (white blotches on a repainted car). A near-white, low-saturation texel much brighter than its
+    neighbourhood (luminance over 1.3-1.5x the local median, ramped) takes the local median colour, feathered. Two
+    windows: 15 px at a 1024 picture (scaled), and three times that for a highlight broader than the small window
+    (008's wing streaks). Dark glass never qualifies. In place."""
+    from scipy import ndimage
+    H_, W_ = img.shape[:2]
+    sm = max(1, W_ // 1024)
+    # the medians over the surface only: the atlas gutter (no face) takes its nearest face texel's colour first,
+    # or every island's rim (chrome edges, 001) reads as a highlight against the dark gutter
+    src = img
+    vmask = None
+    if V is not None and H_ == W_:
+        import texmap
+        _, _, vmask = texmap.texel_maps(V, F, UV, W_)
+        if vmask.any() and not vmask.all():
+            idx = ndimage.distance_transform_edt(~vmask, return_distances=False, return_indices=True)
+            src = img[idx[0], idx[1]]
+    small = src[::sm, ::sm]
+    L = lum(img); S = sat(img)
+    out_w = np.zeros((H_, W_)); out_med = np.zeros_like(img)
+    for mult in (1, 3):
+        k = max(5, int(round(base * mult * small.shape[1] / 1024)) | 1)
+        if mult > 1:   # the wide window on a quarter-size copy (speed); the median is smooth anyway
+            q = 2; sm2 = small[::q, ::q]
+            med = np.stack([ndimage.median_filter(sm2[..., c], size=max(5, k // q | 1)) for c in range(3)], -1)
+            med = np.repeat(np.repeat(med, q, 0), q, 1)[:small.shape[0], :small.shape[1]]
+        else:
+            med = np.stack([ndimage.median_filter(small[..., c], size=k) for c in range(3)], -1)
+        if sm > 1:
+            med = np.repeat(np.repeat(med, sm, 0), sm, 1)[:H_, :W_]
+        r = L / np.maximum(lum(med), 0.02)
+        w = np.clip((r - ratio[0]) / (ratio[1] - ratio[0]), 0, 1) * (S < sat_max) * (L > 0.45)
+        take = w > out_w
+        out_w = np.where(take, w, out_w); out_med = np.where(take[..., None], med, out_med)
+    # not real bright metal: (a) the bumpers and grilles (the car's ends below the belt: smooth_chrome flattens
+    # those), (b) thin crisp trim (a chrome strip down 008's bonnet, window frames): a highlight is a broad blob, so
+    # a candidate region whose widest point is under 3 px (at 1024) stays
+    # the surface neighbourhood (model space, across UV islands): a crust blob wider than any texture window is
+    # still a blob among paint on the bonnet
+    vmed = None
+    if V is not None and H_ == W_:
+        from scipy.spatial import cKDTree
+        import texmap
+        vmed = surface_median(V, F, UV, img)
+        pos, _, vv = texmap.texel_maps(V, F, UV, W_)
+        nn = cKDTree(V).query(pos[vv], k=1)[1]
+        med3 = np.zeros_like(img); med3[vv] = vmed[nn]
+        r = L / np.maximum(lum(med3), 0.02)
+        w = np.clip((r - ratio[0]) / (ratio[1] - ratio[0]), 0, 1) * (S < sat_max) * (L > 0.45) * vv
+        take = w > out_w
+        out_w = np.where(take, w, out_w); out_med = np.where(take[..., None], med3, out_med)
+    cand = out_w > 0.3
+    if vmask is not None:
+        cand &= vmask
+    if V is not None:
+        cm = chrome_texels(V, F, UV, img, vmed)
+        if cm is not None:
+            cand &= ~ndimage.binary_dilation(cm, iterations=max(1, int(round(3 * W_ / 1024))))
+    lab, n = ndimage.label(cand)
+    if n:
+        edt = ndimage.distance_transform_edt(cand)
+        wide = ndimage.maximum(edt, lab, index=np.arange(1, n + 1)) >= 3.0 * W_ / 1024
+        keep = np.concatenate([[False], wide])[lab]
+        out_w = np.where(keep, out_w, 0.0)
+    w = np.clip(ndimage.gaussian_filter(out_w, 1.2 * sm) * 1.6, 0, 1)   # feathered
+    img[:] = img * (1 - w[..., None]) + out_med * w[..., None]
+    log(f'  delight: {int((w > 0.5).sum())} highlight texels ({100.0 * (w > 0.5).mean():.1f} %) took the local median')
+
+
 def smooth_chrome(V, F, UV, img, log, iters=24, lam=0.5, mu=-0.53):
     """the generator's bumpers and grilles come out lumpy ("melted" chrome) and their texture is speckled with
     near-white blobs: Taubin smoothing (volume-keeping) on the bright-metal vertices at the car's ends below the belt,
@@ -820,12 +929,19 @@ def smooth_chrome(V, F, UV, img, log, iters=24, lam=0.5, mu=-0.53):
     # near-white blobs on a chrome surface only (a grille's bright bars over dark gaps have a dark median: kept)
     spk = m & (L - med > 0.16) & (med > 0.50)
     img[spk] = img[spk] * (med[spk] / np.maximum(L[spk], 1e-3))[:, None]
-    # then the chrome's blotches (baked reflections read as snow patches in game, 000/012): its luminance is the
-    # chrome-only gaussian average (sigma 2.5 texels) blended 3:1 over its own, colour kept
-    L = lum(img); mm = m.astype(np.float64)
-    avg = ndimage.gaussian_filter(L * mm, 2.5) / np.maximum(ndimage.gaussian_filter(mm, 2.5), 1e-3)
-    Ln = np.where(m, 0.75 * avg + 0.25 * L, L)
-    img[m] = np.clip(img[m] * (Ln[m] / np.maximum(L[m], 1e-3))[:, None], 0, 1)
+    # then a clean, flat chrome tone: the generator's baked reflections (brown and white blotches) relit by Remix
+    # read as dirt. The bumpers' and grilles' bright metal, closed over the reflections inside it (not lamps or
+    # paint: saturation under 0.35, not near black), becomes neutral metal at its wide average luminance
+    L = lum(img); S = sat(img); mm = m.astype(np.float64)
+    W_ = img.shape[0]; sg = 12.0 * W_ / 1024
+    avg = ndimage.gaussian_filter(L * mm, sg) / np.maximum(ndimage.gaussian_filter(mm, sg), 1e-3)
+    cm = chrome_texels(V, F, UV, img)
+    region = (cm if cm is not None else m) & (S < 0.35) & (L > 0.15)
+    mm = region.astype(np.float64)
+    avg = ndimage.gaussian_filter(L * mm, sg) / np.maximum(ndimage.gaussian_filter(mm, sg), 1e-3)
+    tone = np.clip(0.85 * avg + 0.15 * L, 0.35, 0.92)
+    grey = tone[..., None] * np.array([0.98, 1.0, 1.03])
+    img[region] = np.clip(grey[region], 0, 1)
     log(f'  chrome: {int(sel.sum())} vertices smoothed, {int(spk.sum())} speckle texels cleaned')
 
 
@@ -1035,9 +1151,10 @@ def tex_lens(kind, size=128):
 
 
 def set_materials(kc, wheels, paint_rgb, livery):
-    kc.materials['lamp_head'] = tex_lens('head')
-    kc.materials['lamp_tail'] = tex_lens('tail')
-    kc.materials['tyre_tread'] = K.tex_tread()
+    kc.materials['lamp_head'] = tex_lens('head', 64)
+    kc.materials['lamp_tail'] = tex_lens('tail', 64)
+    tt = K.tex_tread()
+    kc.materials['tyre_tread'] = tt.resize((128, 128), Image.LANCZOS) if hasattr(tt, 'resize') and tt.size[0] > 128 else tt
     kc.materials['tyre_side'] = K.tex_tyre_side()
     kc.materials['whitewall'] = K.tex_flat((228, 226, 218))
     kc.materials['underbody'] = K.tex_underbody()
@@ -1164,6 +1281,14 @@ def main():
     for e in entries:
         if e['name'][:3] not in underpan.SKIP:
             underpan.apply(models_dir, models_dir, e['name'])
+    # the underpan picture at 128 px (budget; it is seen only from below and in the wheel arches)
+    from car_paint_resplit import write_tga
+    for e in entries:
+        up = os.path.join(models_dir, e['name'] + '_underpan.tga')
+        if os.path.exists(up):
+            im = Image.open(up).convert('RGBA')
+            if im.width > 128:
+                write_tga(np.asarray(im.resize((128, 128), Image.LANCZOS)).astype(np.float32), up)
 
 
 if __name__ == '__main__':

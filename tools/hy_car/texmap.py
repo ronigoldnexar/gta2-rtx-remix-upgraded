@@ -3,10 +3,11 @@ UV space), so a texture edit can be decided in model space (a panel below the be
 import numpy as np
 
 
-def texel_maps(V, F, UV, size):
-    """-> pos (size, size, 3), nrm (size, size, 3), valid (size, size) bool. Image row 0 = v 1 (glTF/trimesh v up)."""
+def texel_maps(V, F, UV, size, with_faces=False):
+    """-> pos (size, size, 3), nrm (size, size, 3), valid (size, size) bool[, fid (size, size) int32, -1 none].
+    Image row 0 = v 1 (glTF/trimesh v up)."""
     pos = np.zeros((size, size, 3), np.float32); nrm = np.zeros((size, size, 3), np.float32)
-    valid = np.zeros((size, size), bool)
+    valid = np.zeros((size, size), bool); fid = np.full((size, size), -1, np.int32)
     P = np.stack([UV[:, 0] % 1.0 * size, (1.0 - UV[:, 1] % 1.0) * size], 1)
     tri = V[F]; fn = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
     fn /= np.maximum(np.linalg.norm(fn, axis=1, keepdims=True), 1e-12)
@@ -25,5 +26,5 @@ def texel_maps(V, F, UV, size):
         if not m.any(): continue
         yy = (ys[m] - 0.5).astype(int); xx = (xs[m] - 0.5).astype(int)
         p = l1[m, None] * tri[t, 0] + l2[m, None] * tri[t, 1] + l3[m, None] * tri[t, 2]
-        pos[yy, xx] = p; nrm[yy, xx] = fn[t]; valid[yy, xx] = True
-    return pos, nrm, valid
+        pos[yy, xx] = p; nrm[yy, xx] = fn[t]; valid[yy, xx] = True; fid[yy, xx] = t
+    return (pos, nrm, valid, fid) if with_faces else (pos, nrm, valid)
