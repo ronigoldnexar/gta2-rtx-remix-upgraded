@@ -481,3 +481,30 @@ Use this number for every memory gate on new assets (people, cars, textures) unl
   low area is full (WINEDEBUG=+virtual: "map_view got mem with anon mmap", a reserve+commit from inside ntdll,
   not through any module's imports), during the texture warm-up; the same build without any combo fell to
   842 MB in 1 of 5 runs.
+
+## PEDS-CONSISTENT: the 3D clothes are the sprite's colours (14 Nov 2026)
+
+The owner's rule: a pedestrian is the same colours from above and in 3D (someone blue in the classic view is blue in
+the street views); the variety comes from everything else.
+
+- **Colours.** A civilian on an avatar with clothing zones wears, top and bottom, his remap's sprite colours (the
+  `ped_outfits` row, `model_store.cpp PedRemapOutfit`: what the classic view shows, as the other types always did)
+  as fabric (`identity.cpp Fabric`: a neon-bright colour, chroma over 120 of 255, loses half its excess chroma, the
+  lightness kept), in a shade of his own (+-12% by seed). No curated palette and no near-future sets any more
+  (`FreeOutfit` keeps the old free choice for a remap without a row; none today). The Haredi woman's modest outfit
+  is her sprite's colours too.
+- **Variety.** Different avatars and garment types per pool (16 per remap), the shade, the garment detail variants
+  (yoke, two-tone sleeves, bands: tones of the matched colour), faces, head swaps, hair colours and accessories.
+- **Fixed looks** (Haredi men and woman, female_adult_06 and _10, business_female_01: no zones or a fixed palette)
+  are dealt only in the pools whose sprite is dark and neutral in torso and legs (remap 51 today), so they are
+  rarer than before (1 in 16 of remap 51's civilians). **Partly tinted avatars** (the tint does not reach one
+  garment; `~/peds3/tint_audit.py`): male_adult_02's beige sweater and male_adult_05's tan vest only where the
+  sprite's top is within CIEDE2000 20 of them (remaps 28; 33, 45), female_adult_11's one-colour dress where the
+  sprite's top and legs are alike (18, 34, 36, 38, 42), male_01's khaki shorts nowhere (out of the crowd until his
+  shorts are made tintable). `tools/ped_identity/consistent_pools.py`, called by `make_ped_manifest.py`.
+- **Checks.** `outfit_parity.py`: identity.cpp against outfits.py (417 000 lines, 0 mismatches) and the colour
+  match: every civilian remap x pool avatar x 200 seeds through `outfits.crowd()`, CIEDE2000 between the sprite's
+  colour and the shown 3D colour, top and bottom, at most 12 (measured: median 1.6, 95% 4.6, max 6.4), fixed and
+  partly tinted looks only in suitable pools; exit 1 otherwise. The shown colour is the zone's: an untinted garment
+  is only caught by the tint audit. `parity_sheet.py <models> <out.jpg>`: one row per remap, the sprite (top-down
+  frame, full figure) beside the 3D figure (3/4, above) with the swatches and the CIEDE2000.
