@@ -1,5 +1,17 @@
 # GTA2 RTX Upgraded 1.2
 
+## 14 Nov 2026: lighting and the RTX release preset
+
+- Day/night cycle in both renderers (the plain renderer with [visuals] on, now the default): staggered lamp, window and
+  car-lamp switching at dusk and dawn, a Remix blue hour, readable nights with warm lamp pools, a hazy moon.
+- The classic (top-down) view follows the hour in both renderers: the plain classic frame is graded at dusk and night
+  (pixel-exact by day), the Remix classic night matches the street views' exposure.
+- package/rtx.conf carries the play look and the release preset: DLSS Balanced, Ray Reconstruction, the Neural Radiance
+  Cache and Reflex (the RTX 5090 release soak: 48 min, 0 TDR, 0 FAULT). **Frame Generation is off by default**: on an
+  RTX 40/50 card set `rtx.frameGenerationType = 1` in rtx.conf; other cards keep it off (DLSS-G needs the optical-flow
+  hardware). DLSS, RR and NRC fall back by themselves where unavailable.
+- package/gta2dx9_effects.ini ships beside gta2dx9.ini (the reconciled siren tuning).
+
 A Direct3D 9 renderer for GTA2 that lets RTX Remix path-trace the game, built on
 [gebdag/gta2-rtx-remix](https://github.com/gebdag/gta2-rtx-remix) (MIT). This release adds a hand-made visual layer on top.
 

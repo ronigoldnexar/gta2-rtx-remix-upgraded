@@ -266,7 +266,7 @@ void TimeOfDayClassicGrade(float tint[3], float* amount, float* night) {
     // Dusk/dawn: a warm violet; night: a cool, dark blue that keeps kerbs and cars readable (third-person night ~30/255
     // against the classic's ~115 by day).
     static const float kDusk[3] = {0.80f, 0.66f, 0.78f};
-    static const float kNight[3] = {0.27f, 0.31f, 0.46f};
+    static const float kNight[3] = {0.24f, 0.27f, 0.44f};   // gate: classic night luma ~48 at 0.27/0.31/0.46 vs third ~34
     float u = n * 2.0f; u = u > 1.0f ? 1.0f : u;
     float v = n * 2.0f - 1.0f; v = v < 0.0f ? 0.0f : v;
     for (int i = 0; i < 3; ++i) {
@@ -279,6 +279,9 @@ void TimeOfDayClassicGrade(float tint[3], float* amount, float* night) {
     *night = n;
     *amount = (n > 0.002f || g_overcast > 0.002f) ? 1.0f : 0.0f;
 }
+
+namespace { float g_classicWeight = 0.0f; float g_sentClassicBias = 0.0f; }
+void TimeOfDaySetClassicWeight(float w) { g_classicWeight = w < 0.0f ? 0.0f : (w > 1.0f ? 1.0f : w); }
 
 TimeOfDaySettings& TimeOfDay() { return g_settings; }
 
@@ -441,6 +444,17 @@ void TimeOfDayUpdate() {
 
     TimeOfDaySunAt(g_hour, g_settings, &g_elevation, &g_rotation);
     UpdateDayLook(g_elevation);
+    // LIGHTING-CLASSIC: under Remix the top-down view looks down at lit paving with no dark sky in frame, so at the same
+    // pinned night exposure it read brighter than the street views (plaza 58 vs 49). In the classic view (weighted by the
+    // camera move, WorldView) the night takes an exposure bias of x0.8; nothing by day, nothing in the street views.
+    if (RemixApiAvailable() && RemixApiHasAtmosphere()) {
+        const float night = g_dayT >= 0.0f ? 1.0f - g_dayT : 0.0f;
+        const float bias = std::log2(1.0f - 0.20f * g_classicWeight * night);
+        if (std::fabs(bias - g_sentClassicBias) > 0.01f || (bias == 0.0f && g_sentClassicBias != 0.0f)) {
+            PushFloat("rtx.tonemap.exposureBias", bias);
+            g_sentClassicBias = bias;
+        }
+    }
 
     if (!RemixApiAvailable()) {
         g_pushed = false;

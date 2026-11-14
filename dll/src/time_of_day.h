@@ -141,6 +141,9 @@ void TimeOfDaySetOvercast(float overcast);
 // much of it applies (0 = untouched, the original pixels: full day and a clear sky), and the night share for the lamps'
 // pools (0 by day .. 1 at night). Composed here with the clock and TimeOfDaySetOvercast, like the Remix keys.
 void TimeOfDayClassicGrade(float tint[3], float* amount, float* night);
+// LIGHTING-CLASSIC: how much of the picture is the classic view (1 settled top-down, 0 a street view, between through the
+// camera move); under Remix the night takes a classic-only exposure bias from it.
+void TimeOfDaySetClassicWeight(float w);
 
 // Whether the last push went through, and how many have.
 bool        TimeOfDayPushed();

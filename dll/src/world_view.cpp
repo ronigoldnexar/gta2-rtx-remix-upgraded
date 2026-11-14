@@ -3806,8 +3806,11 @@ void WorldView::ApplyClassicNight() {
                     const float own = LightsTrackedDaylight(t);
                     share = own >= 0.0f ? own : 1.0f;   // ungated classes (signals) at every hour
                     if (d.spot) continue;               // the Remix pool under a fitted lamp: the lamp itself stands for it
-                    reach = (std::min)(3.0f, (std::max)(1.2f, d.radius * 0.7f));
-                    gain = 0.32f * (std::min)(1.0f, d.intensity);
+                    // A disc round each street lamp (the plaza's lamps overlapped into one wash at 3 blocks); a sign or other
+                    // map light only a small glow at its spot.
+                    if (ClassifyGameLight(d, false) == kGameLightStreet) { reach = (std::min)(1.8f, (std::max)(1.0f, d.radius * 0.5f)); gain = 0.9f; }
+                    else { reach = 0.8f; gain = 0.5f; }
+                    gain *= (std::min)(1.0f, d.intensity);
                     // As the street views draw them (visuals.cpp FIX-WORLD-20/21, FIX-REMIX-NIGHT-8): a street-class lamp is
                     // a sodium amber at its own luminance, a sign keeps 30 % of its hue over a warm white; the game's raw
                     // colours (#FF8080, #80FF00 ...) summed over the plaza washed the classic frame pink and green.
@@ -3823,9 +3826,9 @@ void WorldView::ApplyClassicNight() {
                     break;
                 }
                 case kLightSourceHeadlight:
-                    for (int i = 0; i < 3; ++i) pos[i] += d.dir[i] * 1.3f;
-                    reach = 1.7f; gain = 0.45f; break;
-                case kLightSourceBrake: reach = 0.7f; gain = 0.35f; break;
+                    for (int i = 0; i < 3; ++i) pos[i] += d.dir[i] * 1.5f;
+                    reach = 1.9f; gain = 0.9f; break;
+                case kLightSourceBrake: reach = 0.8f; gain = 0.6f; break;
                 case kLightSourceSiren: reach = d.spot ? 0.0f : 2.4f; gain = 0.40f; share = (std::max)(night, 0.3f); break;
                 case kLightSourceFire: reach = 2.4f; gain = 0.6f; share = 1.0f; break;
                 default: continue;
@@ -4182,6 +4185,7 @@ void WorldView::RenderFrame() {
         renderer_.EndWorldShading();
         // LIGHTING-V1: the plain classic view takes the hour too (the street views and the Remix classic view already
         // do): graded here, after the world and its sprites and before the 2D layer, so the HUD stays as drawn.
+        TimeOfDaySetClassicWeight(1.0f - skyBlend_);   // LIGHTING-CLASSIC: the Remix classic exposure bias follows the move
         if (CurrentViewMode() == ViewMode::Classic && !g_viewActive && skyBlend_ <= 0.0f && worldUploaded_ && !renderer_.IsRemixDevice() &&
             gta2::SkyConfig().followClock)
             ApplyClassicNight();

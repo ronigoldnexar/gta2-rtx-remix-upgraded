@@ -412,7 +412,7 @@ float4 ps_classic_night(QuadOut i) : COLOR0 {
     float keepWhite = smoothstep(cClassic2.x, cClassic2.y, n);
     float keepNeon = smoothstep(cClassic2.z, 1.0, sat) * smoothstep(0.55, 0.85, m);
     float keep = max(keepWhite, keepNeon);
-    float3 lit = c * min(cClassic.rgb + min(L, 0.85) * cClassic2.w, 1.1);
+    float3 lit = c * min(cClassic.rgb + min(L, 1.3) * cClassic2.w, 1.25);
     float3 graded = lerp(lit, c, keep);
     return float4(lerp(c, graded, cClassic.w), 1.0);
 }
