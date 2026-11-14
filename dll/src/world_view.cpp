@@ -3772,13 +3772,14 @@ void WorldView::DrawSkyAndShading() {
 // the game's lights lay pools on it: the map's lamps (at their own staggered switching), car head lamps ahead of the car,
 // brake lamps, sirens and fires, projected with the classic camera. Lit texels (lamp heads, neon, tail lamps) keep their
 // own brightness in the shader. GTA2DX9_CLASSIC_NIGHT=0: off (the classic view always as drawn).
-void WorldView::ApplyClassicNight() {
+void WorldView::ApplyClassicNight(float weight) {
     static int off = -1;
     if (off < 0) { char b[8] = {}; off = GetEnvironmentVariableA("GTA2DX9_CLASSIC_NIGHT", b, sizeof b) && b[0] == '0' ? 1 : 0; }
     if (off) return;
     float tint[3], amount = 0.0f, night = 0.0f;
     TimeOfDayClassicGrade(tint, &amount, &night);
-    if (amount <= 0.0f) return;
+    amount *= weight < 0.0f ? 0.0f : (weight > 1.0f ? 1.0f : weight);
+    if (amount <= 0.001f) return;
     const int w = renderer_.Width(), h = renderer_.Height();
     const gta2::Mat4 view = camera_.ViewMatrix();
     const gta2::Mat4 proj = camera_.ProjectionMatrix(static_cast<float>(w) / static_cast<float>((std::max)(1, h)));
@@ -4186,9 +4187,11 @@ void WorldView::RenderFrame() {
         // LIGHTING-V1: the plain classic view takes the hour too (the street views and the Remix classic view already
         // do): graded here, after the world and its sprites and before the 2D layer, so the HUD stays as drawn.
         TimeOfDaySetClassicWeight(1.0f - skyBlend_);   // LIGHTING-CLASSIC: the Remix classic exposure bias follows the move
-        if (CurrentViewMode() == ViewMode::Classic && !g_viewActive && skyBlend_ <= 0.0f && worldUploaded_ && !renderer_.IsRemixDevice() &&
-            gta2::SkyConfig().followClock)
-            ApplyClassicNight();
+        // Through the camera move too, weighted by how much of the picture is the classic look (1 - skyBlend_): the street
+        // views' own night shading fades out toward the classic frame's look as the camera comes down (skyBlend_ -> 0), so
+        // without the grade the last frames of a move back to the classic view showed the daytime picture (lt_cl9: ~0.6 s).
+        if (skyBlend_ < 1.0f && worldUploaded_ && !renderer_.IsRemixDevice() && gta2::SkyConfig().followClock)
+            ApplyClassicNight(1.0f - skyBlend_);
         QueryPerformanceCounter(&stamp[3]);
         // The 2D stream goes into a layer that is kept between frames, because
         // GTA2's menu only redraws what changed and clears the screen just when

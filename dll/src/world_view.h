@@ -360,7 +360,7 @@ private:
     void DrawSkyAndShading();
     // FIX-PERF-VSWITCH: one street frame drawn where nothing shows, in the classic view.
     void GhostStreetFrame();
-    void ApplyClassicNight();   // LIGHTING-V1: the plain classic view at dusk and night (world_view.cpp)
+    void ApplyClassicNight(float weight);   // LIGHTING-V1 (weight: the classic share of the picture): the plain classic view at dusk and night (world_view.cpp)
     int ghostAt_ = -1;   // the frame it ran (-1 not yet; again with each level)
     int ghostWait_ = 0;  // classic frames of this level so far
     double viewTime_ = 0.0;
