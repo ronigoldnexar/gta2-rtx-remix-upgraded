@@ -77,6 +77,9 @@ while :; do
 done
 END=$(date +%s.%N)
 kill -INT $REC 2>/dev/null
+# FPS=0: REC is a background sleep, and a non-interactive bash starts background jobs with SIGINT ignored, so the
+# INT above did nothing and wait sat out the whole SECS (vreg: 2400 s after a 3-minute capture). TERM ends it.
+[ "${FPS:-15}" = 0 ] && kill $REC 2>/dev/null
 wait $REC 2>/dev/null
 [ -f /out/game_raw.mp4 ] && ffmpeg -y -loglevel error -i /out/game_raw.mp4 -c copy -movflags +faststart /out/game.mp4 2>/dev/null && rm -f /out/game_raw.mp4   # faststart remux (the raw file is fragmented so a killed recorder still leaves a playable file)
 echo "recording: $(python3 -c "print(round($END - $T0))") s of run; game.mp4 $(ffprobe -v error -show_entries format=duration -of csv=p=0 /out/game.mp4 2>/dev/null) s; ended by: $WHY" | tee -a /out/recording.txt
