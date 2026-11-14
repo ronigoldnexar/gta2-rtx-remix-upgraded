@@ -16,6 +16,14 @@ constexpr uintptr_t kCameraStructPtr = 0x005E3CC4;
 constexpr uintptr_t kMapHolderPtr = 0x00662C08;
 constexpr uintptr_t kMainWindowPtr = 0x00673D18;
 
+// FIX-FOCUS-HANG: GTA2's "paused for focus loss" byte. Its window procedure (0x4D0A00) sets it to 1 on
+// WM_KILLFOCUS (0x4D0BA7, then Vid_CloseScreen and ShowWindow SW_SHOWMINNOACTIVE) and clears it only on
+// WM_SETFOCUS (0x4D0B0B) or at the top of a WinMain loop pass (0x4CC6C1). WinMain's inner message loop
+// (0x4D14FB..0x4D1546: PeekMessage/Translate/Dispatch) does not leave while it is non-zero, so no frame is
+// run until the game window gets WM_SETFOCUS. Read only.
+constexpr uintptr_t kFocusPausedFlag = 0x006735A5;
+inline int FocusPausedFlag() { return *reinterpret_cast<volatile const uint8_t*>(kFocusPausedFlag); }
+
 // World coordinates are 16.14 fixed point, one unit per map block.
 constexpr float kFixedScale = 1.0f / (1 << 14);
 

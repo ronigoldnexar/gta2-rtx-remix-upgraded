@@ -80,6 +80,8 @@ bool g_intro = gta2dx9::kDefaultIntro;
 // FIX-STABILITY-2: [renderer] keep_game_window_restored (default 1): under own_window=2 GTA2's own
 // window is never minimised (see ClosingWndProc). 0 = the old behaviour, for an A/B of the livelock.
 bool g_keepGameWindowRestored = true;
+// FIX-FOCUS-HANG: [renderer] focus_watchdog (default 1): see WatchGameFocusPause.
+bool g_focusWatchdog = true;
 
 // gbh_GetGlobals hands the game a counter block; the original exposes polys and
 // texture swaps drawn this frame.
@@ -199,6 +201,8 @@ void LoadConfig() {
     const bool gameTiles = GetPrivateProfileIntA("renderer", "use_game_tiles", 1, ini) != 0;
     const int ownWindow = IniIntRange("renderer", "own_window", 2, 0, 2, ini);
     g_keepGameWindowRestored = GetPrivateProfileIntA("renderer", "keep_game_window_restored", 1, ini) != 0;
+    g_focusWatchdog = GetPrivateProfileIntA("renderer", "focus_watchdog", 1, ini) != 0;
+    gta2dx9::SetFocusHandoff(g_focusWatchdog);
     g_world.Configure(pitch / 10.0f, fov / 10.0f, gameTiles,
                       static_cast<gta2dx9::PresentWindow>(ownWindow));
 
@@ -817,9 +821,14 @@ void UnminimiseGameWindow(HWND window, const char* why) {
     if (wasIconic) ShowWindow(window, SW_SHOWNOACTIVATE);
     SetWindowPos(window, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     if (logged++ < 200) {
-        Log("focus: game window kept un-minimised (%s): iconic %d -> %d in %lu ms, gta2 minimised flag %d; "
-            "the game keeps running behind the window that took the focus", why, wasIconic, IsIconic(window) ? 1 : 0,
-            static_cast<unsigned long>(GetTickCount() - start), GameMinimisedFlag());
+        // FIX-FOCUS-HANG: this line used to say "the game keeps running behind the window that took the focus".
+        // It does not: GTA2 paused itself in its WM_KILLFOCUS handler (flag 0x6735A5) and runs again only when
+        // its window gets WM_SETFOCUS. Keeping the window un-minimised only keeps the minimised pump (0x673F50)
+        // out of it.
+        Log("focus: game window kept un-minimised (%s): iconic %d -> %d in %lu ms, gta2 minimised flag %d, gta2 "
+            "focus-paused flag %d; GTA2 stays paused until its window gets the focus back", why, wasIconic,
+            IsIconic(window) ? 1 : 0, static_cast<unsigned long>(GetTickCount() - start), GameMinimisedFlag(),
+            game::FocusPausedFlag());
     }
 }
 
@@ -854,6 +863,103 @@ void WatchGameWindowMinimised() {
     }
 }
 
+// ---- FIX-FOCUS-HANG: GTA2's focus-loss pause, and making sure it always ends --------------------------
+//
+// The 5090 release blocker (front end and in game, 14 Nov; an 18.5 h hang after a 113 ms toast on 13 Nov):
+// on WM_KILLFOCUS gta2.exe's window procedure (0x4D0B2B) runs Vid_CloseScreen, sets its paused byte 0x6735A5
+// to 1 and minimises its window; WinMain's inner loop (0x4D14FB..0x4D1546, the PeekMessage returning to
+// gta2.exe+0xD150B in every stall stack) keeps pumping messages and runs no frame while that byte is non-zero.
+// Only WM_SETFOCUS to the game window clears it (0x4D0B0B, after re-setting the video mode and re-acquiring
+// input). WM_ACTIVATEAPP is ignored by GTA2 (DefWindowProc) and WM_ACTIVATE only (un)acquires input, so the
+// focus, not the activation, is what the game waits for. Under own_window=2 the picture is our window, and
+// when it (or nothing, or another window of ours) ends up with the focus, the game window never gets it back.
+//
+// Policy: a real switch to another program pauses the game, as GTA2 always did (its input is lost anyway);
+// the moment the foreground is ours again the game resumes, whichever of our windows has it.
+//   - the present window hands any activation or focus straight to the game window (world_view.cpp);
+//   - this watchdog, 4 times a second from the stall sampler's thread: paused for 500 ms while the foreground
+//     window is the game window or our present window -> ask for the game focus (RequestGameFocus, run on the
+//     game thread inside GTA2's own loop); still paused a second later with the game window already the
+//     foreground -> post the WM_SETFOCUS it missed. Never acts while the foreground is another program's, or
+//     another window of ours (a dialog).
+void WatchGameFocusPause() {
+    static DWORD pausedSince = 0, lastAsk = 0;
+    static int asks = 0, synthetic = 0, episodes = 0;
+    static bool loggedOther = false;
+    static HWND lastForeground = nullptr;
+    const HWND game = g_world.GameHwnd();
+    if (!game || !g_focusWatchdog || g_world.PresentMode() != gta2dx9::PresentWindow::Topmost) return;
+    const int paused = game::FocusPausedFlag();
+    const DWORD now = GetTickCount();
+    const HWND foreground = GetForegroundWindow();
+    DWORD foregroundPid = 0;
+    if (foreground) GetWindowThreadProcessId(foreground, &foregroundPid);
+    const bool ours = foreground && foregroundPid == GetCurrentProcessId();
+    const char* whose = !foreground ? "no window" : foreground == game ? "the game window"
+                        : foreground == g_world.PresentHwnd() ? "our present window" : ours ? "another window of ours"
+                        : "another program's window";
+    if (!paused) {
+        if (pausedSince) {
+            Log("focus: GTA2 resumed after %lu ms paused for focus loss (episode %d; watchdog asks %d, synthetic "
+                "WM_SETFOCUS %d); foreground %p (%s)", static_cast<unsigned long>(now - pausedSince), episodes, asks,
+                synthetic, static_cast<void*>(foreground), whose);
+        }
+        pausedSince = 0;
+        asks = synthetic = 0;
+        loggedOther = false;
+        return;
+    }
+    if (!pausedSince) {
+        pausedSince = now;
+        lastAsk = 0;
+        lastForeground = foreground;
+        ++episodes;
+        Log("focus: GTA2 paused itself for focus loss (flag 0x6735A5 = %d, episode %d): no game frame until its "
+            "window gets WM_SETFOCUS; foreground %p (%s), game window %p, present window %p", paused, episodes,
+            static_cast<void*>(foreground), whose, static_cast<void*>(game), static_cast<void*>(g_world.PresentHwnd()));
+        return;
+    }
+    if (foreground != lastForeground) {
+        Log("focus: while GTA2 is paused the foreground moved %p -> %p (%s)", static_cast<void*>(lastForeground),
+            static_cast<void*>(foreground), whose);
+        lastForeground = foreground;
+        loggedOther = false;
+    }
+    if (now - pausedSince < 500) return;
+    // Only our two windows count: a dialog of this process (a message box, a plugin's window) keeps its focus.
+    const bool mine = ours && (foreground == game || foreground == g_world.PresentHwnd());
+    if (!mine) {
+        if (!loggedOther) {
+            loggedOther = true;
+            Log("focus: GTA2 paused %lu ms, the foreground is %s (%p): the game waits for the player to come back "
+                "(a click on the picture or alt-tab to GTA2 resumes it)", static_cast<unsigned long>(now - pausedSince),
+                whose, static_cast<void*>(foreground));
+        }
+        return;
+    }
+    // Backing off: 500 ms, 1 s, 2 s, ... up to 5 s between attempts.
+    const DWORD gap = asks < 1 ? 0 : (asks < 4 ? (500u << (asks - 1)) : 5000u);
+    if (lastAsk && now - lastAsk < gap) return;
+    lastAsk = now;
+    ++asks;
+    const bool posted = gta2dx9::RequestGameFocus(3);
+    if (asks <= 20 || asks % 50 == 0) {
+        Log("focus: watchdog: GTA2 paused %lu ms with the foreground ours (%s %p): asking for the game focus "
+            "(#%d%s)", static_cast<unsigned long>(now - pausedSince), whose, static_cast<void*>(foreground), asks,
+            posted ? "" : ", could not post");
+    }
+    if (asks >= 2 && foreground == game) {
+        // The game window is the foreground and GTA2 still waits: the WM_SETFOCUS was lost (or the focus sits
+        // on no window of the thread). Its own handler is the resume path; posting it is what Windows would
+        // have sent.
+        ++synthetic;
+        PostMessageA(game, WM_SETFOCUS, 0, 0);
+        if (synthetic <= 20 || synthetic % 50 == 0)
+            Log("focus: watchdog: the game window is the foreground but GTA2 is still paused: posted WM_SETFOCUS (#%d)",
+                synthetic);
+    }
+}
+
 DWORD WINAPI StallSampler(LPVOID) {
     HANDLE thread = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION,
                                FALSE, g_gameThread);
@@ -863,6 +969,11 @@ DWORD WINAPI StallSampler(LPVOID) {
     }
     int samples = 0;
     DWORD lastSample = 0;
+    // FIX-FOCUS-HANG: the first kStacksPerStall samples of every new stall get a stack (the 5090 freeze
+    // after 60 earlier short stalls had "no stack: past the sample cap"); kMaxStackLines bounds the session.
+    constexpr int kStacksPerStall = 3;
+    constexpr int kMaxStackLines = 600;
+    int stackLines = 0, stalls = 0;
     // FIX-REMIX-NIGHT (pt-remix-ultra-cold-cache-freeze-on-first-view-switch): after the first 60 stack
     // samples the sampler used to stop, so a stall that went on (a Remix server compiling for minutes on a
     // cold shader cache) left the log silent from 49 s on. Past the cap it now writes one short line every
@@ -882,6 +993,7 @@ DWORD WINAPI StallSampler(LPVOID) {
         gta2dx9::StallDumpTestPoll();
         gta2dx9::GuardedFaultsReport();
         WatchGameWindowMinimised();   // FIX-STABILITY-2
+        WatchGameFocusPause();        // FIX-FOCUS-HANG
         const DWORD beat = g_beat;
         const DWORD now = GetTickCount();
         // FIX-STABILITY-1: minimised, the game thread is meant to be idle in its message loop; it is not
@@ -896,19 +1008,25 @@ DWORD WINAPI StallSampler(LPVOID) {
             heldLogged = false;
         }
         if (stallBeat && beat != stallBeat) {
-            if (samples >= 60) Log("stall sampler: game thread back after %lu ms idle", static_cast<unsigned long>(longest));
+            if (samples > 0 || longest >= 5000)
+                Log("stall sampler: game thread back after %lu ms idle (stall %d)", static_cast<unsigned long>(longest), stalls);
             stallBeat = 0;
             longest = 0;
             stuckPc = 0;
             dumped = false;
+            samples = 0;
         }
         if (!beat || now - beat < 1500) continue;
+        if (!stallBeat) ++stalls;
         stallBeat = beat;
         longest = now - beat;
-        const bool capped = samples >= 60;
+        const bool capped = samples >= kStacksPerStall || stackLines >= kMaxStackLines;
         if (capped && now - lastSample >= 5000) {
             lastSample = now;
-            Log("stall sampler: game thread idle %lu ms (no stack: past the sample cap)", static_cast<unsigned long>(now - beat));
+            Log("stall sampler: game thread idle %lu ms (stall %d; stack logged at its start%s), gta2 focus-paused flag %d, "
+                "foreground %p", static_cast<unsigned long>(now - beat), stalls,
+                stackLines >= kMaxStackLines ? ", now past the session cap" : "", game::FocusPausedFlag(),
+                static_cast<void*>(GetForegroundWindow()));
         }
         // Past the cap the thread is still looked at once a second (no line), for the dump below.
         if (capped && (dumped || dumps >= kMaxDumps || now - lastCapture < 1000)) continue;
@@ -956,6 +1074,7 @@ DWORD WINAPI StallSampler(LPVOID) {
         }
         if (capped) continue;
         ++samples;
+        ++stackLines;
         if (!pc) continue;
         char where[160];
         DescribeAddress(reinterpret_cast<const void*>(pc), where, sizeof(where));
@@ -974,14 +1093,22 @@ DWORD WINAPI StallSampler(LPVOID) {
         const HWND gameWindow = g_world.GameHwnd();
         const int iconic = gameWindow && IsIconic(gameWindow) ? 1 : 0;
         const int minimisedFlag = GameMinimisedFlag();
-        char state[120] = "";
+        char state[240] = "";
         if (iconic || minimisedFlag == 2) {
             _snprintf_s(state, sizeof(state), _TRUNCATE,
                         " [game window minimised: iconic=%d, gta2 minimised flag %d: GTA2's paused pump]", iconic,
                         minimisedFlag);
+        } else if (game::FocusPausedFlag()) {
+            const HWND foreground = GetForegroundWindow();
+            DWORD foregroundPid = 0;
+            if (foreground) GetWindowThreadProcessId(foreground, &foregroundPid);
+            _snprintf_s(state, sizeof(state), _TRUNCATE,
+                        " [GTA2 paused for focus loss: flag 0x6735A5=%d, waiting for WM_SETFOCUS; foreground %p (%s)]",
+                        game::FocusPausedFlag(), static_cast<void*>(foreground),
+                        foregroundPid == GetCurrentProcessId() ? "ours" : foreground ? "another process" : "none");
         }
-        Log("stall sampler: game thread idle %lu ms (sample %d)%s at %s, callers %s",
-            static_cast<unsigned long>(now - beat), samples, state, where, line);
+        Log("stall sampler: game thread idle %lu ms (stall %d, sample %d)%s at %s, callers %s",
+            static_cast<unsigned long>(now - beat), stalls, samples, state, where, line);
     }
     CloseHandle(thread);
     return 0;
@@ -1010,6 +1137,10 @@ volatile LONG g_lastMessage = 0;
 volatile LONG g_lastWparam = 0;
 volatile DWORD g_lastMessageTick = 0;
 volatile LONG g_simulatingFocusLoss = 0;   // [devtools] simulate_focus_loss is sending the messages
+// FIX-FOCUS-HANG devtools (simulate_focus_loss_mode=3): until this tick, WM_SETFOCUS to the game window is
+// dropped. Wine gives the focus back to a window restored with SW_SHOWNOACTIVATE (so GTA2 resumes at once and
+// Tokyo never froze); Windows does not. Dropping it here is the Windows behaviour, under Wine.
+volatile DWORD g_testDropSetFocusUntil = 0;
 
 void DescribeCurrentException(char* out, size_t size) {
     _snprintf_s(out, size, _TRUNCATE, "no exception in flight");
@@ -1110,7 +1241,7 @@ void NoteEntryException(const char* entry) {
 // way to run the path here): WM_KILLFOCUS, WM_ACTIVATEAPP 0, WM_SIZE SIZE_MINIMIZED, then 3 s later
 // WM_SIZE SIZE_RESTORED, WM_ACTIVATEAPP 1, WM_SETFOCUS; simulate_focus_loss_start_s (default 30)
 // after the level is up, simulate_focus_loss_gap_s (default 8) between cycles.
-struct FocusLossTest { int cycles, startS, gapS, restore; };
+struct FocusLossTest { int cycles, startS, gapS, restore, mode; };
 DWORD WINAPI FocusLossTestThread(LPVOID param) {
     const FocusLossTest test = *static_cast<FocusLossTest*>(param);
     delete static_cast<FocusLossTest*>(param);
@@ -1126,6 +1257,52 @@ DWORD WINAPI FocusLossTestThread(LPVOID param) {
         const LRESULT ok = SendMessageTimeoutA(game, message, wparam, lparam, SMTO_NORMAL, 5000, &result);
         return ok ? static_cast<long>(GetTickCount() - start) : -1L;
     };
+    // FIX-FOCUS-HANG: mode 1 = the 5090 repro (rc_fclick.ps1, a launcher): our present window is made the
+    // foreground and the focus for real, so GTA2 gets a genuine WM_KILLFOCUS; mode 2 = WM_KILLFOCUS only,
+    // sent with no real focus change and nothing restoring it (the lost WM_SETFOCUS of the 18.5 h hang).
+    // Either way nothing in the test restores the game: the fix has to. Pass: the frames move again.
+    if (test.mode == 1 || test.mode == 2 || test.mode == 3) {
+        for (int k = 1; k <= test.cycles && !g_shuttingDown; ++k) {
+            const int frame0 = g_world.FrameCount();
+            const DWORD t0 = GetTickCount();
+            if (test.mode == 1) {
+                Log("devtools: simulate_focus_loss %d/%d (mode 1): the present window takes the focus (frame %d)", k,
+                    test.cycles, frame0);
+                gta2dx9::TestPresentTakesFocus();
+            } else {
+                Log("devtools: simulate_focus_loss %d/%d (mode %d): WM_KILLFOCUS only, never restored%s (frame %d)", k,
+                    test.cycles, test.mode, test.mode == 3 ? ", WM_SETFOCUS dropped for 600 ms" : "", frame0);
+                if (test.mode == 3) g_testDropSetFocusUntil = GetTickCount() + 600;
+                InterlockedExchange(&g_simulatingFocusLoss, 1);
+                const long a = send(WM_KILLFOCUS, 0, 0);
+                InterlockedExchange(&g_simulatingFocusLoss, 0);
+                Log("devtools: simulate_focus_loss %d/%d (mode %d): killfocus sent in %ld ms, gta2 paused flag %d", k,
+                    test.cycles, test.mode, a, game::FocusPausedFlag());
+            }
+            // Watch for 6 s: when GTA2 paused (flag seen 1) and when frames moved again.
+            int sawPaused = 0;
+            long pausedAt = -1, resumedAt = -1;
+            int framesAtPause = -1;
+            for (int i = 0; i < 375 && !g_shuttingDown; ++i) {   // 6 s at 16 ms
+                const int flag = game::FocusPausedFlag();
+                const long t = static_cast<long>(GetTickCount() - t0);
+                if (flag && !sawPaused) { sawPaused = 1; pausedAt = t; framesAtPause = g_world.FrameCount(); }
+                if (sawPaused && !flag && resumedAt < 0) resumedAt = t;
+                Sleep(16);
+            }
+            const int frame1 = g_world.FrameCount();
+            Sleep(1000);
+            const int frame2 = g_world.FrameCount();
+            Log("devtools: simulate_focus_loss %d/%d (mode %d): GTA2 paused %s (at +%ld ms), resumed %s (at +%ld ms), "
+                "frames %d -> %d (at pause %d) in 6 s, then %d in the next second; gta2 paused flag %d now: %s", k,
+                test.cycles, test.mode, sawPaused ? "yes" : "no", pausedAt, resumedAt >= 0 ? "yes" : "no", resumedAt,
+                frame0, frame1, framesAtPause, frame2 - frame1, game::FocusPausedFlag(),
+                frame2 > frame1 && !game::FocusPausedFlag() ? "PASS (the game runs)" : "FAIL (the game is stuck)");
+            Sleep(static_cast<DWORD>(test.gapS) * 1000);
+        }
+        Log("devtools: simulate_focus_loss done, %d cycle(s) (mode %d)", test.cycles, test.mode);
+        return 0;
+    }
     for (int k = 1; k <= test.cycles && !g_shuttingDown; ++k) {
         InterlockedExchange(&g_simulatingFocusLoss, 1);
         Log("devtools: simulate_focus_loss %d/%d: focus lost, window minimised (frame %d)", k, test.cycles,
@@ -1190,6 +1367,11 @@ LRESULT CALLBACK ClosingWndProc(HWND window, UINT message, WPARAM wparam, LPARAM
     if (message == WM_MOUSEWHEEL) gta2dx9::CityMapNoteWheel(GET_WHEEL_DELTA_WPARAM(wparam));   // CITYMAP-1: the map's zoom
     if (message == WM_LBUTTONDOWN || message == WM_LBUTTONUP || message == WM_RBUTTONDOWN)   // CITYMAP-1: the map's clicks
         gta2dx9::CityMapNoteButton(message == WM_RBUTTONDOWN ? 1 : 0, message != WM_LBUTTONUP);
+    if (message == WM_SETFOCUS && g_testDropSetFocusUntil &&
+        static_cast<LONG>(g_testDropSetFocusUntil - GetTickCount()) > 0) {
+        Log("devtools: WM_SETFOCUS to the game window dropped (simulate_focus_loss_mode=3: Windows sends none here)");
+        return 0;
+    }
     // FIX-STABILITY-1: what the minimise path needs, before anything else.
     if (message == WM_SIZE || message == WM_SETFOCUS || message == WM_KILLFOCUS || message == WM_ACTIVATEAPP ||
         message == WM_ACTIVATE || message == WM_CLOSE || message == WM_DESTROY) {
@@ -1223,7 +1405,8 @@ LRESULT CALLBACK ClosingWndProc(HWND window, UINT message, WPARAM wparam, LPARAM
     // FIX-STABILITY-2: a minimise asked for by the system menu, the taskbar or Win+D's SC_MINIMIZE is
     // refused outright under own_window=2 (the user never sees this window; ours is the picture).
     // WM_ACTIVATEAPP 0 is not a reason to stop: GTA2's procedure ignores it (DefWindowProc), and our
-    // presenter only leaves the topmost band on it (SetGameActive), it keeps rendering.
+    // presenter only leaves the topmost band on it (SetGameActive), it keeps rendering. What does stop the
+    // game is GTA2's own WM_KILLFOCUS pause (FIX-FOCUS-HANG, WatchGameFocusPause).
     if (message == WM_SYSCOMMAND && (wparam & 0xFFF0) == SC_MINIMIZE && KeepGameWindowRestored()) {
         LogMinimiseRefused("WM_SYSCOMMAND SC_MINIMIZE refused");
         return 0;
@@ -1237,9 +1420,9 @@ LRESULT CALLBACK ClosingWndProc(HWND window, UINT message, WPARAM wparam, LPARAM
             message == WM_CLOSE || message == WM_DESTROY || message == WM_QUIT ||
             message == WM_DISPLAYCHANGE || message == WM_ACTIVATEAPP || message == WM_SIZE ||
             message == WM_SYSCOMMAND || message == WM_STYLECHANGED || message == WM_SHOWWINDOW ||
-            message == WM_SETFOCUS || message == WM_KILLFOCUS;
+            message == WM_SETFOCUS || message == WM_KILLFOCUS || message == WM_ACTIVATE;
         const int cap = (message == WM_SIZE || message == WM_SETFOCUS || message == WM_KILLFOCUS ||
-                         message == WM_ACTIVATEAPP) ? 200 : 12;
+                         message == WM_ACTIVATEAPP || message == WM_ACTIVATE) ? 200 : 12;
         if (interesting && message < 512 && seen[message]++ < cap) {
             Log("window message %u (wparam %llx lparam %llx)", message,
                 static_cast<unsigned long long>(wparam), static_cast<unsigned long long>(lparam));
@@ -1262,6 +1445,29 @@ LRESULT CALLBACK ClosingWndProc(HWND window, UINT message, WPARAM wparam, LPARAM
             if (HANDLE thread = CreateThread(nullptr, 0, QuitWatchdog, nullptr, 0, nullptr))
                 CloseHandle(thread);
         }
+    }
+    // FIX-FOCUS-HANG: what GTA2's own handler made of an activation change, in one line each: whether it paused
+    // (WM_KILLFOCUS sets 0x6735A5 unless its video device says otherwise) or resumed (WM_SETFOCUS clears it).
+    if (message == WM_KILLFOCUS || message == WM_SETFOCUS || message == WM_ACTIVATE || message == WM_ACTIVATEAPP) {
+        const int before = game::FocusPausedFlag();
+        const LRESULT result = CallWindowProc(g_originalWndProc, window, message, wparam, lparam);
+        static int logged = 0;
+        if (logged++ < 400) {
+            const HWND foreground = GetForegroundWindow();
+            DWORD foregroundPid = 0;
+            if (foreground) GetWindowThreadProcessId(foreground, &foregroundPid);
+            const char* name = message == WM_KILLFOCUS ? "WM_KILLFOCUS" : message == WM_SETFOCUS ? "WM_SETFOCUS"
+                               : message == WM_ACTIVATE ? "WM_ACTIVATE" : "WM_ACTIVATEAPP";
+            Log("focus: %s %llx%s to GTA2: its paused flag %d -> %d%s; foreground %p (%s), focus %p, present window %p",
+                name, static_cast<unsigned long long>(wparam), g_simulatingFocusLoss ? " (simulated)" : "", before,
+                game::FocusPausedFlag(),
+                before == game::FocusPausedFlag() ? "" : (game::FocusPausedFlag() ? " (GTA2 paused itself)" : " (GTA2 resumed)"),
+                static_cast<void*>(foreground), !foreground ? "none" : foreground == window ? "game window"
+                : foreground == g_world.PresentHwnd() ? "present window"
+                : foregroundPid == GetCurrentProcessId() ? "ours" : "another process",
+                static_cast<void*>(GetFocus()), static_cast<void*>(g_world.PresentHwnd()));
+        }
+        return result;
     }
     return CallWindowProc(g_originalWndProc, window, message, wparam, lparam);
 }
@@ -1496,10 +1702,11 @@ __declspec(dllexport) int __stdcall gbh_Init(int param) {
             FocusLossTest* test = new FocusLossTest{
                 cycles, GetPrivateProfileIntA("devtools", "simulate_focus_loss_start_s", 30, iniPath),
                 GetPrivateProfileIntA("devtools", "simulate_focus_loss_gap_s", 8, iniPath),
-                GetPrivateProfileIntA("devtools", "simulate_focus_loss_restore", 1, iniPath)};
-            Log("devtools: simulate_focus_loss %d cycle(s), %d s after the level is up, %d s apart, restore %d, "
-                "keep_game_window_restored %d", test->cycles, test->startS, test->gapS, test->restore,
-                KeepGameWindowRestored() ? 1 : 0);
+                GetPrivateProfileIntA("devtools", "simulate_focus_loss_restore", 1, iniPath),
+                GetPrivateProfileIntA("devtools", "simulate_focus_loss_mode", 0, iniPath)};
+            Log("devtools: simulate_focus_loss %d cycle(s), %d s after the level is up, %d s apart, restore %d, mode %d, "
+                "keep_game_window_restored %d, focus_watchdog %d", test->cycles, test->startS, test->gapS, test->restore,
+                test->mode, KeepGameWindowRestored() ? 1 : 0, g_focusWatchdog ? 1 : 0);
             if (HANDLE thread = CreateThread(nullptr, 0, FocusLossTestThread, test, 0, nullptr)) CloseHandle(thread);
         }
     }

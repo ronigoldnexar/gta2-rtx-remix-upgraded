@@ -74,6 +74,14 @@ constexpr bool kDefaultBlood = true;
 void SetBlood(bool on);
 bool Blood();
 
+// FIX-FOCUS-HANG: hand the activation and the keyboard focus back to GTA2's window from any thread (posted
+// to our present window; false without one). why: 3 = the watchdog, 4 = the devtools test.
+bool RequestGameFocus(int why);
+// FIX-FOCUS-HANG: [renderer] focus_watchdog=0 also stops the present window handing its activation over.
+void SetFocusHandoff(bool on);
+// FIX-FOCUS-HANG devtools: make our present window the foreground and the focus, as a launcher can.
+bool TestPresentTakesFocus();
+
 // Where the renderer presents. GTA2 loads a *video* device alongside the render
 // device, and that is what owns the screen; these are the ways of getting out
 // from under it. own_window in gta2dx9.ini selects one.

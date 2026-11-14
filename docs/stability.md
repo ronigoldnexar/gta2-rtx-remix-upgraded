@@ -143,6 +143,61 @@ Run `fixstab1_focus` (plain GL, third person, own_window=2, 02:00 at 10 tenths, 
 Not verifiable here: the owner box itself (real minimise, MSCTF, the Remix bridge on Windows). See "For the
 5090 box" in the work orders.
 
+## The focus-loss pause that never ended (FIX-FOCUS-HANG, 5090 release blocker, 14 Nov)
+
+**Symptom (5090, native Windows).** After our picture window got the focus (a script focusing it, then a click),
+or after any alt-tab, popup or toast, the picture froze for good (GPU 0 %, audio on). Stack of the game thread:
+`win32u < USER32 < gta2.exe+0xD150B < +0xD8681 < +0xD8511` (WinMain). It resumed only when GTA2's own small
+window, normally hidden, was focused. On 13 Nov a 113 ms `WM_ACTIVATEAPP 0 -> 1` blip left it hung for 18.5 h.
+FIX-STABILITY-2's log line "the game keeps running behind the window that took the focus" was wrong.
+
+**Root cause (disassembly of gta2.exe).** The window procedure is at `0x4D0A00`; messages 2..8 go through the jump
+table at `0x4D0E10`:
+
+- `WM_KILLFOCUS` -> `0x4D0B2B`: input off (`0x4D09D0(0)`), then, if the video device's record has bit 0 clear
+  (`0x4CB6F0`, our `Vid_FindDevice` record has flags 0 like the original), `Vid_CloseScreen`, **`mov byte
+  [0x6735A5], 1`** (`0x4D0BA7`) and `ShowWindow(game, SW_SHOWMINNOACTIVE)`.
+- `WM_SETFOCUS` -> `0x4D0A39`: input on, `0x4CC5C0` (sets the video mode again), **`mov byte [0x6735A5], 0`**
+  (`0x4D0B0B`). The only other place that clears it is the top of a WinMain pass (`0x4CC6C1`).
+- `WM_ACTIVATE` (`0x4D0BB9`) only acquires or releases input; `WM_ACTIVATEAPP` is not handled (DefWindowProc).
+- WinMain's inner loop `0x4D14FB..0x4D1546`: `PeekMessageA(PM_REMOVE)` (returns to `0x4D150B` = gta2.exe+0xD150B),
+  Translate, Dispatch, and back to `0x4D14FB` while `bl != 0` **or `[0x673F50] == 2`** (minimised, the case
+  FIX-STABILITY-2 fixed) **or `[0x6735A5] != 0`**. No frame runs until then.
+
+So the game waits for `WM_SETFOCUS` on its own window, not for the activation. Under `own_window=2` the picture is
+our window; when it (via `SetForegroundWindow`, which ignores `WS_EX_NOACTIVATE`), nothing, or another program
+ended up with the focus, nothing ever focused the game window again. Our own `active_` flag followed
+`WM_ACTIVATEAPP 1`, so after a blip a click on the picture was refused too (`WM_MOUSEACTIVATE` only helped while
+`active_` was false). On Wine the bug never showed: Wine hands the focus back to a window restored with
+`SW_SHOWNOACTIVATE` (our un-minimise), so GTA2 got a `WM_SETFOCUS` within ~20 ms every time.
+
+**Fix (message flow only, gta2.exe untouched; `[renderer] focus_watchdog=1`, default).**
+
+- Policy: switching to another program pauses the game, as GTA2 always did (DirectInput is lost anyway); the moment
+  the foreground is ours again it resumes.
+- The present window never keeps the activation or the focus: on `WM_ACTIVATE` / `WM_SETFOCUS` it posts itself a
+  message that runs `GiveGameForeground` (foreground plus `SetFocus` on the game window), so GTA2 runs its own
+  `WM_ACTIVATE` + `WM_SETFOCUS` resume path (input re-acquired, video mode re-set).
+- A click on the picture brings the game back while GTA2's flag is set, whatever our `active_` says.
+- Watchdog on the stall sampler thread (4 Hz): flag set for 500 ms and the foreground is the game window or our
+  picture window -> ask for the game focus (posted, runs inside GTA2's loop); still set a second later with the game
+  window the foreground -> post the missed `WM_SETFOCUS`. Back-off up to 5 s. It never acts while the foreground is
+  another program's or another window of ours (a dialog).
+- Diagnostics: `focus: <msg> to GTA2: its paused flag a -> b` for every activation message; `focus: GTA2 paused
+  itself` / `resumed after N ms`; stall stacks for the first 3 samples of every stall (session cap 600) with
+  `[GTA2 paused for focus loss: ...]`; the misleading line now says GTA2 stays paused until it gets the focus back.
+
+**Proof on Wine** (`[devtools] simulate_focus_loss_mode=3`: `WM_KILLFOCUS` with every `WM_SETFOCUS` dropped for
+600 ms, which is what Windows does; private stage, own_window=2, 2 cycles):
+
+| run | focus_watchdog | result |
+|---|---|---|
+| focus_m3_off | 0 | flag 1, frames 492 -> 492 for good; stall stack `user32 < gta2.exe+0xD150B < +0xD8681 < +0xD8511` = the 5090's; FAIL both cycles |
+| focus_m3_on | 1 | watchdog asks at 501 ms, posts WM_SETFOCUS at 1001 ms, GTA2 resumed after 1252 / 1247 ms; frames 496 -> 642, then 30 fps; PASS both |
+
+Mode 1 (our picture window made the foreground for real) hands the focus back in ~35 ms; Wine also recovers
+without the fix there (see above). Native Windows verification: `gamerun/focus_verify.ps1`.
+
 ## The no-input AV at +0x140380: a car-paint worker reading freed memory (FIX-STABILITY-2)
 
 The owner's night round died 80 s after launch, at clock 23:00, with no input, on a plain C0000005 at

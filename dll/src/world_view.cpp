@@ -531,14 +531,73 @@ void GiveGameForeground(HWND gameWindow);
 // and SetGameActive keep it), so a click on our window while it shows the paused frame brings the game
 // back instead of being refused.
 bool g_presentGameAway = false;
+HWND g_presentWindow = nullptr;   // FIX-FOCUS-HANG: our top-level present window (own_window=2), for RequestGameFocus
+bool g_focusHandoff = true;       // FIX-FOCUS-HANG: [renderer] focus_watchdog (0 turns the hand-over off too, for an A/B)
+
+// FIX-FOCUS-HANG (5090 release blocker): GTA2 pauses itself on WM_KILLFOCUS (game::kFocusPausedFlag) and runs
+// again only on WM_SETFOCUS to its own window. Our present window is WS_EX_NOACTIVATE, but SetForegroundWindow
+// (a launcher, a test harness, the shell after a toast or a popup closes) activates it anyway, and then the game
+// window never gets the focus back: the permanent freeze. So the present window never keeps the activation or
+// the focus: either one is handed straight back to the game window (on the next message, not inside the
+// activation itself), which runs GTA2's own WM_ACTIVATE + WM_SETFOCUS resume path.
+constexpr UINT kMsgGiveGameFocus = WM_APP + 0x2F1;   // wparam: why (FocusWhy)
+const char* FocusWhyName(WPARAM why) {
+    switch (why) {
+        case 1: return "the present window was activated";
+        case 2: return "the present window got the keyboard focus";
+        case 3: return "watchdog: GTA2 paused while the foreground is ours";
+        case 4: return "devtools test";
+        default: return "asked";
+    }
+}
 
 LRESULT CALLBACK PresentWndProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
     if (message == WM_MOUSEACTIVATE) {
-        if (g_presentGameAway && g_presentGameWindow) {
-            Log("focus: click on the present window while the game is away: giving the game the foreground");
+        // FIX-FOCUS-HANG: GTA2's own pause flag counts as away too: after a WM_ACTIVATEAPP 0 -> 1 blip (a toast)
+        // our own active_ said "back" while GTA2 still waited for WM_SETFOCUS, and every click was refused.
+        if ((g_presentGameAway || game::FocusPausedFlag()) && g_presentGameWindow) {
+            Log("focus: click on the present window while the game is away (gta2 paused flag %d): giving the game "
+                "the foreground", game::FocusPausedFlag());
             GiveGameForeground(g_presentGameWindow);
         }
         return MA_NOACTIVATE;
+    }
+    if (g_focusHandoff && g_presentGameWindow && window != g_presentGameWindow &&
+        ((message == WM_ACTIVATE && LOWORD(wparam) != WA_INACTIVE) || message == WM_SETFOCUS)) {
+        static int logged = 0;
+        if (logged++ < 200) {
+            Log("focus: %s (%s %p, gta2 paused flag %d): handing it to the game window", message == WM_ACTIVATE ?
+                "present window activated" : "present window got the keyboard focus", message == WM_ACTIVATE ?
+                "previously active" : "focus came from", reinterpret_cast<void*>(message == WM_ACTIVATE ? lparam :
+                static_cast<LPARAM>(wparam)), game::FocusPausedFlag());
+        }
+        PostMessageA(window, kMsgGiveGameFocus, message == WM_ACTIVATE ? 1 : 2, 0);
+        return message == WM_ACTIVATE ? DefWindowProcA(window, message, wparam, lparam) : 0;
+    }
+    if (message == WM_APP + 0x2F2) {   // kMsgTestTakeFocus (devtools)
+        const HWND before = GetForegroundWindow();
+        SetForegroundWindow(window);
+        SetFocus(window);
+        Log("devtools: present window takes the focus: foreground %p -> %p, focus %p (present %p, game %p), gta2 "
+            "paused flag %d", static_cast<void*>(before), static_cast<void*>(GetForegroundWindow()),
+            static_cast<void*>(GetFocus()), static_cast<void*>(window), static_cast<void*>(g_presentGameWindow),
+            game::FocusPausedFlag());
+        return 0;
+    }
+    if (message == kMsgGiveGameFocus) {
+        if (g_presentGameWindow) {
+            const HWND foreground = GetForegroundWindow();
+            const HWND focus = GetFocus();
+            GiveGameForeground(g_presentGameWindow);
+            static int logged = 0;
+            if (logged++ < 200) {
+                Log("focus: game focus asked for (%s): foreground %p -> %p, focus %p -> %p (game window %p), gta2 "
+                    "paused flag %d", FocusWhyName(wparam), static_cast<void*>(foreground),
+                    static_cast<void*>(GetForegroundWindow()), static_cast<void*>(focus), static_cast<void*>(GetFocus()),
+                    static_cast<void*>(g_presentGameWindow), game::FocusPausedFlag());
+            }
+        }
+        return 0;
     }
     if (message == WM_MOUSEWHEEL) CityMapNoteWheel(GET_WHEEL_DELTA_WPARAM(wparam));   // CITYMAP-1
     if (message == WM_LBUTTONDOWN || message == WM_LBUTTONUP || message == WM_RBUTTONDOWN)   // CITYMAP-1: the map's clicks
@@ -562,7 +621,13 @@ LRESULT CALLBACK PresentWndProc(HWND window, UINT message, WPARAM wparam, LPARAM
 void GiveGameForeground(HWND gameWindow) {
     if (!gameWindow) return;
     HWND foreground = GetForegroundWindow();
-    if (foreground == gameWindow) return;
+    if (foreground == gameWindow) {
+        // FIX-FOCUS-HANG: the foreground alone is not enough: GTA2 resumes on WM_SETFOCUS, so the keyboard
+        // focus must be on its window too (GetFocus answers for this thread's queue, the game window's).
+        if (GetFocus() != gameWindow && GetWindowThreadProcessId(gameWindow, nullptr) == GetCurrentThreadId())
+            SetFocus(gameWindow);
+        return;
+    }
     const DWORD me = GetCurrentThreadId();
     const DWORD other = foreground ? GetWindowThreadProcessId(foreground, nullptr) : 0;
     const bool attached = other && other != me && AttachThreadInput(me, other, TRUE);
@@ -649,6 +714,7 @@ HWND CreatePresentWindow(HWND gameWindow, int width, int height, PresentWindow m
                                   nullptr, nullptr, instance, nullptr);
     if (previous) setThreadContext(previous);
     if (!window) return nullptr;
+    g_presentWindow = window;   // FIX-FOCUS-HANG
     ShowWindow(window, SW_SHOWNOACTIVATE);
     SetWindowPos(window, HWND_TOPMOST, 0, 0, 0, 0,
                  SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
@@ -656,6 +722,23 @@ HWND CreatePresentWindow(HWND gameWindow, int width, int height, PresentWindow m
 }
 
 }  // namespace
+
+// FIX-FOCUS-HANG: from any thread (the stall sampler's watchdog, the devtools test). Posted to our present
+// window, so the hand-over runs on the game thread, inside GTA2's own message loop when the game is paused there
+// (it dispatches every message of the thread). False when there is no present window of our own.
+void SetFocusHandoff(bool on) { g_focusHandoff = on; }
+
+bool RequestGameFocus(int why) {
+    return g_presentWindow && g_presentGameWindow &&
+           PostMessageA(g_presentWindow, kMsgGiveGameFocus, static_cast<WPARAM>(why), 0) != 0;
+}
+
+// FIX-FOCUS-HANG devtools: what a launcher or rc_fclick.ps1 does: our present window made the foreground and
+// given the keyboard focus (both ignore WS_EX_NOACTIVATE). Runs on the present window's thread.
+constexpr UINT kMsgTestTakeFocus = WM_APP + 0x2F2;
+bool TestPresentTakesFocus() {
+    return g_presentWindow && PostMessageA(g_presentWindow, kMsgTestTakeFocus, 0, 0) != 0;
+}
 
 bool g_blood = kDefaultBlood;
 bool g_bloodForced = false;     // whether we are the ones holding the flag up
