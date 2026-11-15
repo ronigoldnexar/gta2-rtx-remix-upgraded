@@ -42,6 +42,7 @@ STY = os.path.expanduser('~/gta2-linux/game/data/wil.sty')
 # car_bodies.cpp LiveryModel: painted in a fixed livery, never tinted
 LIVERY = {4, 11, 12, 17, 22, 23, 24, 25, 26, 27, 34, 51, 52, 54, 56, 59, 60, 61, 67, 84, 85, 86}
 # wheels left in the shell (tracks, bogies, trailer axles: nothing to spin or steer)
+COV_DIR = os.environ.get('HY_COV_DIR', '/mnt/gta2/out/cars_v3/cov')   # hy_coverage.py masks
 STATIC_WHEELS = {6, 54, 55, 59, 60, 61, 65, 66}
 # Budget (the 32-bit game; the fleet before CARS-V3 averaged 0.9 MB of mesh and 2.6 MB of textures a car): a remapped
 # car's shell is drawn twice (paint and rest, the same geometry) and its paint picture stays in system memory (soft
@@ -544,10 +545,14 @@ def build(m, spec, src, log):
     hw = float(np.abs(V[:, 0]).max()); height = float(V[:, 1].max()); L = float(V[:, 2].max() - V[:, 2].min())
 
     # texture edits (recolours) before anything samples the picture
+    if spec.get('fill_unseen', True):
+        fill_unseen(img, V, F, UV, os.path.join(COV_DIR, f'{m:03d}_cov.png'), log)
     if spec.get('delight', True):
         delight(img, log, V, F, UV)
     if spec.get('smooth_chrome', True):
         smooth_chrome(V, F, UV, img, log)
+    if spec.get('smooth_body', True) and not livery:
+        smooth_body(V, F, UV, img, paint_rgb, log, iters=int(spec.get('smooth_body_iters', 10)))
     img0 = img
     for rc in spec.get('recolour', []):
         img = recolour(img, rc)
@@ -673,17 +678,31 @@ def build(m, spec, src, log):
     keepF = F[~kill]
     CN = smooth_normals(V, keepF)
     Vx, Fx, UVx, Nx = expand(V, keepF, UV, CN)
-    # trimesh hands glTF texture coordinates back flipped (v up); carkit writes them as glTF has them (v down)
-    kc.part('shell').add(Vx, Nx, np.stack([UVx[:, 0], 1.0 - UVx[:, 1]], 1), Fx)
     tsz = spec.get('texture', TEX_LIVERY if livery else TEX_SPLIT)
     kc.paint_force = None
     if not livery and spec.get('flank_paint', True):
         kc.paint_force = flank_paint_mask(V, keepF, UV, img, tsz, e, sty, spr, sw, sh, kx, kz, log)
     kc.materials['shell'] = Image.fromarray((img * 255).astype(np.uint8)).resize((tsz, tsz), Image.LANCZOS)
+    # trimesh hands glTF texture coordinates back flipped (v up); carkit writes them as glTF has them (v down)
+    if livery or not spec.get('paint_faces', True):
+        kc.part('shell').add(Vx, Nx, np.stack([UVx[:, 0], 1.0 - UVx[:, 1]], 1), Fx)
+    else:
+        # the shell in two parts by the paint (approved 14 Nov): the painted faces keep the split pair (the paint
+        # tint, soft-masked in the plain renderer), the rest (chrome, glass, lamps, tyres, trim) is a part of its own
+        # with its own picture, so it never takes the remap. Under Remix a pair is one merged material and the paint
+        # draw's tint coloured the whole atlas (000/001/008 bumpers in the game paint).
+        pf = paint_faces(V, keepF, UV, img, paint_rgb, kc.paint_force, log)
+        fx3 = Fx.reshape(-1, 3)
+        for part, sel in (('shell', pf), ('shellr', ~pf)):
+            if not sel.any(): continue
+            ff = fx3[sel]; used = np.unique(ff); remap = np.full(len(Vx), -1); remap[used] = np.arange(len(used))
+            kc.part(part).add(Vx[used], Nx[used], np.stack([UVx[used, 0], 1.0 - UVx[used, 1]], 1), remap[ff])
+        kc.materials['shellr'] = kc.materials['shell']
     if mr is not None:
         kc.mr = mr.resize((tsz, tsz), Image.LANCZOS)
     if spec.get('decals'):
         kc.materials['shell'] = apply_decals(kc.materials['shell'], V, keepF, UV, spec['decals'], log)
+        if 'shellr' in kc.materials: kc.materials['shellr'] = kc.materials['shell']
 
     # wheels (after the shell: their parts are their own)
     for wh in wheels:
@@ -692,6 +711,36 @@ def build(m, spec, src, log):
     set_materials(kc, wheels, paint_rgb, livery)
     return kc, dict(model=m, name=name, faces=int(len(keepF)), wheels=[{k: v for k, v in w.items()} for w in wheels],
                     lamps={k: [list(map(float, l)) for l in v] for k, v in lamps.items()}, livery=livery, mr=mr is not None)
+
+
+def paint_faces(V, F, UV, img, paint_rgb, force, log):
+    """which shell faces are paint: the paint half's own rule (car_paint_resplit: the paint's hue within 42 deg,
+    saturation 0.12 and up; for a grey or white paint, the light neutral texels that are not the bumpers' chrome),
+    with the flank texels forced into the paint, sampled over each face (its middle and its corners pulled a fifth
+    in) and taken when at least half of it is paint. -> (len(F),) bool"""
+    from scipy import ndimage
+    W_ = img.shape[1]
+    pr = np.array(paint_rgb, float) / 255
+    hue = lambda q: np.degrees(np.arctan2(math.sqrt(3) * (q[..., 1] - q[..., 2]), 2 * q[..., 0] - q[..., 1] - q[..., 2]))
+    S = sat(img); L = lum(img)
+    if (pr.max() - pr.min()) / max(pr.max(), 1e-3) >= 0.15:
+        dh = np.abs((hue(img) - hue(pr) + 180) % 360 - 180)
+        m = (dh < 42) & (S >= 0.12) & (img.max(-1) > 45 / 255)
+    else:
+        m = (S < 0.20) & (L > 0.43)
+        cm = chrome_texels(V, F, UV, img)
+        if cm is not None: m &= ~cm
+    m = m.astype(np.float32)
+    if force is not None:
+        fz = np.asarray(Image.fromarray((force * 255).astype(np.uint8)).resize((W_, img.shape[0]), Image.NEAREST)) > 127
+        m = np.maximum(m, fz.astype(np.float32))
+    m = ndimage.gaussian_filter(m, 1.0 * W_ / 1024)
+    uvf = UV[F]; cen = uvf.mean(1)
+    pts = [cen] + [uvf[:, k] * 0.8 + cen * 0.2 for k in range(3)]
+    frac = np.mean([tex_at(m[..., None], q)[..., 0] for q in pts], 0)
+    pf = frac >= 0.5
+    log(f'  paint faces: {int(pf.sum())} of {len(F)} shell faces carry the paint; the rest is a part of its own')
+    return pf
 
 
 def decal_image(d, px_per_block=1600):
@@ -821,6 +870,41 @@ def chrome_texels(V, F, UV, img, vmed=None):
     return ndimage.binary_dilation(m, iterations=max(1, int(round(2 * W_ / 1024))))
 
 
+def fill_unseen(img, V, F, UV, cov_png, log):
+    """texels no paint view saw (Hunyuan3D's paint stage baked 6 views and inpainted the rest flat: the white or grey
+    plaster on wings, grilles and sills, 001/012/004): each takes the colour of the nearest seen texel on the surface
+    (model space, a facing normal preferred, so a fill does not borrow from the other side of a panel), then a light
+    blur across the fill's edge. Worked at 1024. cov_png: the bake coverage (tools/hy_car/hy_coverage.py), the
+    texture's own layout. In place."""
+    from scipy import ndimage
+    from scipy.spatial import cKDTree
+    import texmap
+    H_, W_ = img.shape[:2]
+    if H_ != W_ or not os.path.exists(cov_png): return
+    n = min(1024, W_); k = W_ // n
+    cov = np.asarray(Image.open(cov_png).convert('L').resize((n, n), Image.BILINEAR)) > 127
+    small = np.asarray(Image.fromarray((img * 255).astype(np.uint8)).resize((n, n), Image.LANCZOS)).astype(np.float64) / 255
+    pos, nrm, valid = texmap.texel_maps(V, F, UV, n)
+    seen = valid & cov; unseen = valid & ~cov
+    if unseen.sum() == 0 or seen.sum() < 100: return
+    sy, sx = np.nonzero(seen); uy, ux = np.nonzero(unseen)
+    tree = cKDTree(pos[sy, sx])
+    d, idx = tree.query(pos[uy, ux], k=8)
+    nd = np.einsum('ijk,ik->ij', nrm[sy[idx], sx[idx]], nrm[uy, ux])
+    ok = nd > 0.5
+    pick = np.where(ok.any(1), np.argmax(ok, 1), 0)
+    j = idx[np.arange(len(uy)), pick]
+    fill = small.copy(); fill[uy, ux] = small[sy[j], sx[j]]
+    # soften the patchwork of borrowed texels inside the fill, keep the seen texels as they are
+    bl = np.stack([ndimage.gaussian_filter(fill[..., c], 1.5) for c in range(3)], -1)
+    fill[unseen] = bl[unseen]
+    um = ndimage.binary_dilation(unseen, iterations=1)
+    up = np.asarray(Image.fromarray((np.clip(fill, 0, 1) * 255).astype(np.uint8)).resize((W_, H_), Image.BILINEAR)).astype(np.float64) / 255
+    umk = np.asarray(Image.fromarray(um.astype(np.uint8) * 255).resize((W_, H_), Image.NEAREST)) > 127
+    img[umk] = up[umk]
+    log(f'  unseen texels: {100.0 * unseen.sum() / max(valid.sum(), 1):.1f} % of the surface took the nearest seen colour')
+
+
 def delight(img, log, V=None, F=None, UV=None, ratio=(1.3, 1.5), sat_max=0.15, base=15):
     """the generator bakes specular highlights and reflections into the albedo; Remix lights them again and they
     read as snow or plaster over the bonnet and wings (001, 000, 008), and the paint split leaves them out of the
@@ -893,7 +977,49 @@ def delight(img, log, V=None, F=None, UV=None, ratio=(1.3, 1.5), sat_max=0.15, b
     log(f'  delight: {int((w > 0.5).sum())} highlight texels ({100.0 * (w > 0.5).mean():.1f} %) took the local median')
 
 
-def smooth_chrome(V, F, UV, img, log, iters=24, lam=0.5, mu=-0.53):
+def smooth_body(V, F, UV, img, paint_rgb, log, iters=10, lam=0.5, mu=-0.53, crease_deg=28.0):
+    """the generator's body panels come out crumpled (low-frequency wrinkles that read at close range, 000's flanks):
+    Taubin smoothing (volume-keeping) of the painted body's vertices, welded across UV seams, holding still every
+    vertex on a crease (two faces meeting at more than 28 deg: panel edges, wheel arches, the belt line) and on an
+    open boundary, so the shape and its silhouette stay. The paint by its hue (as paint_faces, without the flanks)."""
+    pid = weld_key(V); n = pid.max() + 1
+    P = np.zeros((n, 3)); np.add.at(P, pid, V); cnt = np.bincount(pid, minlength=n)[:, None]; P /= np.maximum(cnt, 1)
+    Fw = pid[F]
+    pr = np.array(paint_rgb, float) / 255
+    c = tex_at(img, UV[F].mean(1))
+    hue = lambda q: np.degrees(np.arctan2(math.sqrt(3) * (q[..., 1] - q[..., 2]), 2 * q[..., 0] - q[..., 1] - q[..., 2]))
+    if (pr.max() - pr.min()) / max(pr.max(), 1e-3) >= 0.15:
+        body = (np.abs((hue(c) - hue(pr) + 180) % 360 - 180) < 42) & (sat(c) >= 0.12)
+    else:
+        body = (sat(c) < 0.20) & (lum(c) > 0.43)
+    # creases: the dihedral angle over each welded edge
+    fn = np.cross(P[Fw[:, 1]] - P[Fw[:, 0]], P[Fw[:, 2]] - P[Fw[:, 0]]); fn /= np.maximum(np.linalg.norm(fn, axis=1, keepdims=True), 1e-12)
+    ed = np.concatenate([Fw[:, [0, 1]], Fw[:, [1, 2]], Fw[:, [2, 0]]]); fi = np.tile(np.arange(len(F)), 3)
+    key = np.sort(ed, 1); order = np.lexsort((key[:, 1], key[:, 0])); ks = key[order]; fs = fi[order]
+    same = np.all(ks[1:] == ks[:-1], 1)
+    fixed = np.zeros(n, bool)
+    a, b = fs[:-1][same], fs[1:][same]
+    crease = np.einsum('ij,ij->i', fn[a], fn[b]) < math.cos(math.radians(crease_deg))
+    fixed[ks[:-1][same][crease].ravel()] = True
+    # open boundary edges (used once)
+    cntk = np.ones(len(ks), int); u, inv, cc = np.unique(ks, axis=0, return_inverse=True, return_counts=True)
+    fixed[u[cc == 1].ravel()] = True
+    sel = np.zeros(n, bool); sel[Fw[body].ravel()] = True
+    # a vertex is smoothed only when every face round it is body paint (panel interiors)
+    notbody = np.zeros(n, bool); notbody[Fw[~body].ravel()] = True
+    sel &= ~notbody & ~fixed
+    E = np.concatenate([ed, ed[:, ::-1]])
+    deg = np.bincount(E[:, 0], minlength=n)[:, None]
+    for it in range(iters):
+        for f in (lam, mu):
+            nb = np.zeros((n, 3)); np.add.at(nb, E[:, 0], P[E[:, 1]])
+            Lp = nb / np.maximum(deg, 1) - P
+            P[sel] += f * Lp[sel]
+    V[:] = P[pid]
+    log(f'  body: {int(sel.sum())} panel vertices smoothed ({iters} Taubin passes), {int(fixed.sum())} crease/boundary vertices held')
+
+
+def smooth_chrome(V, F, UV, img, log, iters=24, lam=0.5, mu=-0.53, texture=False):
     """the generator's bumpers and grilles come out lumpy ("melted" chrome) and their texture is speckled with
     near-white blobs: Taubin smoothing (volume-keeping) on the bright-metal vertices at the car's ends below the belt,
     welded across the UV seams, and a median clean-up of the chrome texels' luminance outliers"""
@@ -916,6 +1042,9 @@ def smooth_chrome(V, F, UV, img, log, iters=24, lam=0.5, mu=-0.53):
             L = nb / np.maximum(deg, 1) - P
             P[sel] += f * L[sel]
     V[:] = P[pid]
+    if not texture:
+        log(f'  chrome: {int(sel.sum())} vertices smoothed (picture left as generated)')
+        return
     # texture: chrome texels whose luminance stands out of their neighbourhood's median take the median
     L = lum(img); S = sat(img)
     m = (L > 0.45) & (S < 0.14)
@@ -1213,6 +1342,36 @@ def write_glb(car_, path, order):
     out = b'glTF' + struct.pack('<II', 2, 12 + 8 + len(j) + len(rest)) + struct.pack('<I', len(j)) + b'JSON' + j + rest
     open(path, 'wb').write(out)
     return mats
+
+
+def neutral_to_rest(models_dir, name, paint_rgb, src_dir, log):
+    """bright grey texels (chrome, a white-wall's rubber, grey trim) out of the paint half: the importer's split put
+    most of them there, and under Remix (the alpha-tested pair, no soft mask) a repainted car's bumpers took the paint
+    (000, 001, 008 in game paint). The plain renderer's soft mask keeps reading the paint picture's colour (coverage
+    0 there: untinted). Not for a car whose own paint is grey or white."""
+    from car_paint_resplit import write_tga as wt
+    pr = np.array(paint_rgb, float) / 255
+    if (pr.max() - pr.min()) / max(pr.max(), 1e-3) < 0.15: return
+    pp = os.path.join(models_dir, name + '_0_paint.tga'); rp = os.path.join(models_dir, name + '_0.tga')
+    if not (os.path.exists(pp) and os.path.exists(rp)): return
+    P = np.asarray(Image.open(pp).convert('RGBA')).astype(np.float32); R = np.asarray(Image.open(rp).convert('RGBA')).astype(np.float32)
+    if P.shape != R.shape: return
+    # the colour as converted (the paint half is stored neutralised), the flank texels forced into the paint kept
+    sp = os.path.join(src_dir, 'shell.png')
+    if not os.path.exists(sp): return
+    c = np.asarray(Image.open(sp).convert('RGB').resize((P.shape[1], P.shape[0]), Image.BILINEAR)).astype(np.float32) / 255
+    L = c.mean(-1); S = (c.max(-1) - c.min(-1)) / np.maximum(c.max(-1), 1e-3)
+    m = (P[..., 3] >= 128) & (L > 0.42) & (S < 0.10)
+    fp = os.path.join(src_dir, 'paint_force.png')
+    if os.path.exists(fp):
+        m &= ~(np.asarray(Image.open(fp).resize((P.shape[1], P.shape[0]), Image.NEAREST)) > 127)
+    if not m.any(): return
+    for k in range(3): P[..., k] = np.where(m, c[..., k] * 255, P[..., k])   # the plain soft path reads this colour
+    if not m.any(): return
+    for k in range(3): R[..., k] = np.where(m, c[..., k] * 255, R[..., k])
+    R[..., 3] = np.where(m, 255, R[..., 3]); P[..., 3] = np.where(m, 0, P[..., 3])
+    wt(P, pp); wt(R, rp)
+    log(f'  neutral to rest: {int(m.sum())} bright grey texels out of {name}_0_paint.tga')
 
 
 def apply_paint_force(models_dir, name, mask_png, log, level=None):

@@ -150,6 +150,9 @@ const Model* ModelRegisterDerived(Model&& model, bool dynamicBuffers = false);
 bool ModelPrepareBuffers(IDirect3DDevice9* device, const Model& model, int budget, int* made = nullptr);
 // FIX-PERF-6: releases the D3D buffers of `model`'s meshes (made again on its next draw); bytes released.
 double ModelReleaseBuffers(const Model& model);
+// CARS-V3 residency: frees a derived model's mesh data and buffers (the object stays as an empty husk at its
+// address, no longer known: ModelIsKnown is false). Returns the bytes given back.
+double ModelFreeDerived(const Model* model);
 // The world matrix of every node in the rest pose.
 void ModelRestNodeWorlds(const Model& model, std::vector<gta2::Mat4>* out);
 // The model for a car sprite number, or null; the pedestrian model, or null.

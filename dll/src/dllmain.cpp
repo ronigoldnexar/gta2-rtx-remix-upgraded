@@ -445,6 +445,8 @@ void LoadConfig() {
     gta2dx9::ModelSetSoftPaintMasks(
         GetPrivateProfileIntA("renderer", "car_paint_soft_mask", 1, ini) != 0);
     gta2dx9::SetCarCopyIdleSeconds(static_cast<int>(GetPrivateProfileIntA("renderer", "car_copy_idle_seconds", -1, ini)));   // FIX-PERF-6
+    gta2dx9::SetCarCopyBudget(static_cast<int>(GetPrivateProfileIntA("renderer", "car_copy_budget_mb", 96, ini)),   // CARS-V3 residency
+                              static_cast<int>(GetPrivateProfileIntA("renderer", "car_copy_evict_seconds", 20, ini)));
     gta2dx9::ModelSetBuffersGpuOnly(   // FIX-PERF-6
         static_cast<int>(GetPrivateProfileIntA("renderer", "model_buffers_gpu_only", -1, ini)));
     gta2dx9::ModelSetTexturesGpuOnly(   // FIX-PERF-5
