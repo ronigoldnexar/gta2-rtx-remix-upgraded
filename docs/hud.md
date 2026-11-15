@@ -656,3 +656,38 @@ Untested:
 - Armour and power-up words in play (they rely on the game's last text key being c28-c37).
 - A gun collected while another is in hand without a hand change (only the ammunition test catches it).
 - The quit card on wil/ste.
+
+## FIX-HUD-STYLE: the respect meters in the game's own sprites (owner11nov-hud-style-mismatch, 15 Nov 2026)
+
+The owner, hands-on on the RTX 5090: the hearts "look good in the 'vintage' style, but their design doesn't match the
+three bars on the left, which look too modern". FIX-HUD-9 (f9b2bdee) had turned the pill tracks into drawn square
+blocks, but the emblems were still the Barlow yen/Z and vector shapes, and every edge was anti-aliased. The meters are
+now the game's own part-5 art, read from the style like the hearts and numerals (FIX-HUD-5), and re-authored at the
+hearts' whole factor (`k = round(2u)`: 2x at 720p, 4x at 1440p, Scale2x/Scale3x, alpha 0/255, never written to disk).
+
+**What the classic view draws** (`GTA2DX9_HUD_LOG_GLYPHS=1` now logs part 5 too, each marker place once; run hst_p1,
+wil, respect poked with `test_respect`). Gang colour slot c: 0 Loonies green, 1 Yakuza violet, 2 Zaibatsu teal,
+3 Rednecks blue, 4 Scientists yellow, 5 Krishna orange, 6 Russians red (by the pool name, `RespectSlot`).
+
+| Piece | User sprite | Size | Place (game pixels of 640x480, a row every 27) |
+|---|---|---|---|
+| emblem (smiley, yen, Z, flag, shield, flower, star) | 64+c | 14..22 x 16..22 | centred on x 16, top 2 above the tube |
+| tube | 78+c | 71x16 | x 28.5 |
+| marker (lit tick) | 71+c | 3x10 | nine places at tube +14 + 5i, 2 down; i 4 (the middle) always lit |
+| minus / plus cap | 50+2c / 51+2c | 10x10 | tube +0.5 / +59.5, 2 down |
+| phone tabs green, yellow, red | 46, 47, 48 | 5x2 | tube +33, +43, +53, 14 down; unlit at half brightness |
+
+**The game's rule**, read off its frames at respect 0, ±10, ±40, ±60, ±80, ±100: level = respect / 20 truncated toward
+zero (so -10 reads as 0); |level| markers (at most 4) lit from the middle toward its sign; the plus cap at a level of 0
+or more, the minus cap below; the tabs lit at levels 0, 2 and 4 (the phones' jobs). `DrawRespectSprites` draws exactly
+that, the emblem's left edge on the HUD's margin. A gang the slot table does not know, a style without these sprites
+(logged `respect meters none`), `game_font=0` or `[hud] respect_sprites=0` keeps the drawn FIX-HUD-9 blocks.
+
+Verified (frames opened; L4, plain GL, private stage = 1f95ef87 stage + this build):
+- 1280x720, wil night (hst_n1): classic, third and first person at respect (Y,Z,L) 0/0/0, 100/-100/50, 60/-40/20,
+  100/0/-100: same markers, caps and tabs as the classic frame of the same values; the side-by-side (old blocks, new
+  meters, classic, hearts) is `defects/evidence/hud-style/hud_style_side_by_side_720p.png`.
+- 2560x1440, wil noon (hst_q1): 4x, crisp whole pixels.
+- Classic: vreg `spawn_classic` (see the defect's READY line).
+Untested: Industrial and Residential gangs (Krishna, Russians, Rednecks, Scientists: same sprite numbers by slot, the
+sizes checked offline in all three styles), Remix.

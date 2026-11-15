@@ -132,12 +132,29 @@ void HudGameFontCapture(const gta2::Style& style) {
         for (int c = 0; c < 128; ++c) set(GameGlyphSet::Lcd)[c] = GameGlyph();
         lcd = 0;
     }
+    // FIX-HUD-STYLE (owner11nov-hud-style-mismatch): the respect meters' own sprites (part 5, measured with
+    // GTA2DX9_HUD_LOG_GLYPHS in the wil classic view, out/hst_p1). Optional: the HUD keeps its own drawn meters
+    // if any is missing or not GTA2 9.6's size.
+    int meter = 0;
+    GameGlyph* r = set(GameGlyphSet::Respect);
+    for (int c = 0; c < 7; ++c) {
+        meter += Whole(style, 64 + c, &r['a' + c]) ? 1 : 0;
+        meter += Whole(style, 78 + c, &r['A' + c]) && r['A' + c].width == 71 && r['A' + c].height == 16 ? 1 : 0;
+        meter += Whole(style, 71 + c, &r['0' + c]) && r['0' + c].width == 3 && r['0' + c].height == 10 ? 1 : 0;
+        meter += Whole(style, 50 + 2 * c, &r['h' + c]) && r['h' + c].width == 10 ? 1 : 0;
+        meter += Whole(style, 51 + 2 * c, &r['o' + c]) && r['o' + c].width == 10 ? 1 : 0;
+    }
+    for (int t = 0; t < 3; ++t) meter += Whole(style, 46 + t, &r['v' + t]) && r['v' + t].width == 5 && r['v' + t].height == 2 ? 1 : 0;
+    if (meter != 38) {
+        Log("hud3d: game glyphs: the respect meters' sprites not found (%d of 38): the meters keep the drawn style", meter);
+        for (int c = 0; c < 128; ++c) r[c] = GameGlyph();
+    }
     g_kept.push_back(s);
     g_store.store(s);
     const int gen = ++g_generation;
     Log("hud3d: game glyphs read from the style (generation %d): money $ 12x22 and 0-9 11x20, multiplier/lives x and 0-9 9x13, "
-        "hearts 15x14, font 1 %d characters (ammunition in font remap 6, labels in its own palette), clock LCD %s", gen, label,
-        lcd == 13 ? "0-9 6x12" : "none");
+        "hearts 15x14, font 1 %d characters (ammunition in font remap 6, labels in its own palette), clock LCD %s, respect meters %s", gen, label,
+        lcd == 13 ? "0-9 6x12" : "none", meter == 38 ? "user 46-84" : "none");
 }
 
 int HudGameFontGeneration() { return g_generation.load(); }
