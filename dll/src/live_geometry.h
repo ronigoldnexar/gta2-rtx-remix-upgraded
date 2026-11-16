@@ -465,6 +465,7 @@ bool FireEffectsSave();
 void SetCarDamage(float strength);
 // FIX-PERF-6: seconds a derived car copy may sit off screen before its buffers go back ([renderer] car_copy_idle_seconds).
 void SetCarCopyIdleSeconds(int seconds);
+void SetCarCopyBudget(int mb, int seconds);   // CARS-V3 residency: [renderer] car_copy_budget_mb, car_copy_evict_seconds
 
 // One lamp delta of one car sprite, set when a district's style is loaded: its
 // pixels cropped to the rectangle they cover (alpha 0 where the delta paints

@@ -1822,6 +1822,20 @@ void ModelsLoad(const char* folder) {
 
 bool ModelsAvailable() { return !g_models.empty(); }
 bool ModelIsKnown(const Model* model) { return model && g_known.count(model) != 0; }
+double ModelFreeDerived(const Model* model) {
+    if (!model || !g_known.count(model)) return 0.0;
+    double bytes = ModelReleaseBuffers(*model);
+    Model& m = const_cast<Model&>(*model);
+    for (ModelMesh& mesh : m.meshes) {
+        g_dynamicMeshes.erase(&mesh);
+        bytes += static_cast<double>(mesh.vertices.capacity() * sizeof(ModelVertex) + mesh.indices.capacity() * sizeof(uint32_t) +
+                                     mesh.weights.capacity() * sizeof(ModelSkinWeight));
+        std::vector<ModelVertex>().swap(mesh.vertices); std::vector<uint32_t>().swap(mesh.indices);
+        std::vector<ModelSkinWeight>().swap(mesh.weights);
+    }
+    g_known.erase(model);
+    return bytes;
+}
 void ModelRestNodeWorlds(const Model& model, std::vector<gta2::Mat4>* out) { NodeWorlds(model, nullptr, 0.0f, out); }
 const Model* ModelRegisterDerived(Model&& model, bool dynamicBuffers) {
     g_models.push_back(std::move(model));

@@ -2554,6 +2554,15 @@ void BuildWheelSplit(const Model& model, const gta2::Mat4& fit, float zF, float 
     // (so its edge can never open a hole), drawn spinning in the hull's own frame a hair outboard.
     const bool shell = wheels.empty() && shellMode == 1;
     *shellOut = shell;
+    // CARS-V3: a converted generator shell (tools/hy_car/hy_convert.py) carries its own wheels as parts (textures
+    // "_hubface_*", "_hubback", "_tyre_*", "_paint_wheel*") beside a hull that keeps its fender lips and arch liners
+    // inside the marker's disc: only the wheel parts may go to a wheel, every other triangle stays on the hull.
+    bool partsOnly = false;
+    for (const ModelMesh& mesh : model.meshes) partsOnly = partsOnly || mesh.texture.find("_hubface_") != std::string::npos;
+    auto wheelPart = [](const std::string& t) {
+        return t.find("_hubface_") != std::string::npos || t.find("_hubback") != std::string::npos ||
+               t.find("_tyre_") != std::string::npos || t.find("_paint_wheel") != std::string::npos;
+    };
     if (wheels.empty()) {
         // The shell: where it touches the road, near each CARI axle.
         float minY = 1e9f;
@@ -2622,10 +2631,11 @@ void BuildWheelSplit(const Model& model, const gta2::Mat4& fit, float zF, float 
         std::vector<gta2::Vec3> q(src.vertices.size());
         for (size_t i = 0; i < src.vertices.size(); ++i) q[i] = PointBy(toCar, src.vertices[i].x, src.vertices[i].y, src.vertices[i].z);
         const ShellTexels* tex = shell ? ShellTexelsFor(src.texture) : nullptr;
+        const bool canTurn = !partsOnly || wheelPart(src.texture);
         for (size_t t = 0; t + 2 < src.indices.size(); t += 3) {
             int owner = -1;
             bool ringFace = false;
-            for (size_t w = 0; w < wheels.size() && owner < 0; ++w) {
+            for (size_t w = 0; w < wheels.size() && owner < 0 && canTurn; ++w) {
                 const Wheel& wh = wheels[w];
                 const float side = wh.c.x >= 0.0f ? 1.0f : -1.0f;
                 // VEHICLE-ART-6: a shell's wheel is its tyre and hub: the faces in the disc that are not
@@ -2765,6 +2775,7 @@ std::set<const Model*> g_wearShown;
 // of them sit idle; the copies are pinned by address in other caches, so the meshes themselves stay.
 // [renderer] car_copy_idle_seconds (-1 auto: 120 outside Wine, 0 under Wine), GTA2DX9_CAR_COPY_IDLE_S.
 std::unordered_map<const Model*, uint32_t> g_wearUsed;   // copy -> the last frame it was shown
+volatile LONG g_wearBusy = 0;   // CARS-V3 residency: the worker holds a job (it reads its source model)
 uint32_t g_wearIdleFrames = 0;   // SetCarCopyIdleSeconds
 uint32_t g_wearEvictScan = 0;
 int g_wearEvicted = 0, g_wearReshown = 0;
@@ -2820,6 +2831,70 @@ void WearEvictIdle(uint32_t frame) {
     }
 }
 
+size_t ModelBytes(const Model& m);
+// CARS-V3 residency (memory ceiling, 14 Nov): the derived car copies (dent steps, door splits, wheel splits) grew
+// without end in a long drive with every model in traffic (the shipped fleet reached VmSize 3864 MB of the 3900
+// ceiling in 15 min; the converted fleet hit it at 9 min and the street views shut down). Over a budget
+// ([renderer] car_copy_budget_mb, GTA2DX9_CAR_COPY_BUDGET_MB, default 96), the copies not shown for
+// car_copy_evict_seconds (default 20) are freed whole, oldest first, down to 80 % of the budget: mesh data,
+// buffers and cache entry. A car that wants one again asks the worker as the first time (drawn meanwhile as
+// before: whole wheels, shut door, previous dent step), so nothing waits on the render thread. Only while the
+// worker is idle (it reads its job's source model) and at most every 5 s.
+size_t g_copyBudget = 96u << 20; uint32_t g_copyEvictFrames = 600; uint32_t g_copyEvictScan = 0;
+int g_copyEvictedEntries = 0; double g_copyEvictedMB = 0.0;
+void CarCopyBudgetImpl(int mb, int seconds) {
+    char env[16] = {};
+    if (GetEnvironmentVariableA("GTA2DX9_CAR_COPY_BUDGET_MB", env, sizeof env)) mb = atoi(env);
+    if (mb >= 0) g_copyBudget = static_cast<size_t>(mb) << 20;
+    if (seconds > 0) g_copyEvictFrames = static_cast<uint32_t>(seconds) * 30u;
+    Log("car bodies: car copy budget %d MB, copies off screen %u s go first", mb, g_copyEvictFrames / 30u);
+}
+void WearEvictBudget(uint32_t frame) {
+    if (!g_copyBudget || g_wearBytes <= g_copyBudget || frame - g_copyEvictScan < 150u) return;
+    g_copyEvictScan = frame;
+    if (g_wearStarted) {
+        EnterCriticalSection(&g_wearLock);
+        const bool quiet = g_wearUrgent.empty() && g_wearIdle.empty() && g_wearDone.empty() && !g_wearBusy;
+        LeaveCriticalSection(&g_wearLock);
+        if (!quiet) return;
+    }
+    auto lastOf = [&](const Model* m) -> uint32_t { if (!m) return 0u; auto u = g_wearUsed.find(m); return u == g_wearUsed.end() ? 0u : u->second; };
+    struct Cand { uint32_t last; int kind; size_t idx; };
+    std::vector<Cand> c;
+    std::vector<std::map<DentKey, const Model*>::iterator> di;
+    std::vector<std::map<DoorKey, DoorSplit>::iterator> oi;
+    std::vector<std::map<WheelKey, WheelSplit>::iterator> wi;
+    for (auto it = g_dents.begin(); it != g_dents.end(); ++it) { const uint32_t l = lastOf(it->second); if (frame - l >= g_copyEvictFrames) { c.push_back({l, 0, di.size()}); di.push_back(it); } }
+    for (auto it = g_doorSplits.begin(); it != g_doorSplits.end(); ++it) { const uint32_t l = (std::max)(lastOf(it->second.body), lastOf(it->second.door)); if (frame - l >= g_copyEvictFrames) { c.push_back({l, 1, oi.size()}); oi.push_back(it); } }
+    for (auto it = g_wheelSplits.begin(); it != g_wheelSplits.end(); ++it) {
+        uint32_t l = lastOf(it->second.hull);
+        for (int w = 0; w < it->second.n; ++w) l = (std::max)(l, (std::max)(lastOf(it->second.wheel[w]), lastOf(it->second.ring[w])));
+        if (frame - l >= g_copyEvictFrames) { c.push_back({l, 2, wi.size()}); wi.push_back(it); }
+    }
+    std::sort(c.begin(), c.end(), [](const Cand& a, const Cand& b) { return a.last < b.last; });
+    const size_t target = g_copyBudget / 10 * 8;
+    double freed = 0.0; int n = 0;
+    auto drop = [&](const Model* m, size_t* counter) {
+        if (!m || !ModelIsKnown(m)) return;
+        const size_t b = ModelBytes(*m);
+        *counter -= (std::min)(*counter, b); g_wearBytes -= (std::min)(g_wearBytes, b);
+        g_wearShown.erase(m); g_wearUsed.erase(m); g_wearWasEvicted.erase(m);
+        freed += ModelFreeDerived(m);
+    };
+    for (const Cand& k : c) {
+        if (g_wearBytes <= target) break;
+        if (k.kind == 0) { auto it = di[k.idx]; drop(it->second, &g_dentBytes); g_dentAsked.erase(it->first); g_dents.erase(it); }
+        else if (k.kind == 1) { auto it = oi[k.idx]; drop(it->second.body, &g_doorBytes); drop(it->second.door, &g_doorBytes); g_doorAsked.erase(it->first); g_doorSplits.erase(it); }
+        else { auto it = wi[k.idx]; drop(it->second.hull, &g_wheelBytes); for (int w = 0; w < it->second.n; ++w) { drop(it->second.wheel[w], &g_wheelBytes); drop(it->second.ring[w], &g_wheelBytes); } g_wheelAsked.erase(it->first); g_wheelSplits.erase(it); }
+        ++n;
+    }
+    if (n) {
+        g_copyEvictedEntries += n; g_copyEvictedMB += freed / (1 << 20);
+        Log("car bodies: residency: %d idle car copies freed (%.1f MB), %.1f MB of copies kept (budget %.0f MB)", n, freed / (1 << 20),
+            static_cast<double>(g_wearBytes) / (1 << 20), static_cast<double>(g_copyBudget) / (1 << 20));
+    }
+}
+
 size_t ModelBytes(const Model& m) {
     size_t n = sizeof(Model) + m.nodes.size() * sizeof(ModelNode);
     for (const ModelMesh& mesh : m.meshes) n += sizeof(ModelMesh) + mesh.vertices.size() * sizeof(ModelVertex) + mesh.indices.size() * sizeof(uint32_t);
@@ -2836,6 +2911,7 @@ DWORD WINAPI WearThread(void*) {
         else if (!g_wearIdle.empty()) { job = g_wearIdle.front(); g_wearIdle.pop_front(); have = true; ahead = true; }
         LeaveCriticalSection(&g_wearLock);
         if (!have) { WaitForSingleObject(g_wearWake, 200); continue; }
+        InterlockedExchange(&g_wearBusy, 1);
         WearResult* r = new WearResult;
         r->job = job;
         const double t0 = CarNowMs();
@@ -2850,6 +2926,7 @@ DWORD WINAPI WearThread(void*) {
         EnterCriticalSection(&g_wearLock);
         g_wearDone.push_back(r);
         LeaveCriticalSection(&g_wearLock);
+        InterlockedExchange(&g_wearBusy, 0);
         // Work ahead of need takes at most half of one CPU: the play container has
         // three, shared with the game's own thread, Wine's and the VNC encoder.
         if (ahead) Sleep(static_cast<DWORD>((std::max)(5.0, ms)));
@@ -3180,7 +3257,7 @@ bool RemixHullDraw(IDirect3DDevice9* device, const Model& model, const gta2::Mat
     return true;
 }
 
-TurretSplit TurretSplitFor(const Model& model, const gta2::Mat4& fit, float roof, float cut, float zMax) {
+TurretSplit TurretSplitFor(const Model& model, const gta2::Mat4& fit, float roof, float cut, float zMax, float pivotBand = 1.0f) {
     const TurretKey key{&model, static_cast<int>(cut * 100.0f), static_cast<int>(std::floor(zMax * 50.0f))};
     auto it = g_turretSplits.find(key);
     if (it != g_turretSplits.end()) return it->second;
@@ -3198,6 +3275,10 @@ TurretSplit TurretSplitFor(const Model& model, const gta2::Mat4& fit, float roof
     hull.name = model.name + "#hull"; top.name = model.name + "#turret";
     size_t topTris = 0;
     double ax = 0.0, az = 0.0, aw = 0.0;
+    // pivotBand < 1: the pivot is the middle of the turret's lowest part only (a pedestal gun, 022, turns about its
+    // post, not about the middle of a barrel that reaches forward)
+    const float bandTop = cut * roof + pivotBand * (roof - cut * roof);
+    double bx = 0.0, bz = 0.0, bw = 0.0;
     for (size_t n = 0; n < model.nodes.size(); ++n) {
         const int mi = model.nodes[n].mesh;
         if (mi < 0 || mi >= static_cast<int>(model.meshes.size())) continue;
@@ -3224,12 +3305,14 @@ TurretSplit TurretSplitFor(const Model& model, const gta2::Mat4& fit, float roof
                 const gta2::Vec3 nrm = gta2::Cross(q[1] - q[0], q[2] - q[0]);
                 const double area = std::sqrt(gta2::Dot(nrm, nrm));
                 ax += area * cx; az += area * cz; aw += area;
+                if (cy < bandTop) { bx += area * cx; bz += area * cz; bw += area; }
             }
         }
     }
     TurretSplit split{nullptr, nullptr, 0.0f, 0.0f};
     if (topTris >= 8 && aw > 0.0) {
         split.pivotX = static_cast<float>(ax / aw); split.pivotZ = static_cast<float>(az / aw);
+        if (pivotBand < 1.0f && bw > 0.0) { split.pivotX = static_cast<float>(bx / bw); split.pivotZ = static_cast<float>(bz / bw); }
         split.hull = ModelRegisterDerived(std::move(hull));
         split.turret = ModelRegisterDerived(std::move(top));
     }
@@ -4505,6 +4588,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
     for (double& v : g_carParts) v = 0.0;
     g_wearFrame = frame;
     WearEvictIdle(frame);   // FIX-PERF-6
+    WearEvictBudget(frame);   // CARS-V3 residency
     {
         const double tw = CarNowMs();
         WearCollect();
@@ -5957,11 +6041,14 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                 hinge.m[0][0] = cs; hinge.m[0][2] = -sn; hinge.m[1][1] = 1.0f; hinge.m[2][0] = sn; hinge.m[2][2] = cs;
                 hinge.m[3][0] = hx - (hx * cs + hz * sn); hinge.m[3][2] = hz - (-hx * sn + hz * cs); hinge.m[3][3] = 1.0f;
                 ModelDraw(device, *split.door, Mul(Mul(fit, hinge), posed), nullptr, 0.0f);   // (swung: its own frame)
-            } else if ((modelNumber == 54 || modelNumber == 17) && !cpuCut) {
+            } else if ((modelNumber == 54 || modelNumber == 17 || modelNumber == 22) && !cpuCut) {
                 // The turret turned to the game's aim (see TurretSplitFor); without an
                 // aim seen in the last second it stays straight ahead.
                 const float roofY = model->Height() * sy;
+                // 022: the converted model's roof gun stands on the roof, the top 0.82 of the model's height and up
+                // (tools/hy_car roof_gun); it turns about its post (the lowest 0.3 of the gun)
                 const TurretSplit split = modelNumber == 54 ? TurretSplitFor(*worn, fit, roofY, 0.56f, 99.0f)
+                                        : modelNumber == 22 ? TurretSplitFor(*worn, fit, roofY, 0.82f, 99.0f, 0.3f)
                                                             : TurretSplitFor(*worn, fit, roofY, 0.80f, 0.05f * b->bodyLength);
                 auto aim = g_turretAims.find(use.object);
                 float yaw = 0.0f;
@@ -6499,6 +6586,8 @@ void CarBodiesSetTurret(uintptr_t carObject, float dirX, float dirZ, uint32_t fr
 void SetCarPaintFloor(float fraction) { g_paintLumFloor = fraction < 0.0f ? 0.0f : (fraction > 0.5f ? 0.5f : fraction) * 255.0f; }
 
 // FIX-PERF-4: this module's caches for the `mem:` lines (mem_stats.h).
+void SetCarCopyBudget(int mb, int seconds) { CarCopyBudgetImpl(mb, seconds); }   // CARS-V3 residency
+
 void SetCarCopyIdleSeconds(int seconds) {
     char env[16] = {};
     if (GetEnvironmentVariableA("GTA2DX9_CAR_COPY_IDLE_S", env, sizeof env)) seconds = atoi(env);
@@ -6519,7 +6608,8 @@ void CarBodiesMemGauges() {
     MemGauge("cb.wheels", static_cast<double>(g_wheelSplits.size()), static_cast<double>(g_wheelBytes));
     // FIX-PERF-5: cb.wear is the SUM of the three above (dents + doors + wheels), not a pool of its own; all of
     // them are derived models registered with the model store, so their bytes are also inside ms.models.
-    MemGauge("cb.evicted", static_cast<double>(g_wearEvicted), g_wearEvictedBytes);   // FIX-PERF-6: copies whose buffers went back (total)
+    MemGauge("cb.evicted", static_cast<double>(g_wearEvicted), g_wearEvictedBytes);
+    MemGauge("cb.freed", static_cast<double>(g_copyEvictedEntries), g_copyEvictedMB * (1 << 20));   // CARS-V3 residency (total)   // FIX-PERF-6: copies whose buffers went back (total)
     MemGauge("cb.reshown", static_cast<double>(g_wearReshown), 0.0);                   // ... and came back on screen after it
     MemGauge("cb.wear", static_cast<double>(g_dents.size() + g_doorSplits.size() + g_wheelSplits.size()), static_cast<double>(g_wearBytes));
     MemGauge("cb.cache", static_cast<double>(g_cache.size()));

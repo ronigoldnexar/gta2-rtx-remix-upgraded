@@ -84,7 +84,7 @@ sys.path.insert(0, HERE)
 # frc1_a18 / frc1_a12b on 018, 019, 029 at 12:30 and 21:30; body grain unchanged on 018, lower on 019).
 PAINT_METALLIC, PAINT_ROUGHNESS = 0.05, 0.12
 PAINT_NORMAL_DAMP = 0.3
-CHROME_ROUGHNESS = 0.2
+CHROME_ROUGHNESS = float(os.environ.get("REMIX_ATLAS_CHROME_ROUGHNESS", "0.2"))   # CARS-V3: the converted shells take 0.32 (tools/hy_car/remix_prims.sh): a lumpy generated bumper does not mirror its lumps
 LAMP_INTENSITY = 6.0        # tail / brake lamps, emissiveFactor lamps
 HEADLAMP_INTENSITY = 3.0    # white head lamps on the baked cars (brighter colour, lower gain)
 HEADLAMP_RIM = 0.30         # FIX-FX-5: a car lamp island's emissive at its rim, over its core (1.0: the old flat discs)
@@ -373,6 +373,9 @@ def source_specs(models_dir, src_root, manifest=None, only=None):
                    "emit": [float(c) for c in mat["emissiveFactor"]] if any(mat.get("emissiveFactor", [0, 0, 0])) else None,
                    "glass": bool(GLASS_NAME.search(mname)) or mat.get("alphaMode") == "BLEND" and pbr.get("roughnessFactor", 1) < 0.15,
                    "emitname": bool(EMIT_NAME.search(mname)),
+                   # CARS-V3 (prxr1 lens half): glTF KHR_materials_emissive_strength sets the gain and the texture's own
+                   # pattern is the emission (a lamp lens painted with a hot core, a dimmer lens and a dark rim)
+                   "emit_gain": (mat.get("extensions", {}).get("KHR_materials_emissive_strength", {}) or {}).get("emissiveStrength"),
                    "uvs": np.concatenate(uvs_by_mat[mi]) if mi in uvs_by_mat else None,
                    "normal_img": None, "mr_img": None, "spec_img": None}
             def img_of(key):
@@ -601,7 +604,10 @@ def texture_maps(tga, rgba, spec, ends=None, paint_mask=None, is_car=False, crea
                 else:
                     g0 = LAMP_INTENSITY
                     f = np.array(m["emit"], np.float32); f = f / max(float(f.max()), 1e-3)
-                    col = np.maximum(col, 255 * f * 0.6) * np.maximum(f, 0.25)
+                    if m.get("emit_gain") is not None:
+                        g0 = float(m["emit_gain"]); col = col * f
+                    else:
+                        col = np.maximum(col, 255 * f * 0.6) * np.maximum(f, 0.25)
                 emit[sel] = np.clip(col, 0, 255).astype(np.uint8)[sel]; gain[sel] = g0
             elif re.search(r"bulb", m["name"], re.I):
                 emit[sel] = np.clip(rgba[..., :3].astype(np.float32) * 0.5 + np.array([255, 214, 150]) * 0.5, 0, 255).astype(np.uint8)[sel]

@@ -15250,7 +15250,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
             bool turret = false;
             if (size > 0.2f && size < 2.4f) {
                 for (const CarBodyUse& use : carBodies_) {
-                    if ((use.model != 54 && use.model != 17) || use.object == sprite.object) continue;
+                    if ((use.model != 54 && use.model != 17 && use.model != 22) || use.object == sprite.object) continue;
                     const float ddx = wx - use.objectToWorld.m[3][0], ddz = wz - use.objectToWorld.m[3][2];
                     if (ddx * ddx + ddz * ddz > 0.6f * 0.6f) continue;
                     // The turret artwork's top edge is the back of the turret (the barrel runs to
