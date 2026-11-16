@@ -1316,7 +1316,12 @@ const VehicleFeel& VehicleFxUpdate(const VehicleFxCar& car, uint32_t frame) {
         pivotZ = 0.0f;
         wheelTravel = car.rigidWheels ? Clamp(0.30f * car.wheelRadius, 0.015f, 0.035f) : Clamp(0.50f * car.wheelRadius, 0.022f, 0.050f);
         wheelTravel *= 1.0f - 0.35f * tall;   // a tall cab's tyres are in its mesh too: <5 degrees of roll
-        const float wx = 0.42f * car.width, wz = 0.5f * (std::max)(0.25f, car.wheelbase), wy = car.wheelRadius;
+        // FIX-TRUCK-WHEELS (owner 16 Nov: a moving truck's rear wheels lift off the road): the bound measured the axles at
+        // half the wheelbase, but a shell whose tyres are in its mesh (a truck cab's tandem, a bus) carries wheels out to
+        // its ends, and a long body moves its ends furthest. For those the bound is taken at 0.46 of the length.
+        const float wzBase = 0.5f * (std::max)(0.25f, car.wheelbase);
+        const float wx = 0.42f * car.width, wy = car.wheelRadius;
+        const float wz = (car.rigidWheels || car.length > 1.25f) ? (std::max)(wzBase, 0.46f * car.length) : wzBase;
         auto worst = [&](float rl, float pt, float hv) {
             const gta2::Mat4 m = Mul(Mul(Mul(Translate(0.0f, -pivotY, 0.0f), RotZ(rl)), RotX(pt)), Translate(0.0f, pivotY + hv, 0.0f));
             float d = 0.0f;

@@ -185,12 +185,12 @@ struct ViewModeSettings {
     float tpHeight = 1.25f;         // above it
     float tpLookAhead = 1.2f;       // the point looked at, blocks ahead of the target...
     float tpLookHeight = 0.35f;     // ...and above it
-    float tpFootScale = 0.62f;      // distance and height are scaled by this on foot (0.46-block people)
+    float tpFootScale = 0.40f;      // distance and height are scaled by this on foot (0.46-block people)
     float tpFov = 60.0f;            // vertical, degrees
     float tpFollow = 0.25f;         // seconds the camera takes to swing round behind a turn
     float tpReturnDelay = 1.5f;     // seconds after the last mouse input before the orbit returns
     bool tpCollide = true;          // pulled in front of walls rather than through them
-    float tpShoulder = 0.22f;       // on foot, the camera sits this far to the right (over the shoulder)
+    float tpShoulder = 0.18f;       // on foot, the camera sits this far to the right (over the shoulder)
     float tpPullBack = 1.0f;        // extra blocks of distance at full speed
     float tpLean = 0.0f;            // roll into turns, 1 is a few degrees at speed; off by default
 
