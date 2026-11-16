@@ -25,6 +25,11 @@ enum class GameGlyphSet {
     Heart,    // 'H' the full heart (user 113, 15x14), 'h' the small one (user 114)
     Lcd,      // FIX-HUD-7: the clock/counter panel's green LCD (part 11): 0-9 user 123-132 (6x12), '#' the unlit
               // cell (user 122, the game's blank leading digit), ':' the colon (121), '.' the colon off (120, 2x12)
+    Respect,  // FIX-HUD-STYLE: the gang respect meters (part 5) as the game draws them, by the gang's colour slot c 0-6
+              // (Loonies green, Yakuza violet, Zaibatsu teal, Rednecks blue, Scientists yellow, Krishna orange,
+              // Russians red): 'a'+c the emblem (user 64+c), 'A'+c the tube (78+c, 71x16), '0'+c the lit marker
+              // (71+c, 3x10), 'h'+c the minus cap (50+2c, 10x10), 'o'+c the plus cap (51+2c), 'v' 'w' 'x' the green,
+              // yellow and red phone tabs (46-48, 5x2)
     Count
 };
 

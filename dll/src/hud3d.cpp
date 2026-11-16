@@ -70,6 +70,7 @@ struct Config {
     bool markers = true;    // [hud] objective_markers: the game's target arrows as 3D-projected markers
     bool gameFont = true;   // [hud] game_font: GTA2's own glyphs for money, multiplier, lives, hearts, ammo (FIX-HUD-5, owner B13)
     bool glyphSmooth = true; // [hud] game_font_smooth: the glyphs re-authored edge-aware (Scale2x/3x) rather than plain integer pixels
+    bool respectSprites = true;   // [hud] respect_sprites: the gang meters as the game's own part-5 sprites (FIX-HUD-STYLE); 0: the drawn blocks
     bool hearts = true;     // [hud] hearts: the game's row of hearts (health, a heart a started 20) top right (FIX-HUD-4, owner B12)
     int toggleKey = 0;      // [hud] toggle_key, 0 none
     float scale = 1.0f;     // [hud] scale_pct / 100
@@ -98,6 +99,7 @@ void LoadConfig() {
         g_cfg.minimap = GetPrivateProfileIntA("hud", "minimap", 1, ini) != 0;
         g_cfg.markers = GetPrivateProfileIntA("hud", "objective_markers", 1, ini) != 0;
         g_cfg.hearts = GetPrivateProfileIntA("hud", "hearts", 1, ini) != 0;
+        g_cfg.respectSprites = GetPrivateProfileIntA("hud", "respect_sprites", 1, ini) != 0;
         g_cfg.gameFont = GetPrivateProfileIntA("hud", "game_font", 1, ini) != 0;
         g_cfg.glyphSmooth = GetPrivateProfileIntA("hud", "game_font_smooth", 1, ini) != 0;
         const int pct = GetPrivateProfileIntA("hud", "scale_pct", 100, ini);
@@ -543,12 +545,12 @@ std::vector<uint32_t> Reauthor(const GameGlyph& g, int k, bool smooth, int* w, i
 }
 
 constexpr int kGlyphSets = static_cast<int>(GameGlyphSet::Count);
-constexpr int kGlyphSetsN = 9;
+constexpr int kGlyphSetsN = 10;
 static_assert(kGlyphSets == kGlyphSetsN, "one factor a set");
 struct BakedGlyph { int w = 0, h = 0; ImVec2 uv0, uv1; };
 struct GameGlyphs {
     bool on = false;
-    int k[kGlyphSetsN] = {1, 1, 1, 1, 1, 1, 1, 1, 1};   // each set's integer factor
+    int k[kGlyphSetsN] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1};   // each set's integer factor
     int gen = -1;
     BakedGlyph g[kGlyphSets][128];
 };
@@ -2395,7 +2397,74 @@ std::string CollectWords(const char* key) {
 }
 
 int g_respectDrawn = 0;
+
+// FIX-HUD-STYLE (owner11nov-hud-style-mismatch, owner on the RTX 5090: the hearts "look good in the vintage style, but
+// their design doesn't match the three bars on the left, which look too modern"): the meters are the game's own part 5
+// again, its sprites re-authored at the hearts' whole factor (GameGlyphSet::Respect, read from the style at load).
+// Measured in the wil classic view (GTA2DX9_HUD_LOG_GLYPHS=1, out/hst_p1, game pixels of 640x480): a row every 27; the
+// emblem centred on x 16, its top 2 above the tube's; the tube (71x16) at x 28.5; nine marker places (3x10) at tube
+// +14 + 5i, 2 down, the middle one (i 4) always lit; the plus cap (10x10) at tube +59.5 or the minus cap at +0.5, 2 down;
+// the phone tabs (5x2) at tube +33, +43, +53, 14 down, unlit ones at half brightness. The game's rule, read off its frames
+// at poked respect (0/10/40/60/80/100 and their negatives): level = respect / 20 truncated toward zero; |level| markers
+// (at most 4) lit from the middle toward its sign; the plus cap for a level of 0 or more, the minus cap below; the green,
+// yellow and red tabs lit at levels 0, 2 and 4 (the phones' jobs, docs/missions.md).
+int RespectSlot(const Gang& g) {
+    std::string n;
+    for (const char* c = g.name; *c; ++c) n.push_back(static_cast<char>(tolower(static_cast<unsigned char>(*c))));
+    auto has = [&](const char* k) { return n.find(k) != std::string::npos; };
+    if (has("loon")) return 0;
+    if (has("yaku")) return 1;
+    if (has("zaib")) return 2;
+    if (has("redn")) return 3;
+    if (has("srs") || has("scie")) return 4;
+    if (has("kris") || has("hare")) return 5;
+    if (has("russ") || has("mafi")) return 6;
+    return -1;
+}
+
+bool DrawRespectSprites(ImDrawList* dl, const Values& v, float A) {
+    if (!GlyphsOn() || !Glyph(GameGlyphSet::Respect, 'A') || !Glyph(GameGlyphSet::Respect, 'v')) return false;
+    int n = 0;
+    for (const Gang& g : v.gangs) {
+        if (n >= 3) break;
+        if (RespectSlot(g) < 0) return false;   // a gang this table does not know: the drawn meters name it
+        ++n;
+    }
+    const float k = static_cast<float>(g_glyphs.k[static_cast<int>(GameGlyphSet::Respect)]);
+    const float ox = std::floor(28.0f * g_u - 5.0f * k), oy = std::floor(28.0f * g_u);   // the emblem's left edge at the HUD's margin
+    auto at = [&](float gx, float gy) { return ImVec2(ox + std::floor(gx * k + 0.5f), oy + std::floor(gy * k + 0.5f)); };
+    const ImU32 dim = IM_COL32(184, 184, 184, 255);   // half brightness after the backend's 2.2 power (classic: 125,69,0 for 255,179,0)
+    float row = 2.0f;
+    g_respectDrawn = 0;
+    for (const Gang& g : v.gangs) {
+        if (g_respectDrawn >= 3) break;
+        const int c = RespectSlot(g);
+        const char emb[2] = {static_cast<char>('a' + c), 0}, tube[2] = {static_cast<char>('A' + c), 0};
+        const char mark[2] = {static_cast<char>('0' + c), 0};
+        const int level = (std::max)(-5, (std::min)(5, static_cast<int>(g.respect) / 20));
+        if (const BakedGlyph* e = Glyph(GameGlyphSet::Respect, emb[0]))
+            GlyphText(dl, GameGlyphSet::Respect, at(16.0f - e->w / k * 0.5f, row - 2.0f), emb, A, 0.0f);
+        GlyphText(dl, GameGlyphSet::Respect, at(28.5f, row), tube, A, 0.0f);
+        const int lit = (std::min)(4, level < 0 ? -level : level);
+        for (int j = 0; j <= lit; ++j) {
+            const int i = level < 0 ? 4 - j : 4 + j;
+            GlyphText(dl, GameGlyphSet::Respect, at(28.5f + 14.0f + 5.0f * i, row + 2.0f), mark, A, 0.0f, false);
+        }
+        const char cap[2] = {static_cast<char>(level >= 0 ? 'o' + c : 'h' + c), 0};
+        GlyphText(dl, GameGlyphSet::Respect, at(level >= 0 ? 28.5f + 59.5f : 28.5f + 0.5f, row + 2.0f), cap, A, 0.0f, false);
+        for (int t = 0; t < 3; ++t) {
+            const char tab[2] = {static_cast<char>('v' + t), 0};
+            const bool on = level >= 2 * t;
+            GlyphText(dl, GameGlyphSet::Respect, at(28.5f + 33.0f + 10.0f * t, row + 14.0f), tab, A, 0.0f, true, on ? IM_COL32(255, 255, 255, 255) : dim);
+        }
+        row += 27.0f;
+        ++g_respectDrawn;
+    }
+    return true;
+}
+
 void DrawRespect(ImDrawList* dl, const Values& v, float A) {
+    if (g_cfg.respectSprites && DrawRespectSprites(dl, v, A)) return;
     const float u = g_u;
     const float margin = 28.0f * u;
     const float rowH = 30.0f * u, emblemW = 30.0f * u, barW = 150.0f * u, barH = 11.0f * u;
@@ -3368,12 +3437,13 @@ bool Hud3dSwallow(bool hud, int part, const void* texture, const void* corners, 
     // distinct one logged once: its texture's size and palette, the texel rect, the quad's size and colour.
     static int s_logGlyphs = -1;
     if (s_logGlyphs < 0) { char b[4] = {}; s_logGlyphs = GetEnvironmentVariableA("GTA2DX9_HUD_LOG_GLYPHS", b, sizeof b) && b[0] == '1'; }
-    if (s_logGlyphs && (part == 1 || part == 6 || part == 11) && corners && texture && count >= 3) {
+    if (s_logGlyphs && (part == 1 || part == 5 || part == 6 || part == 11) && corners && texture && count >= 3) {
         static std::vector<uint64_t> s_seen;
         const Corner* q = static_cast<const Corner*>(corners);
         const gta2dx9::TextureRecord* r = static_cast<const gta2dx9::TextureRecord*>(texture);
-        const uint64_t key = (static_cast<uint64_t>(reinterpret_cast<uintptr_t>(r->pixels)) << 16) ^ (static_cast<uint64_t>(q[0].u * 1024) << 40) ^ (static_cast<uint64_t>(q[0].v * 1024) << 52) ^ r->palette ^ (static_cast<uint64_t>(part) << 60);
-        if (s_seen.size() < 200 && std::find(s_seen.begin(), s_seen.end(), key) == s_seen.end()) {
+        const uint64_t key = (static_cast<uint64_t>(reinterpret_cast<uintptr_t>(r->pixels)) << 16) ^ (static_cast<uint64_t>(q[0].u * 1024) << 40) ^ (static_cast<uint64_t>(q[0].v * 1024) << 52) ^ r->palette ^ (static_cast<uint64_t>(part) << 60)
+                             ^ (part == 5 ? static_cast<uint64_t>(q[0].x * 4) * 0x9E3779B97F4A7C15ull : 0);   // part 5: each marker place
+        if (s_seen.size() < 400 && std::find(s_seen.begin(), s_seen.end(), key) == s_seen.end()) {
             s_seen.push_back(key);
             Log("hud3d: glyph part %d view %d tex %dx%d pal %d pix %p uv %.4f,%.4f-%.4f,%.4f quad %.1f,%.1f %.1fx%.1f col %08X",
                 part, static_cast<int>(CurrentViewMode()), r->width, r->height, r->palette, r->pixels, q[0].u, q[0].v, q[2].u, q[2].v,
