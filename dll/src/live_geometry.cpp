@@ -9614,6 +9614,20 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
         if (punching) jab = std::sin(static_cast<float>(pf - 115) / 7.0f * 3.14159265f);
     }
     const float jabR = jabSide == 0 ? jab : 0.0f, jabL = jabSide == 1 ? jab : 0.0f;
+    // FIX-FP-HANDS (owner launch brief, 15 Nov): bare hands at rest RELAX - lowered out of the view (the generated open
+    // hand reads as a stiff claw at view-model size), not a permanent boxer's guard. A punch brings the fists up at once (guardK -> 1 in ~3 frames) and they
+    // settle back about 1.2 s after the last punch frame. GTA2DX9_FP_RELAX=0: the guard always (as before).
+    static const bool relaxOn = [] { char v[8] = {}; return !(GetEnvironmentVariableA("GTA2DX9_FP_RELAX", v, sizeof v) && v[0] == '0'); }();
+    static float guardK = 0.0f;
+    static uint32_t guardLast = 0;
+    if (fists && relaxOn) {
+        if (jab > 0.0f) guardLast = vmNow;
+        const bool wantGuard = jab > 0.0f || (guardLast != 0 && vmNow - guardLast < 1200u);
+        guardK += ((wantGuard ? 1.0f : 0.0f) - guardK) * (wantGuard ? 0.40f : 0.07f);
+    } else {
+        guardK = 1.0f;
+    }
+    const float relax = fists ? 1.0f - guardK : 0.0f;
     // FIX-FIGURE-7 (pf2feel: the hands did not move with the walk or the turn): a walk bob (down at
     // each footfall, across once a stride) scaled by his speed over the ground, and a turn sway (the
     // hands lag the view's yaw and settle back), both in real time and eased in and out.
@@ -9671,7 +9685,7 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     const bool fist2 = fists && fist2Model && !fistOld;
     const float swingR = fist2 ? 0.012f * strideSwing : 0.0f;   // the right fist forward by this, the left back
     if (fist2) { bobSide *= 0.5f; }
-    const float ahead = (fist2 ? 0.14f + 0.05f * jabR + swingR : fists ? 0.13f + 0.05f * jabR : (wi.twoHanded ? 0.20f : 0.155f) - wi.kick * kick) - rsAhead * rs - 0.02f * rack - 0.03f * drop - 0.012f * pumpS;
+    const float ahead = (fist2 ? 0.14f - 0.020f * relax + 0.05f * jabR + swingR : fists ? 0.13f + 0.05f * jabR : (wi.twoHanded ? 0.20f : 0.155f) - wi.kick * kick) - rsAhead * rs - 0.02f * rack - 0.03f * drop - 0.012f * pumpS;
     // FIX-FIGURE-14 (pfl72): the shotgun lower right and further out (0.085 side, 0.068 down): at the long guns' 0.055/0.075
     // its barrel stood at 54 degrees in the frame (aimed at the crosshair from under the eye: "pointing at the sky");
     // now about 40 degrees, the stock along the bottom right.
@@ -9680,8 +9694,8 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     // the game's line of fire (near the view's middle, at body height) from the long guns' 0.055/0.075 it lay across
     // the frame pointing left; from the hip it rises into the picture toward the crosshair.
     const bool flHold = weapon == kWpnFlame && !fists && FlameJetOn() && !FlameJetOld();
-    const float side = (fist2 ? 0.066f - 0.02f * jabR : fists ? 0.060f - 0.02f * jabR : sgHold ? 0.085f : flHold ? 0.050f : (wi.twoHanded ? 0.055f : 0.075f)) - rsSide * rs,
-                down = (fist2 ? 0.042f + breath - 0.012f * jabR - 0.25f * (std::max)(0.0f, swingR) : fists ? 0.070f + breath - 0.012f * jabR : (sgHold ? 0.068f : flHold ? 0.100f : wi.twoHanded ? 0.075f : 0.066f) + (thrown ? (BottleOldAttach() ? 0.02f : -0.010f) : 0.0f) - 0.010f * kick) + rsDown * rs + 0.12f * drop;
+    const float side = (fist2 ? 0.066f + 0.012f * relax - 0.02f * jabR : fists ? 0.060f - 0.02f * jabR : sgHold ? 0.085f : flHold ? 0.050f : (wi.twoHanded ? 0.055f : 0.075f)) - rsSide * rs,
+                down = (fist2 ? 0.042f + 0.110f * relax + breath - 0.012f * jabR - 0.25f * (std::max)(0.0f, swingR) : fists ? 0.070f + breath - 0.012f * jabR : (sgHold ? 0.068f : flHold ? 0.100f : wi.twoHanded ? 0.075f : 0.066f) + (thrown ? (BottleOldAttach() ? 0.02f : -0.010f) : 0.0f) - 0.010f * kick) + rsDown * rs + 0.12f * drop;
     // FIX-FIGURE-15 (pfl76): the flamethrower fires along the game's line of fire (his body's height, 0.30 over
     // his floor, along his facing: the flames are 0.39 under the eye), the line the reticle sits on (hud3d),
     // not along the eye's line 5 blocks out: the barrel pointed over the crosshair and
@@ -9739,7 +9753,7 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
         // The fists in a guard: tipped forward (the knuckles' tops toward the eye) and turned in.
         // FIX-FIGURE-7: the closed fist (knuckles ahead) tipped less, so its knuckles and folded thumb face the eye.
         static const bool fistMesh = ModelByName("fp_fist_right") != nullptr;
-        const float tip = fists ? (fistMesh ? -0.30f : -0.55f) : 0.0f, turnIn = fists ? 0.25f : 0.0f;
+        const float tip = fists ? (fistMesh ? -0.30f : -0.55f) * (1.0f - relax) + 0.0f * relax : 0.0f, turnIn = fists ? 0.25f * (1.0f - relax) + 0.10f * relax : 0.0f;
         const float kickUp = autoGun ? 0.16f * kick + 0.10f * vmClimb : 0.16f * kick * (wi.twoHanded ? 0.6f : 1.0f);
         const float rsUp = reloadOld ? 0.22f : 0.16f, rsIn = reloadOld ? 0.05f : 0.14f;
         for (int c = 0; c < 3; ++c) dir[c] = aim[c] / al + up[c] * (kickUp + rsUp * rs - 0.9f * drop + tip + 0.06f * pumpS) - right[c] * (rsIn * rs + turnIn);
@@ -9765,8 +9779,8 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
         // row and the forearm runs back and out to the bottom corner (the vertical fist showed its thumb side).
         // The holster dip tips the knuckles down out of the view.
         float z[3], x[3];
-        const float za = 0.60f - 0.9f * drop, xr = 0.15f;
-        for (int c = 0; c < 3; ++c) { z[c] = (&f.x)[c] + up[c] * za - right[c] * 0.30f; x[c] = up[c] * std::cos(xr) + right[c] * std::sin(xr); }
+        const float za = 0.60f - 0.9f * drop - 0.5f * relax, xr = 0.15f, zin = 0.30f;   // FIX-FP-HANDS: lowering, the knuckles tip down
+        for (int c = 0; c < 3; ++c) { z[c] = (&f.x)[c] + up[c] * za - right[c] * zin; x[c] = up[c] * std::cos(xr) + right[c] * std::sin(xr); }
         const float zl = (std::max)(1e-4f, std::sqrt(z[0] * z[0] + z[1] * z[1] + z[2] * z[2]));
         for (float& v : z) v /= zl;
         const float xz = x[0] * z[0] + x[1] * z[1] + x[2] * z[2];
