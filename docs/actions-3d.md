@@ -2319,3 +2319,66 @@ the grille it stays 0.60-0.70. The flames ride the body's centre line and the ca
 a standing ped off the body. Both distances are outside the burn test's 0.18, so the old flat test (fig19_burn2/3) never
 fired either, and he stands idle beside the fire in every frame. Standing next to a burning car is not a pose where the
 two tests can differ.
+
+## FIX-GETUP (17 Nov 2026): a real get-up instead of the fall played backwards (owner: "characters, upon falling, stand back up in an unnatural way")
+
+**What was wrong** (`GTA2DX9_LOG_GETUP=1` per-frame trace, `gamerun/gu_fight.py` punching people down in third person;
+run gu_base, 11 get-ups):
+- Every get-up was the lying clip (`fall` / `fall_front`) played backwards: the body tipped up stiffly about the pelvis
+  like a plank, in 14 frames (0.47 s). The feet went through the road on the way up (lowest foot 0.03-0.05 block,
+  15-22 cm, below the ground in all 11).
+- A punched man (not the car/blast full knock-down) rose wherever the game had him: the game has no get-up frames at all
+  (he lies on sprite frame 72, state 8 sub 0x16, for ~1.7 s and the next frame is state 1, walking or running off), so
+  the rising figure slid along with the running spot (up to 0.13 block a frame).
+- His facing was frozen while he lay and rose, then the turn code swung him to the game's facing once standing: up to
+  27 degrees in one frame.
+- Down again while rising (a second blow): the rise ran on to standing, then he fell again from upright.
+
+**What it does now** (`model_store.cpp` ModelGetUpClip; `live_geometry.cpp` FIX-GETUP):
+- *Get-up clips built per avatar at first use* from key poses on the Biped skeleton, in gen_ped_clips.py's terms (turns
+  about the avatar's axes over the idle's first frame, resolved root-down), sampled at 30 Hz:
+  from the back (1.85 s): up onto the elbows, sit up with the knees drawn in and a hand planted behind the hip, over
+  onto the feet into a crouch with a hand pushing off the road, rise, stand; from the front (2.0 s): hands under the
+  shoulders, push up onto hands and knees, kneel up on one knee with the other foot planted ahead, rise off that foot,
+  stand. Back or front comes from the lying clip (fall/blown/jacked: back; fall_front/runover/burnt: front; the full
+  knock-down's ragdoll decides as before). No re-import: the 71 avatars get them at run time.
+- *Starts on the pose he lies in, ends on the idle*: the first frame is the lying clip's last (over the rest pose, as
+  the store draws it), the last the idle's first; the clip fades into the locomotion over 0.15 s.
+- *Feet on the ground, nothing slides*: per frame the root height puts the lowest joint on the road (each joint at its
+  own clearance: feet and toes from the standing pose, hands, elbows, knees, pelvis, spine, head in parts of the
+  standing pelvis height), and across the road the root keeps the joint that carries him in place (pelvis while
+  sitting up, the hands while pushing up, the kneeling knee, the planted foot). Where he ends up standing (ahead of
+  where his pelvis lay) is baked out of the clip and added to the figure's position when the rise starts, so neither
+  the first nor the last frame pops.
+- *Pinned while he rises, then runs to the game's spot*: a punched man's figure is held where he lay through the rise
+  (as the full knock-down already was), then the offset is closed at most 0.9 block/s on top of the game's own pace
+  (the legs run it; the full knock-down keeps its 2.5).
+- *Turns toward the game's facing during the rise*: from where his weight comes onto the feet to the end of the rise, at
+  most 5 rad/s, about the pelvis (the figure moved so the pelvis stays put); what is left after the rise the usual turn
+  code finishes (it used to be all of it, from standing).
+- *Pace*: the game gives no frames to time against (it stands him up in one frame), so the rise is 1.23 s (back) /
+  1.33 s (front) for a punch (x1.5 of the clip), 1.42 / 1.54 s for the full knock-down (x1.3).
+  `GTA2DX9_GETUP_RATE=<x>` overrides.
+- *Down again while rising* (a blow or death): the lying clip from about as far down as he still is (85 % of its length
+  times the part of the rise not done), blended out of the frozen rising pose over 0.25 s, held where he is (not walked off while down).
+- Off: `GTA2DX9_GETUP=0` (the reversed fall, as before). Trace: `GTA2DX9_LOG_GETUP=1` (`getup:` per frame, near
+  figures: state, sprite frame, action layer, heading, pelvis/head/feet in the world, offsets).
+- Classic: not touched (figure code only). keys_kd_classic.sh on the shared stage (gu_c0) vs this build (gu_c1, gu_c2):
+  0 differing static pixels before any 3D view and after both V cycles.
+
+Verified (frames opened, per-frame trace through `tools/getup_trace.py`):
+
+| run | what | result |
+|---|---|---|
+| gu_base (before) | 11 punch get-ups | reversed fall in 14 frames; feet 0.03-0.05 block under the road; pelvis carried 0.06-0.13 block a frame by the game's running spot; heading up to 27 deg in a frame once up |
+| gu_r4 (this) | 6 full rises (5 from the back, 1 from the front) | 37-39 frames; inside the rise the pelvis moves at most 0.016 block a frame across the road and 0.036 up, heading at most 9.9 deg a frame; lowest foot +0.006 (never under); the first frame matches the lying pose to 0.008 block |
+| gu_r1/gu_r3 | down again while rising (19 cases, 0.0-1.85 s into the rise) | from the rising pose into the fall over 8 frames (pelvis 0.208 -> 0.118, no jump) |
+| gu_kd3 | the player struck by a car (full knock-down, ragdoll), 3 get-ups from the front | ragdoll -> clip with the pelvis and head unmoved; prone, hands under, hands and knees, one knee, up, turned onto the game's facing during the rise |
+| gu_c0 / gu_c1 / gu_c2 | classic, keys_kd_classic.sh | 0 differing static pixels (pre, after V cycle 1, after V cycle 2) |
+
+Still short: after a punch the game has the man running off at once, so the figure, pinned through the 1.2 s rise,
+is up to ~2 blocks behind the classic sprite and runs it back at the game's pace + 0.9 block/s (about 2 s). The key
+poses are procedural, not mocap (a hand reaches for the road rather than pressing on it; the front rise's last step is
+a wide lunge). A death while rising goes through the down-again path but was not caught on camera in these runs. The
+full knock-down's own placement still logs `turned 15.9 deg` on its first get-up frame (the measured correction is
+applied before that frame is drawn; pelvis and head do not move).

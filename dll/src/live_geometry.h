@@ -825,6 +825,17 @@ private:
         // FIX-KNOCKDOWN-3 (pf3): where the get-up is drawn, pinned in the world while it plays (the game runs an
         // NPC on meanwhile: a held offset slid the rising figure along at the game's pace, a skate).
         bool kdRisePinned = false;
+        uint32_t guLogTill = 0;
+        // FIX-GETUP: the get-up being played (model_store ModelGetUpClip, for the avatar guModel): its facts, its pace,
+        // the figure's offset onto where he lay for a get-up outside the full knock-down (kd: kdOX/Z), pinned in the
+        // world while it plays and walked off after; and the rising pose a fall-again starts from (guFromK 1 -> 0).
+        const void* guClip = nullptr;
+        const void* guModel = nullptr;
+        const void* guInfo = nullptr;
+        float guRate = 1.0f, guOX = 0.0f, guOZ = 0.0f, guPinX = 0.0f, guPinZ = 0.0f;
+        bool guOff = false, guPinned = false;
+        const void* guFromClip = nullptr;
+        float guFromT = 0.0f, guFromK = 0.0f;   // FIX-GETUP: the per-frame trace runs until this frame (GTA2DX9_LOG_GETUP)
         float kdPinX = 0.0f, kdPinZ = 0.0f;
         // FIX-FIGURE-6 (pm24 gang interpenetrating, pm3 ped inside a parked car): a draw-only offset
         // that keeps the figure out of its neighbours' bodies and out of car bodies, eased; the

@@ -2535,6 +2535,19 @@ constexpr uint32_t kBustFrames = 360;      // how long after the bust the figure
 // FIX-KNOCKDOWN-3 (pf3): the get-up pinned where the body lay, the catch-up after it at most a run's pace.
 // GTA2DX9_KD_PIN_GETUP=0 = as before (A/B: the offset held, the rising figure carried along with the game's spot).
 constexpr float kKdCatchUp = 2.5f;
+// FIX-GETUP: the get-up is model_store's ModelGetUpClip (sit up / hands and knees, rise, stand) played forward from
+// the lying pose, instead of the lying clip played backwards. GTA2DX9_GETUP=0: the old way (A/B). The game itself has
+// no get-up frames: a punched man lies on frame 72 (state 8 sub 0x16) for about 1.7 s and the next frame is walking
+// or running off (gu_base), so the figure rises at kGuRate (the punch) / kGuKdRate (the full knock-down) of the
+// clip's pace, pinned where he lay, and walks the offset off after (as the full knock-down does).
+bool GetUpOn() {
+    static int on = -1;
+    if (on < 0) { char v[8] = {}; on = (GetEnvironmentVariableA("GTA2DX9_GETUP", v, sizeof v) && v[0] == '0') ? 0 : 1; }
+    return on == 1;
+}
+// kGuCatchUp: the walk-off closes on the game's spot at most this fast (blocks/s) on top of the game's own pace (the
+// legs run it); the full knock-down's kKdCatchUp (2.5) let a man the game runs off at 1.9 blocks/s glide at 4.4.
+constexpr float kGuRate = 1.5f, kGuKdRate = 1.3f, kGuFallAgain = 0.25f, kGuCatchUp = 0.9f;
 bool Kd3PinGetUp() {
     static int on = -1;
     if (on < 0) { char v[8] = {}; on = (GetEnvironmentVariableA("GTA2DX9_KD_PIN_GETUP", v, sizeof v) && v[0] == '0') ? 0 : 1; }
@@ -11981,6 +11994,23 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 Log("knockdown: %p knocked down again while getting up", reinterpret_cast<const void*>(sprite.object));
             }
         }
+        // FIX-GETUP: down again while getting up (another blow, or killed): the lying clip from about as far down as he
+        // still is, blended out of the rising pose over kGuFallAgain s (not a full rise and a fall from standing).
+        if (track.action == 4 && track.actionReverse && track.guClip && wantAction == 4) {
+            const ModelGetUpInfo* gi = static_cast<const ModelGetUpInfo*>(track.guInfo);
+            const float t = gi->length - track.actionTime;
+            const float up = gi->length > 0.0f ? (std::max)(0.0f, (std::min)(1.0f, t / gi->length)) : 1.0f;
+            static const char* const kLie[6] = {"fall", "fall_front", "runover", "blown", "burnt", "jacked"};
+            const Model* gm = static_cast<const Model*>(track.guModel);
+            const ModelAnimation* lie = gm ? gm->Animation(kLie[track.lieClip >= 0 && track.lieClip < 6 ? track.lieClip : 0]) : nullptr;
+            track.guFromClip = track.guClip; track.guFromT = std::floor(t * 30.0f) / 30.0f; track.guFromK = 1.0f;
+            track.actionReverse = false; track.kdRising = false; track.guClip = nullptr;
+            track.actionTime = lie ? lie->length * 0.85f * (1.0f - up) : 0.0f;
+            if (track.kd) { track.kdSecs = 0.0f; track.kdSettledAt = -1.0f; track.kdGameUp = false; track.kdRolled = false; track.kdRolls = 0; track.kdRollAt = -1.0f; track.kdRisePinned = false; }
+            if (ownPed || g_logPedFrames)
+                Log("getup: %p down again %.2f s into the get-up (%s): the fall from there", reinterpret_cast<const void*>(sprite.object), t,
+                    sprite.corpse && sprite.pedHealth <= 0 ? "killed" : "knocked down");
+        }
         if (ownPed) {
             int fa = -1, fl = 0, fw = -1;
             ForcedAction(&fa, &fl, &fw);
@@ -12060,6 +12090,34 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     Log("knockdown: %p gets up after %.2f s, not placed (no body or model)", reinterpret_cast<const void*>(sprite.object), track.kdSecs);
                 }
                 track.kdRising = true;
+            }
+            // FIX-GETUP: a real get-up from the pose he lies in (the lying clip's last frame; the full knock-down has
+            // just placed that pose onto the body): from the back or the front by the lying clip. The figure moves
+            // forward by where he will stand and the clip is drawn back by it, so the lying pose stays where it is and
+            // the clip hands over to the idle in place.
+            track.guClip = nullptr; track.guFromK = 0.0f;
+            if (GetUpOn() && track.kdModel && track.kdScaleS != 0.0f && !track.waterFrame) {
+                static const char* const kLie[6] = {"fall", "fall_front", "runover", "blown", "burnt", "jacked"};
+                const int lc = track.lieClip >= 0 && track.lieClip < 6 ? track.lieClip : 0;
+                const bool front = lc == 1 || lc == 2 || lc == 4;
+                const Model* gm = static_cast<const Model*>(track.kdModel);
+                const ModelGetUpInfo* gi = nullptr;
+                const ModelAnimation* gc = ModelGetUpClip(*gm, kLie[lc], front, &gi);
+                if (gc && gi) {
+                    static const float rate = [] { char b[16] = {}; return GetEnvironmentVariableA("GTA2DX9_GETUP_RATE", b, sizeof b) ? static_cast<float>(atof(b)) : 0.0f; }();
+                    track.guClip = gc; track.guModel = gm; track.guInfo = gi;
+                    track.guRate = rate > 0.05f ? rate : (track.kd ? kGuKdRate : kGuRate);
+                    track.actionTime = track.kdRiseLen = gi->length;
+                    const float mx = track.kdMirror ? -1.0f : 1.0f, S = track.kdScaleS;
+                    const float pmx = mx * gi->endX, pmz = gi->endZ, ch = std::cos(track.heading), sh = std::sin(track.heading);
+                    const float ex = S * (pmx * ch + pmz * sh), ez = S * (-pmx * sh + pmz * ch);
+                    if (track.kd) { track.kdOX += ex; track.kdOZ += ez; }
+                    else { track.guOX += ex; track.guOZ += ez; track.guOff = true; track.guPinned = false; }
+                    if (ownPed || g_logPedFrames)
+                        Log("getup: %p gets up from his %s (%s, lying clip %s), %.2f s at x%.2f, stands %.3f,%.3f ahead",
+                            reinterpret_cast<const void*>(sprite.object), front ? "front" : "back", gc->name.c_str(), kLie[lc],
+                            gi->length / track.guRate, track.guRate, ex, ez);
+                }
             }
         } else if (wantAction != 0 && wantAction != 4 && track.action != wantAction && track.action != 4) {
             if (wantAction == 1) {
@@ -12163,6 +12221,33 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             while (track.heading < -kPi) track.heading += 2.0f * kPi;
             track.turnRate += (step / dt - track.turnRate) * (std::min)(1.0f, dt / 0.15f);
             if (smoothed) ViewLogPlayerDrawnYaw(track.heading, step / (std::max)(dt, 1e-3f), dt);
+        } else if (track.actionReverse && track.guClip && track.guInfo) {
+            // FIX-GETUP: once his feet are under him he turns to the game's facing over the rest of the rise, about his
+            // pelvis (the figure moved so the pelvis stays put): no spin on the spot once he is up.
+            const ModelGetUpInfo* gi = static_cast<const ModelGetUpInfo*>(track.guInfo);
+            const float t = gi->length - track.actionTime;
+            if (t >= gi->turnFrom && !gi->pelvisX.empty()) {
+                const float tx = gameMoving ? fx : -fx, tz = gameMoving ? fz : -fz;
+                float diff = std::atan2(tx, tz) - track.heading;
+                while (diff > kPi) diff -= 2.0f * kPi;
+                while (diff < -kPi) diff += 2.0f * kPi;
+                const float left = track.actionTime / (std::max)(0.1f, track.guRate);   // seconds of the rise left
+                float step = diff * (std::min)(1.0f, dt / (std::max)(dt, 0.6f * left + 0.04f));
+                const float cap = 5.0f * dt;   // what is left after the rise the turn code finishes
+                if (step > cap) step = cap;
+                if (step < -cap) step = -cap;
+                const size_t i = (std::min)(gi->pelvisX.size() - 1, static_cast<size_t>((std::max)(0.0f, t) * 30.0f));
+                const float mx = track.kdMirror ? -1.0f : 1.0f, S = track.kdScaleS, pmx = mx * gi->pelvisX[i], pmz = gi->pelvisZ[i];
+                auto rel = [&](float h, float* x, float* z) { const float c = std::cos(h), sn = std::sin(h); *x = S * (pmx * c + pmz * sn); *z = S * (-pmx * sn + pmz * c); };
+                float ox, oz, nx, nz;
+                rel(track.heading, &ox, &oz);
+                track.heading += step;
+                while (track.heading > kPi) track.heading -= 2.0f * kPi;
+                while (track.heading < -kPi) track.heading += 2.0f * kPi;
+                rel(track.heading, &nx, &nz);
+                if (track.kd) { track.kdOX += ox - nx; track.kdOZ += oz - nz; if (track.kdRisePinned) { track.kdPinX += ox - nx; track.kdPinZ += oz - nz; } }
+                else { track.guOX += ox - nx; track.guOZ += oz - nz; if (track.guPinned) { track.guPinX += ox - nx; track.guPinZ += oz - nz; } }
+            }
         }
         // An aim carried off the line of his walk: the legs face the way he
         // moves (within 100 degrees of the aim), the torso is twisted onto the
@@ -12731,6 +12816,22 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             }
         }
         if (!track.kd) track.kdOX = track.kdOZ = 0.0f;
+        // FIX-GETUP: a get-up outside the full knock-down (a punch): drawn where he lay, pinned in the world while it
+        // plays (the game has him walking or running off at once), then walked off no faster than a run.
+        if (track.guOff) {
+            const float baseX = track.dx + track.staggerX + track.sepX, baseZ = track.dz + track.staggerZ + track.sepZ;
+            if (track.action == 4) {   // rising, or down again while rising: held where he is
+                if (!track.guPinned) { track.guPinned = true; track.guPinX = baseX + track.guOX; track.guPinZ = baseZ + track.guOZ; }
+                track.guOX = track.guPinX - baseX; track.guOZ = track.guPinZ - baseZ;
+            } else {
+                const float k = 1.0f - std::exp(-dt / kKdWalkOff);
+                float sx = track.guOX * k, sz = track.guOZ * k;
+                const float step = std::sqrt(sx * sx + sz * sz), most = kGuCatchUp * dt;
+                if (step > most) { sx *= most / step; sz *= most / step; }
+                track.guOX -= sx; track.guOZ -= sz;
+                if (track.guOX * track.guOX + track.guOZ * track.guOZ < 1e-5f || frames >= 10) { track.guOX = track.guOZ = 0.0f; track.guOff = false; track.guPinned = false; }
+            }
+        }
         // FIX-FIGURE-18 (owner10nov B9 residual): a man his fist floors in first person stands pressed against him, at
         // or behind the eye (it sits ahead of his centre): falling there he is under the picture, and within 0.15 of the
         // eye the lens rule does not draw him at all (fig18_fp1: 'figure at the lens not drawn' 0.11-0.14 for the
@@ -12784,8 +12885,8 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 else { track.fpKbX -= track.fpKbX / l * most; track.fpKbZ -= track.fpKbZ / l * most; }
             }
         }
-        const float gx = track.dx + (arrested ? g_arrestWalk.ox : 0.0f) + track.staggerX + track.sepX + track.kdOX + track.fpKbX,
-                    gz = track.dz + (arrested ? g_arrestWalk.oz : 0.0f) + track.staggerZ + track.sepZ + track.kdOZ + track.fpKbZ;
+        const float gx = track.dx + (arrested ? g_arrestWalk.ox : 0.0f) + track.staggerX + track.sepX + track.kdOX + track.guOX + track.fpKbX,
+                    gz = track.dz + (arrested ? g_arrestWalk.oz : 0.0f) + track.staggerZ + track.sepZ + track.kdOZ + track.guOZ + track.fpKbZ;
         fx = hx;
         fz = hz;
         // ACTIONS-3D-4: the ground the drawn figure covered since last frame, signed
@@ -13124,6 +13225,8 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     track.kdAlign = false;
                     RagdollInfo ri;
                     const ModelAnimation* rise = model->Animation(track.lieClip == 1 ? "fall_front" : "fall");
+                    float riseT = rise ? rise->length : 0.0f;
+                    if (track.guClip && track.guModel == model) { rise = static_cast<const ModelAnimation*>(track.guClip); riseT = 0.0f; }   // FIX-GETUP
                     int pel = -1, head = -1;
                     for (size_t i = 0; i < model->nodes.size(); ++i) {
                         if (strcmp(model->nodes[i].name, "Bip01 Pelvis") == 0) pel = static_cast<int>(i);
@@ -13132,7 +13235,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     std::vector<gta2::Mat4> end;
                     if (rise && pel >= 0 && head >= 0 && RagdollQuery(sprite.object, &ri)) {
                         ModelSetLayers(nullptr, nullptr, nullptr, nullptr, 0);
-                        ModelPoseWorlds(*model, rise, rise->length, nullptr, 0.0f, 0.0f, &end);
+                        ModelPoseWorlds(*model, rise, riseT, nullptr, 0.0f, 0.0f, &end);
                     }
                     if (end.size() == model->nodes.size()) {
                         auto at = [&](int n, float* o) {
@@ -13434,6 +13537,10 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 if (!actionClip && track.action == 4) actionClip = model->Animation("fall");
                 if (!actionClip && track.action == 9) actionClip = model->Animation("swim");
                 if (!actionClip && track.action == 20) actionClip = model->Animation("hit");
+                if (track.action == 4 && track.actionReverse && track.guClip) {   // FIX-GETUP
+                    if (track.guModel == model) actionClip = static_cast<const ModelAnimation*>(track.guClip);
+                    else { track.guClip = nullptr; track.actionTime = (std::min)(track.actionTime, actionClip ? actionClip->length : 0.0f); }
+                }
                 if (!actionClip && IsReloadAction(track.action)) { track.action = 0; track.reloadStart = 0; }   // an avatar from before QB-29
                 float actionT = 0.0f;
                 if (actionClip) {
@@ -13441,8 +13548,12 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     const bool oneShot = track.action == 1 || track.action == 5 || track.action == 6 || track.action == 7 || track.action == 13 ||
                                          track.action == 22 || IsReloadAction(track.action);
                     if (track.actionReverse) {
-                        track.actionTime -= dt * (track.kdRising ? kKdRiseRate : 1.4f);   // FIX-KNOCKDOWN: a get-up at a human pace
-                        if (track.actionTime <= 0.0f) { track.action = 0; track.actionReverse = false; actionClip = nullptr; track.kdRising = false; }
+                        const bool gu = track.guClip && actionClip == track.guClip;
+                        track.actionTime -= dt * (gu ? track.guRate : track.kdRising ? kKdRiseRate : 1.4f);   // FIX-KNOCKDOWN: a get-up at a human pace
+                        if (track.actionTime <= 0.0f) {
+                            if (gu) { track.fadeClip = actionClip; track.fadeT = std::floor((len - 0.001f) * 30.0f) / 30.0f; track.guClip = nullptr; }   // FIX-GETUP: faded into the idle
+                            track.action = 0; track.actionReverse = false; actionClip = nullptr; track.kdRising = false;
+                        }
                     } else {
                         // Getting in: the reach and the pull run while the game backs him
                         // off the door (climb frames 24-31), the duck under the roof once
@@ -13543,6 +13654,8 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     }
                     actionT = (std::min)((std::max)(track.actionTime, 0.0f), len - 0.001f);
                     actionT = std::floor(actionT * 30.0f) / 30.0f;
+                    if (track.guClip && actionClip == track.guClip)   // FIX-GETUP: played forward
+                        actionT = std::floor((std::min)((std::max)(len - track.actionTime, 0.0f), len - 0.001f) * 30.0f) / 30.0f;
                 }
                 if (boarding && boardOut.action && actionClip && track.action == boardOut.action && !(track.action == 5 && track.jacking)) {
                     // The plan's own time on the clip, at full weight from its first frame
@@ -13582,7 +13695,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     // The idle key; a body lying on the ground stays lying.
                     u = 0.0f; idleTime = 0.0f; walkW = 0.0f; runW = 0.0f; sprintW = 0.0f; turnW = 0.0f; turnT = 0.0f;
                     transClip = nullptr; transW = 0.0f;
-                    if (track.action == 4 && actionClip) { actW = 1.0f; actionT = (std::max)(0.0f, actionClip->length - 0.001f); }
+                    if (track.action == 4 && actionClip) { actW = 1.0f; if (actionClip != track.guClip) actionT = (std::max)(0.0f, actionClip->length - 0.001f); }
                     else { actW = 0.0f; actionClip = nullptr; }
                 } else if (lod == 1) {
                     const bool refresh = track.lodFrame == 0 || ((g_carFrame + static_cast<uint32_t>(sprite.object >> 4)) % 3u) == 0 ||
@@ -13668,6 +13781,15 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 // The action as an overlay on the pair (model_store ModelSetOverlay): an
                 // upper-body layer leaves the legs to the locomotion at any weight; a whole-
                 // body clip at full weight is drawn alone (one cached pose for a body lying).
+                if (track.guFromK > 0.0f) {   // FIX-GETUP: down again while rising: from the rising pose into the fall
+                    track.guFromK = (std::max)(0.0f, track.guFromK - dt / kGuFallAgain);
+                    const float w = std::floor((1.0f - track.guFromK) * 8.0f + 0.5f) / 8.0f;
+                    if (track.action == 4 && actionClip && track.guFromClip && track.guModel == model && w < 0.999f) {
+                        locoA = static_cast<const ModelAnimation*>(track.guFromClip); locoTA = track.guFromT; locoB = nullptr; locoW = 0.0f; layers = 0;
+                        actW = w; actUpper = false;
+                        if (w < 0.001f) { actionClip = nullptr; }
+                    } else if (track.action != 4) track.guFromK = 0.0f;
+                }
                 const bool actAlone = actionClip && actW > 0.999f && !actUpper;
                 if (actAlone) { locoA = actionClip; locoTA = actionT; locoB = nullptr; locoW = 0.0f; layers = 0; }
                 ModelSetOverlay(actAlone ? nullptr : actionClip, actionT, actAlone ? 0.0f : actW);
@@ -14192,6 +14314,30 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                         Log("fig: fp victim %04x t=%u chest %.2f,%.2f,%.2f (%.2f above his feet, %.2f from the eye) action %d drawn %d",
                             static_cast<unsigned>((sprite.object >> 2) & 0xFFFF), g_carFrame - g_fpVictimFrame, vx, vy, vz, vy - cy,
                             std::hypot(vx - g_viewEye.x, vz - g_viewEye.z), track.action, kdSkipDraw ? 0 : 1);
+                }
+                {   // FIX-GETUP: a per-frame trace of a figure going down, lying and getting up (GTA2DX9_LOG_GETUP=1):
+                    // the game's state and frame, the action layer, the drawn heading and the pelvis, head and feet in the world.
+                    static const bool guTrace = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_LOG_GETUP", b, sizeof b) && b[0] == '1'; }();
+                    if (guTrace && lod == 0) {
+                        if (track.action == 4) track.guLogTill = g_carFrame + 60;
+                        if (track.guLogTill && g_carFrame <= track.guLogTill) {
+                            static const char* const kJ[4] = {"Bip01 Pelvis", "Bip01 Head", "Bip01 L Foot", "Bip01 R Foot"};
+                            float j[4][3] = {};
+                            for (int k = 0; k < 4; ++k) {
+                                gta2::Mat4 nm;
+                                if (!ModelNodeWorld(*model, kJ[k], locoA, locoTA, locoB, locoTB, locoW, &nm)) continue;
+                                const float q[3] = {nm.m[3][0], nm.m[3][1], nm.m[3][2]};
+                                for (int c = 0; c < 3; ++c) j[k][c] = q[0] * world.m[0][c] + q[1] * world.m[1][c] + q[2] * world.m[2][c] + world.m[3][c];
+                            }
+                            Log("getup: f=%u o=%04x st=%d sub=0x%x pf=%u corpse=%d act=%d rev=%d kd=%d rise=%d lie=%d t=%.3f aw=%.2f clip=%s rag=%d hd=%.3f "
+                                "org %.3f,%.3f,%.3f pel %.3f,%.3f,%.3f head %.3f,%.3f,%.3f lf %.3f rf %.3f g %.3f,%.3f gu %d%d %.3f,%.3f dx %.3f,%.3f",
+                                g_carFrame, static_cast<unsigned>((sprite.object >> 2) & 0xFFFF), sprite.pedState, sprite.pedSub, sprite.pedFrame % 158u,
+                                sprite.corpse ? 1 : 0, track.action, track.actionReverse ? 1 : 0, track.kd ? 1 : 0, track.kdRising ? 1 : 0, track.lieClip,
+                                track.actionTime, actW, actionClip ? actionClip->name.c_str() : (locoA ? locoA->name.c_str() : "-"), ragdoll ? 1 : 0,
+                                track.heading, world.m[3][0], world.m[3][1], world.m[3][2], j[0][0], j[0][1] - cy, j[0][2], j[1][0], j[1][1] - cy, j[1][2],
+                                j[2][1] - cy, j[3][1] - cy, gx, gz, track.guOff ? 1 : 0, track.guPinned ? 1 : 0, track.guOX, track.guOZ, track.dx, track.dz);
+                        }
+                    }
                 }
                 if (!kdSkipDraw) {
                     ModelSetTextureSwaps(ident.texFrom, ident.texTo, ident.texSwaps);   // PEDS-FACES: hair and cap colours
