@@ -353,6 +353,20 @@ bool ModelNodeWorld(const Model& model, const char* name, const ModelAnimation* 
 // A synthetic looping animation that spins every node whose name contains
 // `nodeSubstring` about `axis` (0 x, 1 y, 2 z) once per `period` seconds, kept
 // with the model (made once, returned again after). Null when no node matches.
+// FIX-GETUP: a real get-up for a person lying in `lyingClip`'s last pose, from his back or his front (sit up, knees in,
+// over onto the feet, rise / hands under, hands and knees, kneel up on one knee, rise off the other foot), built for
+// this avatar at first use (model_store.cpp, the key poses there); null when the avatar lacks the joints or clips.
+// It starts on the lying clip's last frame and ends on the idle's first, the root solved so the lowest joint is on
+// the ground and the joint carrying him does not slide. `info`: its length; where he ends up standing against the
+// lying pose (model space: the clip is drawn shifted back by it, so the renderer moves the figure forward by it when
+// the get-up starts); from when his feet are under him (the turn to the game's facing); the pelvis every 1/30 s
+// (model space, height over the ground). GTA2DX9_GETUP=0 (the renderer's switch) keeps the old reversed fall.
+struct ModelGetUpInfo {
+    float length = 0.0f, endX = 0.0f, endZ = 0.0f, turnFrom = 0.0f;
+    bool fromFront = false;
+    std::vector<float> pelvisX, pelvisY, pelvisZ;
+};
+const ModelAnimation* ModelGetUpClip(const Model& model, const char* lyingClip, bool fromFront, const ModelGetUpInfo** info);
 const ModelAnimation* ModelSpinAnimation(const Model& model, const char* nodeSubstring, int axis, float period);
 void ModelsReleaseDevice();
 int ModelsDrawnThisFrame();

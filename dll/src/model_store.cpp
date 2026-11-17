@@ -14,6 +14,7 @@
 #include <deque>
 #include <mutex>
 #include <map>
+#include <memory>
 #include <tuple>
 #include <unordered_set>
 #include <set>
@@ -4148,6 +4149,351 @@ bool ModelNodeWorld(const Model& model, const char* name, const ModelAnimation* 
     NodeWorldsBlend(model, animation, time, second, secondTime, weight, &worlds);
     *out = worlds[static_cast<size_t>(index)];
     return true;
+}
+
+
+// ---- FIX-GETUP: the get-up clips ------------------------------------------------------------------------------
+// GTA2 knocks a person down and stands him up again; the figure used to get up by playing its fall backwards, a
+// stiff plank tipping up about the pelvis (from the back the legs swept up through the road, from the front a
+// dive in reverse), then turned on the spot to the game's facing. These clips are a real get-up, built for each
+// avatar at first use from key poses on the Biped skeleton, in the language of tools/gen_ped_clips.py (turns
+// about the avatar's own axes, x right... -x his right, y up, z forward, applied over the idle's first frame and
+// resolved root-down):
+//   from the back:  sit up onto the elbows, sit up with the knees drawn in and a hand planted behind the hip,
+//                   weight forward onto the feet into a crouch (the hand pushing off the road), rise, stand;
+//   from the front: hands under the shoulders, push up onto hands and knees, kneel up on one knee with the other
+//                   foot planted ahead, rise off that foot, stand.
+// The first frame is exactly the lying clip's last (the pose the body lies in), the last the idle's first. The
+// root is solved per frame (30 a second): its height puts the lowest joint on the ground (each joint at its own
+// clearance, nothing below the road), and across the road it keeps the joint that carries him in place (the
+// pelvis, the hands, a knee, the planted foot), so nothing slides. Where he ends up standing (ahead of where his
+// pelvis lay) is returned so the renderer can draw the clip from there.
+namespace {
+struct GuQ { float x, y, z, w; };
+GuQ GuMul(const GuQ& a, const GuQ& b) {
+    return {a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y, a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+            a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w, a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z};
+}
+GuQ GuInv(const GuQ& q) { return {-q.x, -q.y, -q.z, q.w}; }
+GuQ GuNorm(GuQ q) {
+    const float l = std::sqrt(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
+    if (l > 1e-8f) { q.x /= l; q.y /= l; q.z /= l; q.w /= l; }
+    return q;
+}
+GuQ GuNlerp(const GuQ& a, GuQ b, float f) {
+    if (a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w < 0.0f) { b.x = -b.x; b.y = -b.y; b.z = -b.z; b.w = -b.w; }
+    return GuNorm({a.x + (b.x - a.x) * f, a.y + (b.y - a.y) * f, a.z + (b.z - a.z) * f, a.w + (b.w - a.w) * f});
+}
+// A turn about one of the avatar's axes: 'r' his right (-x: +deg swings a hanging limb forward, tips the torso
+// back), 'u' up (+deg turns forward toward +x, his left), 'f' forward (+deg swings a hanging limb toward +x).
+GuQ GuAxis(char axis, float deg) {
+    const float h = 0.5f * deg * 0.01745329f, s = std::sin(h);
+    if (axis == 'r') return {-s, 0.0f, 0.0f, std::cos(h)};
+    if (axis == 'u') return {0.0f, s, 0.0f, std::cos(h)};
+    return {0.0f, 0.0f, s, std::cos(h)};
+}
+struct GuTurn { const char* joint; char axis; float deg; };
+struct GuKey {
+    float time;
+    std::vector<GuTurn> turns;
+    int anchor;   // what carries him from this key to the next: 0 pelvis, 1 the hands, 2 the feet, 3 left knee, 4 right foot
+};
+constexpr const char* kGuRoot = "Bip01";
+// From the back. (Net pitches in the comments: a limb's angle from hanging straight down, + forward; the torso's
+// from upright, + leaning back. A child's turn adds to its parent's.)
+std::vector<GuKey> GuFromBack() {
+    return {
+        // sitting up onto the elbows: torso 60 back (30 off the road), chin in, knees starting to bend, elbows
+        // down behind the shoulders, forearms on the road
+        {0.40f, {{kGuRoot, 'r', 60}, {"Bip01 Spine1", 'r', -10}, {"Bip01 Spine2", 'r', -10}, {"Bip01 Head", 'r', -25},
+                 {"Bip01 R Thigh", 'r', 45}, {"Bip01 L Thigh", 'r', 45}, {"Bip01 R Calf", 'r', -30}, {"Bip01 L Calf", 'r', -30},
+                 {"Bip01 R UpperArm", 'f', -15}, {"Bip01 R UpperArm", 'r', -75}, {"Bip01 R Forearm", 'r', 100},
+                 {"Bip01 L UpperArm", 'f', 15}, {"Bip01 L UpperArm", 'r', -75}, {"Bip01 L Forearm", 'r', 100}}, 0},
+        // sitting up: torso 20 back, curled over the knees, knees up (thigh 140), feet drawn in flat (shin 30),
+        // knees a little apart; the right hand planted behind the hip, the left forearm over the knee
+        {0.80f, {{kGuRoot, 'r', 20}, {"Bip01 Spine1", 'r', -15}, {"Bip01 Spine2", 'r', -10}, {"Bip01 Head", 'r', -5},
+                 {"Bip01 R Thigh", 'r', 120}, {"Bip01 L Thigh", 'r', 120}, {"Bip01 R Thigh", 'u', -12}, {"Bip01 L Thigh", 'u', 12}, {"Bip01 R Calf", 'r', -110}, {"Bip01 L Calf", 'r', -110},
+                 {"Bip01 R Foot", 'r', -30}, {"Bip01 L Foot", 'r', -30},
+                 {"Bip01 R UpperArm", 'f', -20}, {"Bip01 R UpperArm", 'r', -25},
+                 {"Bip01 L UpperArm", 'f', 10}, {"Bip01 L UpperArm", 'r', 60}, {"Bip01 L Forearm", 'r', 30}}, 2},
+        // over onto the feet: a deep crouch, torso 35 forward, the right hand on the road beside the foot pushing,
+        // the left forearm on the knee, looking ahead
+        {1.15f, {{kGuRoot, 'r', -35}, {"Bip01 Spine1", 'r', -10}, {"Bip01 Head", 'r', 20},
+                 {"Bip01 R Thigh", 'r', 150}, {"Bip01 L Thigh", 'r', 150}, {"Bip01 R Thigh", 'u', -8}, {"Bip01 L Thigh", 'u', 8}, {"Bip01 R Calf", 'r', -140}, {"Bip01 L Calf", 'r', -140},
+                 {"Bip01 R Foot", 'r', 25}, {"Bip01 L Foot", 'r', 25},
+                 {"Bip01 R UpperArm", 'f', -15}, {"Bip01 R UpperArm", 'r', 45}, {"Bip01 R Forearm", 'r', 10},
+                 {"Bip01 L UpperArm", 'r', 80}, {"Bip01 L Forearm", 'r', 40}}, 2},
+        // rising: torso 20 forward, thighs 45, shins 15 forward, the hands coming off
+        {1.50f, {{kGuRoot, 'r', -20}, {"Bip01 Head", 'r', 10},
+                 {"Bip01 R Thigh", 'r', 65}, {"Bip01 L Thigh", 'r', 65}, {"Bip01 R Calf", 'r', -60}, {"Bip01 L Calf", 'r', -60},
+                 {"Bip01 R Foot", 'r', 15}, {"Bip01 L Foot", 'r', 15},
+                 {"Bip01 R UpperArm", 'f', -10}, {"Bip01 R UpperArm", 'r', 30}, {"Bip01 R Forearm", 'r', 25},
+                 {"Bip01 L UpperArm", 'f', 10}, {"Bip01 L UpperArm", 'r', 30}, {"Bip01 L Forearm", 'r', 25}}, 2},
+    };
+}
+constexpr float kGuBackLen = 1.85f;
+// From the front.
+std::vector<GuKey> GuFromFront() {
+    return {
+        // hands under the shoulders, head up, legs together, toes tucked
+        {0.40f, {{kGuRoot, 'r', -90}, {"Bip01 Head", 'r', 25},
+                 {"Bip01 R UpperArm", 'r', 50}, {"Bip01 R Forearm", 'r', 60}, {"Bip01 L UpperArm", 'r', 50}, {"Bip01 L Forearm", 'r', 60}}, 1},
+        // pushed up onto hands and knees: back level, arms straight down, thighs straight down, shins on the road
+        {0.85f, {{kGuRoot, 'r', -85}, {"Bip01 Spine1", 'r', 5}, {"Bip01 Head", 'r', 20},
+                 {"Bip01 R UpperArm", 'r', 85}, {"Bip01 L UpperArm", 'r', 85},
+                 {"Bip01 R Thigh", 'r', 85}, {"Bip01 L Thigh", 'r', 85}, {"Bip01 R Calf", 'r', -90}, {"Bip01 L Calf", 'r', -90}}, 3},
+        // kneeling up on the left knee, the right foot planted ahead, the right hand on that knee
+        {1.25f, {{kGuRoot, 'r', -25}, {"Bip01 Head", 'r', 10},
+                 {"Bip01 R Thigh", 'r', 105}, {"Bip01 R Calf", 'r', -85}, {"Bip01 R Foot", 'r', 5},
+                 {"Bip01 L Thigh", 'r', 20}, {"Bip01 L Calf", 'r', -85},
+                 {"Bip01 R UpperArm", 'r', 70}, {"Bip01 R Forearm", 'r', 30}, {"Bip01 L UpperArm", 'r', 25}, {"Bip01 L Forearm", 'r', 10}}, 4},
+        // rising off the right foot, the left knee off the road, pushing on its toes
+        {1.65f, {{kGuRoot, 'r', -15}, {"Bip01 Head", 'r', 5},
+                 {"Bip01 R Thigh", 'r', 60}, {"Bip01 R Calf", 'r', -60}, {"Bip01 R Foot", 'r', 15},
+                 {"Bip01 L Thigh", 'r', -10}, {"Bip01 L Calf", 'r', -25}, {"Bip01 L Foot", 'r', -20},
+                 {"Bip01 R UpperArm", 'r', 35}, {"Bip01 R Forearm", 'r', 20}, {"Bip01 L UpperArm", 'r', 5}, {"Bip01 L Forearm", 'r', 10}}, 4},
+    };
+}
+constexpr float kGuFrontLen = 2.0f;
+
+struct GuClip {
+    ModelAnimation clip;
+    ModelGetUpInfo info;
+};
+std::map<std::pair<const Model*, std::string>, std::unique_ptr<GuClip>> g_getUpClips;
+}   // namespace
+
+const ModelAnimation* ModelGetUpClip(const Model& model, const char* lyingClip, bool fromFront, const ModelGetUpInfo** info) {
+    const std::pair<const Model*, std::string> key(&model, std::string(lyingClip) + (fromFront ? "/f" : "/b"));
+    auto found = g_getUpClips.find(key);
+    if (found != g_getUpClips.end()) {
+        if (!found->second) return nullptr;
+        if (info) *info = &found->second->info;
+        return &found->second->clip;
+    }
+    g_getUpClips[key] = nullptr;   // tried once
+    const ModelAnimation* lie = model.Animation(lyingClip);
+    const ModelAnimation* idle = model.Animation("idle");
+    const size_t n = model.nodes.size();
+    auto find = [&](const char* name) { for (size_t i = 0; i < n; ++i) if (strcmp(model.nodes[i].name, name) == 0) return static_cast<int>(i); return -1; };
+    const int root = find(kGuRoot), pel = find("Bip01 Pelvis");
+    if (!lie || !idle || root < 0 || pel < 0 || lie->length <= 0.0f || n == 0) return nullptr;
+    // Root-down order.
+    std::vector<int> order;
+    {
+        std::vector<char> done(n, 0);
+        for (size_t s = 0; s < n; ++s) {
+            std::vector<int> chain;
+            for (int i = static_cast<int>(s), g = 0; i >= 0 && !done[static_cast<size_t>(i)] && g < 64; i = model.nodes[static_cast<size_t>(i)].parent, ++g) chain.push_back(i);
+            for (auto it = chain.rbegin(); it != chain.rend(); ++it) { done[static_cast<size_t>(*it)] = 1; order.push_back(*it); }
+        }
+        if (order.size() != n) return nullptr;
+    }
+    // The base (the idle's first frame over the rest pose) and the lying pose (the lying clip's last frame).
+    std::vector<gta2::Vec3> bt(n), bs(n), lt, ls;
+    std::vector<std::array<float, 4>> bq(n), lq;
+    for (size_t i = 0; i < n; ++i) { bt[i] = model.nodes[i].translation; bs[i] = model.nodes[i].scale; memcpy(bq[i].data(), model.nodes[i].rotation, sizeof(float) * 4); }
+    lt = bt; ls = bs; lq = bq;
+    SampleClip(model, idle, 0.0f, &bt, &bq, &bs);
+    // (the lying pose over the rest pose, as the store draws the lying clip: a joint it has no channel for stays at rest)
+    SampleClip(model, lie, lie->length - 0.0005f, &lt, &lq, &ls);
+    auto toQ = [](const std::array<float, 4>& a) { return GuQ{a[0], a[1], a[2], a[3]}; };
+    // A key's local rotations: its turns as world turns about each joint over the base, resolved root-down.
+    auto pose = [&](const std::vector<GuTurn>& turns, std::vector<GuQ>* out) {
+        out->assign(n, GuQ{0, 0, 0, 1});
+        std::vector<GuQ> wr(n);
+        for (int i : order) {
+            const int p = model.nodes[static_cast<size_t>(i)].parent;
+            const GuQ pw = p < 0 ? GuQ{0, 0, 0, 1} : wr[static_cast<size_t>(p)];
+            GuQ q = toQ(bq[static_cast<size_t>(i)]);
+            for (const GuTurn& t : turns)
+                if (strcmp(t.joint, model.nodes[static_cast<size_t>(i)].name) == 0)
+                    q = GuNorm(GuMul(GuInv(pw), GuMul(GuAxis(t.axis, t.deg), GuMul(pw, q))));
+            (*out)[static_cast<size_t>(i)] = q;
+            wr[static_cast<size_t>(i)] = GuNorm(GuMul(pw, q));
+        }
+    };
+    const std::vector<GuKey> mid = fromFront ? GuFromFront() : GuFromBack();
+    const float len = fromFront ? kGuFrontLen : kGuBackLen;
+    struct K { float time; std::vector<GuQ> q; int anchor; };
+    std::vector<K> keys;
+    {
+        K k0{0.0f, {}, 0};
+        for (size_t i = 0; i < n; ++i) k0.q.push_back(toQ(lq[i]));
+        keys.push_back(k0);
+        for (const GuKey& g : mid) { K k{g.time, {}, g.anchor}; pose(g.turns, &k.q); keys.push_back(k); }
+        K kn{len, {}, 2};
+        for (size_t i = 0; i < n; ++i) kn.q.push_back(toQ(bq[i]));
+        keys.push_back(kn);
+    }
+    // Forward kinematics as the store draws (row vectors: world = local x parent), the root's translation given.
+    // The joints' own translations (mocap avatars key some): the lying clip's at the first frame, the idle's after,
+    // drawn as channels too so the store draws what is solved here.
+    std::vector<gta2::Vec3> curT = bt;
+    auto fk = [&](const std::vector<GuQ>& q, const gta2::Vec3& rootT, std::vector<gta2::Mat4>* w) {
+        w->resize(n);
+        for (int i : order) {
+            const size_t u = static_cast<size_t>(i);
+            const float qa[4] = {q[u].x, q[u].y, q[u].z, q[u].w};
+            const gta2::Mat4 local = Compose(i == root ? rootT : curT[u], qa, bs[u]);
+            const int p = model.nodes[u].parent;
+            (*w)[u] = p < 0 ? local : Multiply(local, (*w)[static_cast<size_t>(p)]);
+        }
+    };
+    // The root's parent frame (to turn a model-space shift into the root's own translation).
+    gta2::Mat4 parentW;   // identity unless the root has a parent
+    {
+        std::vector<gta2::Mat4> w;
+        std::vector<GuQ> q0(n);
+        for (size_t i = 0; i < n; ++i) q0[i] = toQ(bq[i]);
+        fk(q0, bt[static_cast<size_t>(root)], &w);
+        const int rp = model.nodes[static_cast<size_t>(root)].parent;
+        if (rp >= 0) parentW = w[static_cast<size_t>(rp)];
+    }
+    // Model-space shift -> the root's translation: solve shift = d * parentW(3x3) for d (row vector).
+    auto toLocal = [&](const gta2::Vec3& d) {
+        const float* m0 = parentW.m[0]; const float* m1 = parentW.m[1]; const float* m2 = parentW.m[2];
+        const float det = m0[0] * (m1[1] * m2[2] - m1[2] * m2[1]) - m0[1] * (m1[0] * m2[2] - m1[2] * m2[0]) + m0[2] * (m1[0] * m2[1] - m1[1] * m2[0]);
+        if (std::fabs(det) < 1e-12f) return d;
+        // inverse of M (rows m0..m2), then d * M^-1
+        float inv[3][3];
+        inv[0][0] = (m1[1] * m2[2] - m1[2] * m2[1]) / det; inv[0][1] = (m0[2] * m2[1] - m0[1] * m2[2]) / det; inv[0][2] = (m0[1] * m1[2] - m0[2] * m1[1]) / det;
+        inv[1][0] = (m1[2] * m2[0] - m1[0] * m2[2]) / det; inv[1][1] = (m0[0] * m2[2] - m0[2] * m2[0]) / det; inv[1][2] = (m0[2] * m1[0] - m0[0] * m1[2]) / det;
+        inv[2][0] = (m1[0] * m2[1] - m1[1] * m2[0]) / det; inv[2][1] = (m0[1] * m2[0] - m0[0] * m2[1]) / det; inv[2][2] = (m0[0] * m1[1] - m0[1] * m1[0]) / det;
+        gta2::Vec3 o;
+        o.x = d.x * inv[0][0] + d.y * inv[1][0] + d.z * inv[2][0];
+        o.y = d.x * inv[0][1] + d.y * inv[1][1] + d.z * inv[2][1];
+        o.z = d.x * inv[0][2] + d.y * inv[1][2] + d.z * inv[2][2];
+        return o;
+    };
+    // The ground and each joint's clearance over it: the feet and toes from the standing base pose; the rest in
+    // parts of the standing pelvis height.
+    std::vector<gta2::Mat4> w;
+    fk(keys.back().q, bt[static_cast<size_t>(root)], &w);
+    const float ground = model.boundsMin.y;
+    const float H = w[static_cast<size_t>(pel)].m[3][1] - ground;
+    if (!(H > 1e-4f)) return nullptr;
+    struct Contact { int node; float clear; };
+    std::vector<Contact> contacts;
+    auto add = [&](const char* name, float clear, bool fromBase) {
+        const int i = find(name);
+        if (i < 0) return;
+        contacts.push_back({i, fromBase ? (std::max)(0.0f, w[static_cast<size_t>(i)].m[3][1] - ground) : clear * H});
+    };
+    for (const char* f : {"Bip01 L Foot", "Bip01 R Foot", "Bip01 L Toe0", "Bip01 R Toe0"}) add(f, 0.0f, true);
+    for (const char* h : {"Bip01 L Hand", "Bip01 R Hand"}) add(h, 0.04f, false);
+    for (const char* e : {"Bip01 L Forearm", "Bip01 R Forearm"}) add(e, 0.05f, false);
+    for (const char* k : {"Bip01 L Calf", "Bip01 R Calf"}) add(k, 0.06f, false);
+    for (const char* s : {"Bip01 L UpperArm", "Bip01 R UpperArm"}) add(s, 0.07f, false);
+    for (const char* s : {"Bip01 Pelvis", "Bip01 Spine", "Bip01 Spine1", "Bip01 Spine2", "Bip01 L Thigh", "Bip01 R Thigh"}) add(s, 0.10f, false);
+    add("Bip01 Neck", 0.08f, false);
+    add("Bip01 Head", 0.11f, false);
+    const int lHand = find("Bip01 L Hand"), rHand = find("Bip01 R Hand"), lFoot = find("Bip01 L Foot"), rFoot = find("Bip01 R Foot"), lKnee = find("Bip01 L Calf");
+    auto anchorAt = [&](int a, const std::vector<gta2::Mat4>& m, float* x, float* z) {
+        auto P = [&](int i) { return i >= 0 ? &m[static_cast<size_t>(i)].m[3][0] : &m[static_cast<size_t>(pel)].m[3][0]; };
+        if (a == 1 && lHand >= 0 && rHand >= 0) { *x = 0.5f * (P(lHand)[0] + P(rHand)[0]); *z = 0.5f * (P(lHand)[2] + P(rHand)[2]); return; }
+        if (a == 2 && lFoot >= 0 && rFoot >= 0) { *x = 0.5f * (P(lFoot)[0] + P(rFoot)[0]); *z = 0.5f * (P(lFoot)[2] + P(rFoot)[2]); return; }
+        const int i = a == 3 ? lKnee : a == 4 ? rFoot : pel;
+        *x = P(i)[0]; *z = P(i)[2];
+    };
+    // Sample at 30 a second.
+    const int frames = static_cast<int>(std::ceil(len * 30.0f)) + 1;
+    std::unique_ptr<GuClip> out(new GuClip());
+    out->clip.name = std::string("getup_") + (fromFront ? "front:" : "back:") + lyingClip;
+    out->clip.length = len;
+    std::vector<ModelChannel> rot(n);
+    for (size_t i = 0; i < n; ++i) { rot[i].node = static_cast<int>(i); rot[i].path = 1; }
+    ModelChannel tr; tr.node = root; tr.path = 0;
+    std::vector<ModelChannel> trs(n);
+    for (size_t i = 0; i < n; ++i) { trs[i].node = static_cast<int>(i); trs[i].path = 0; }
+    const gta2::Vec3 lieRoot = lt[static_cast<size_t>(root)];
+    gta2::Vec3 shift{0.0f, 0.0f, 0.0f};   // model space, carried from segment to segment
+    int seg = -1;
+    float anchorX = 0.0f, anchorZ = 0.0f, startDy = 0.0f;
+    std::vector<GuQ> q(n);
+        for (int f = 0; f < frames; ++f) {
+        const float t = (std::min)(len, static_cast<float>(f) / 30.0f);
+        size_t k = 0;
+        while (k + 2 < keys.size() && keys[k + 1].time <= t) ++k;
+        const float span = keys[k + 1].time - keys[k].time;
+        float u = span > 1e-5f ? (t - keys[k].time) / span : 1.0f;
+        u = (std::max)(0.0f, (std::min)(1.0f, u));
+        // eased within each key: half linear, half smoothstep (moves through a key without stopping dead)
+        u = 0.5f * u + 0.5f * u * u * (3.0f - 2.0f * u);
+        for (size_t i = 0; i < n; ++i) q[i] = GuNlerp(keys[k].q[i], keys[k + 1].q[i], u);
+        for (size_t i = 0; i < n; ++i) {
+            const gta2::Vec3& a = k == 0 ? lt[i] : bt[i];
+            const gta2::Vec3& b = bt[i];
+            curT[i] = {a.x + (b.x - a.x) * u, a.y + (b.y - a.y) * u, a.z + (b.z - a.z) * u};
+            if (static_cast<int>(i) != root) {
+                trs[i].times.push_back(t);
+                trs[i].values.push_back(curT[i].x); trs[i].values.push_back(curT[i].y); trs[i].values.push_back(curT[i].z);
+            }
+        }
+        // The root: the lying root moved by the carried shift; then over the road by the anchor, onto the ground.
+        gta2::Vec3 rt = lieRoot;
+        fk(q, rt, &w);
+        // the root's translation turned into a model-space displacement of the whole body is linear: apply `shift`
+        // as a model-space offset to every joint position read below.
+        if (static_cast<int>(k) != seg) {
+            // a new segment: its anchor where it is now (continuous: the shift so far keeps it)
+            seg = static_cast<int>(k);
+            const std::vector<gta2::Mat4>& m = w;
+            float ax, az;
+            anchorAt(keys[k].anchor, m, &ax, &az);
+            anchorX = ax + shift.x; anchorZ = az + shift.z;
+        }
+        {
+            float ax, az;
+            anchorAt(keys[k].anchor, w, &ax, &az);
+            shift.x = anchorX - ax; shift.z = anchorZ - az;
+        }
+        float lift = -1e9f;
+        for (const Contact& c : contacts) lift = (std::max)(lift, ground + c.clear - w[static_cast<size_t>(c.node)].m[3][1]);
+        if (f == 0) startDy = -lift;   // the lying pose as the lying clip has it, eased into the solved height
+        const float e01 = (std::max)(0.0f, (std::min)(1.0f, t / 0.3f));
+        const float ease = 1.0f - e01 * e01 * (3.0f - 2.0f * e01);
+        const float dy = lift + startDy * ease;
+        const gta2::Vec3 d{shift.x, dy, shift.z};
+        const gta2::Vec3 dl = toLocal(d);
+        const gta2::Vec3 rootT{lieRoot.x + dl.x, lieRoot.y + dl.y, lieRoot.z + dl.z};
+        tr.times.push_back(t);
+        tr.values.push_back(rootT.x); tr.values.push_back(rootT.y); tr.values.push_back(rootT.z);
+        for (size_t i = 0; i < n; ++i) {
+            rot[i].times.push_back(t);
+            rot[i].values.push_back(q[i].x); rot[i].values.push_back(q[i].y); rot[i].values.push_back(q[i].z); rot[i].values.push_back(q[i].w);
+        }
+        out->info.pelvisX.push_back(w[static_cast<size_t>(pel)].m[3][0] + shift.x);
+        out->info.pelvisZ.push_back(w[static_cast<size_t>(pel)].m[3][2] + shift.z);
+        out->info.pelvisY.push_back(w[static_cast<size_t>(pel)].m[3][1] + dy - ground);
+    }
+    // Where he stands at the end against the idle's own pelvis (model space): the clip is shifted back by it so it
+    // hands over to the idle in place, and the renderer moves the figure forward by it as the get-up starts.
+    {
+        std::vector<GuQ> q0(n);
+        for (size_t i = 0; i < n; ++i) q0[i] = toQ(bq[i]);
+        curT = bt;
+        fk(q0, bt[static_cast<size_t>(root)], &w);
+        out->info.endX = out->info.pelvisX.back() - w[static_cast<size_t>(pel)].m[3][0];
+        out->info.endZ = out->info.pelvisZ.back() - w[static_cast<size_t>(pel)].m[3][2];
+        const gta2::Vec3 el = toLocal({out->info.endX, 0.0f, out->info.endZ});
+        for (size_t v = 0; v + 2 < tr.values.size(); v += 3) { tr.values[v] -= el.x; tr.values[v + 1] -= el.y; tr.values[v + 2] -= el.z; }
+        for (float& x : out->info.pelvisX) x -= out->info.endX;
+        for (float& z : out->info.pelvisZ) z -= out->info.endZ;
+    }
+    for (ModelChannel& c : rot) out->clip.channels.push_back(std::move(c));
+    for (size_t i = 0; i < n; ++i) if (static_cast<int>(i) != root) out->clip.channels.push_back(std::move(trs[i]));
+    out->clip.channels.push_back(std::move(tr));
+    out->info.length = len;
+    out->info.turnFrom = fromFront ? 1.15f : 1.0f;   // weight coming onto the feet: from here the turn to the game facing
+    out->info.fromFront = fromFront;
+    Log("getup: built %s for %s: %d frames, %.2f s, stands %.3f,%.3f from where the pelvis lay (pelvis height %.3f -> %.3f, H %.3f)",
+        out->clip.name.c_str(), model.name.c_str(), frames, len, out->info.endX, out->info.endZ,
+        out->info.pelvisY.front(), out->info.pelvisY.back(), H);
+    GuClip* raw = out.get();
+    g_getUpClips[key] = std::move(out);
+    if (info) *info = &raw->info;
+    return &raw->clip;
 }
 
 const ModelAnimation* ModelSpinAnimation(const Model& model, const char* nodeSubstring, int axis, float period) {
