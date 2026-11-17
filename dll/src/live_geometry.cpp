@@ -10772,7 +10772,11 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
     //     re-keyed sprite): he takes that presence over, no fade in and no ghost;
     //   - a figure near the edge of the game's own window (camera +0x78..+0x84), where the game creates and removes
     //     people, is faded by its distance to that edge (0 within 0.75 block of it, whole from 3 blocks in), so the
-    //     window's edge, wherever it lies (2.6x, shrunk at five stars or a grid shed), is never a line people pop at.
+    //     window's edge, wherever it lies (2.6x, shrunk at five stars or a grid shed), is never a line people pop at;
+    //     eased (1/12 a frame), since the game's window itself jumps for a frame now and then (pp_b1: five people in a
+    //     file 4-6 blocks inside it dropped for one frame and back whole);
+    //   - someone getting into or out of a car keeps his presence (no snap to whole), and when the game stops drawing
+    //     him he is drawn on and fades like anyone else unless the boarding draws him (its own ghost or seat).
     // The player, his seat and boarding, and people getting into or out of cars (the boarding ghosts draw those) are
     // drawn as before. Classic view: not run. [camera] ped_presence_fade=0 or GTA2DX9_PED_PRESENCE=0: as before (A/B).
     struct Presence {
@@ -10780,6 +10784,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         uint32_t seen = 0, ghostFrom = 0;
         int32_t pedId = -1;
         float x = 0.0f, z = 0.0f, vx = 0.0f, vz = 0.0f;   // the game's point, blocks a frame
+        float edge = 1.0f;   // the window-edge fade, eased (the game's window jumps for a frame now and then)
         bool ghostable = false;
         Sprite last{};
     };
@@ -10839,6 +10844,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 Presence p;
                 p.alpha = (fresh || hero || carDoor) ? 1.0f : 0.0f;
                 p.x = x; p.z = z;
+                p.edge = presenceEdge(x, z);
                 it = s_presence.emplace(sp.object, p).first;
                 if (p.alpha < 1.0f) newcomers.push_back(sp.object);
             } else {
@@ -10852,13 +10858,15 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 }
                 p.x = x; p.z = z;
                 p.ghostFrom = 0;   // back: a dropped sprite bridged
-                p.alpha = (hero || carDoor) ? 1.0f : (std::min)(1.0f, p.alpha + kIn);
+                p.alpha = hero ? 1.0f : (std::min)(1.0f, p.alpha + kIn);
             }
             Presence& p = it->second;
             p.seen = g_carFrame;
             p.pedId = sp.pedId;
-            p.ghostable = !hero && !carDoor && !sp.hidden && !sp.ghost && !sp.boardUi && !sp.shadowOnly && !sp.planOnly && !(sp.object & 3u);
+            p.ghostable = !hero && !sp.hidden && !sp.ghost && !sp.boardUi && !sp.shadowOnly && !sp.planOnly && !(sp.object & 3u);
             if (p.ghostable) p.last = sp;
+            const float target = presenceEdge(x, z);
+            p.edge += (std::max)(-kIn, (std::min)(kIn, target - p.edge));
         }
         for (auto it = s_presence.begin(); it != s_presence.end();) {
             Presence& p = it->second;
@@ -10880,9 +10888,14 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     }
                 }
             }
+            const uintptr_t k = it->first;
+            const bool boarded = boardSprites_.count(k) || boardSprites_.count(k | 1u) || boardSprites_.count(k | 3u) || BoardingBusy(k);
+            if (!handed && (!p.ghostable || boarded) && since <= kGhostMost) { ++it; continue; }   // not drawn: kept for a hand-over
             if (!handed && p.ghostable && since <= kGhostMost && p.alpha > 0.02f) {
                 if (!p.ghostFrom) p.ghostFrom = g_carFrame;
                 if (g_carFrame - p.ghostFrom >= kGhostHold) p.alpha = (std::max)(0.0f, p.alpha - kOut);
+                const float target = presenceEdge(p.x + p.vx * static_cast<float>(since), p.z + p.vz * static_cast<float>(since));
+                p.edge += (std::max)(-kIn, (std::min)(kIn, target - p.edge));
             } else {
                 handed = true;   // (dropped below)
             }
@@ -10913,10 +10926,14 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
     struct ProbeFig { float x, y, z, a; int32_t pedId; const void* model; };
     static std::unordered_map<uintptr_t, ProbeFig> s_probeLast, s_probeNow;
     static std::unordered_map<uintptr_t, uint32_t> s_probeDrawnAt;
-    std::set<uintptr_t> probeGame;
+    std::map<uintptr_t, int> probeGame;   // key -> the sprite's flags (for a vanish our renderer made)
     if (popProbe) {
-        for (size_t i = 0; i < boardRealSprites && i < sprites_.size(); ++i)
-            if ((sprites_[i].pedestrian || sprites_[i].corpse) && sprites_[i].object) probeGame.insert(sprites_[i].object);
+        for (size_t i = 0; i < boardRealSprites && i < sprites_.size(); ++i) {
+            const Sprite& sp = sprites_[i];
+            if ((sp.pedestrian || sp.corpse) && sp.object)
+                probeGame[sp.object] = (sp.hidden ? 1 : 0) | (sp.ghost ? 2 : 0) | (sp.boardUi ? 4 : 0) | (sp.climbing ? 8 : 0) | (sp.corpse ? 16 : 0) |
+                                       (sp.planOnly ? 32 : 0) | (sp.shadowOnly ? 64 : 0) | (sp.inVehicleNow ? 128 : 0) | ((sp.pedState & 0xFF) << 8);
+        }
     }
     auto probeNote = [&](uintptr_t key, int32_t pedId, float x, float y, float z, float a, const void* model) {
         if (popProbe && streetFigures) s_probeNow[key] = {x, y, z, a, pedId, model};
@@ -13018,7 +13035,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             // FIX-PED-POP: his presence (fading in, drawn on from his last sprite) and the game's window edge.
             if (presenceOn && !heroFigure && !fpBody && !kdSkipDraw) {
                 const auto pit = s_presence.find(sprite.object);
-                const float a = (pit != s_presence.end() ? pit->second.alpha : 1.0f) * presenceEdge(gx, gz);
+                const float a = pit != s_presence.end() ? pit->second.alpha * pit->second.edge : presenceEdge(gx, gz);
                 if (a < 0.98f) {
                     if (a <= 0.02f) continue;
                     pedLensAlpha *= a;
@@ -14638,11 +14655,23 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 Log("pedpop: f=%u %s key=%04x id=%d d=%.1f alpha=%.2f->%.2f edge=%.1f %s gap=%d at=%.2f,%.2f", g_carFrame, kind,
                     static_cast<unsigned>((key >> 2) & 0xFFFF), f.pedId, d, a0, a1, gameWinEdge(f.x, f.z), cause, gap, f.x, f.z);
             };
+            // a figure gone and another come at its spot in the same frame is one person re-keyed (a seat key, a new
+            // sprite object): not a pop
+            std::set<uintptr_t> rekeyed;
+            for (const auto& g : s_probeLast) {
+                if (s_probeNow.count(g.first)) continue;
+                for (const auto& e : s_probeNow) {
+                    if (s_probeLast.count(e.first) || rekeyed.count(e.first)) continue;
+                    const float dx = e.second.x - g.second.x, dz = e.second.z - g.second.z;
+                    if (dx * dx + dz * dz < 0.6f * 0.6f) { rekeyed.insert(g.first); rekeyed.insert(e.first); ++c[11]; break; }
+                }
+            }
             for (const auto& e : s_probeNow) {
                 const ProbeFig& f = e.second;
                 const auto pl = s_probeLast.find(e.first);
                 float d = 0.0f;
                 if (pl == s_probeLast.end()) {
+                    if (rekeyed.count(e.first)) continue;
                     if (f.a >= 0.5f && visible(f.x, f.y, f.z, &d)) {
                         const auto da = s_probeDrawnAt.find(e.first);
                         const int gap = da != s_probeDrawnAt.end() ? static_cast<int>(g_carFrame - da->second) : 0;
@@ -14657,20 +14686,23 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 }
             }
             for (const auto& e : s_probeLast) {
-                if (s_probeNow.count(e.first)) continue;
+                if (s_probeNow.count(e.first) || rekeyed.count(e.first)) continue;
                 const ProbeFig& f = e.second;
                 float d = 0.0f;
                 if (f.a >= 0.5f && visible(f.x, f.y, f.z, &d)) {
-                    const bool game = !probeGame.count(e.first);
+                    const auto pg = probeGame.find(e.first);
+                    const bool game = pg == probeGame.end();
                     ++c[3];
                     ++c[game ? 7 : 8];
                     if (gameWinEdge(f.x, f.z) < 1.5f) ++c[10];
-                    line("vanish", e.first, f, d, f.a, 0.0f, game ? "game" : "renderer", 0);
+                    char why[48];
+                    snprintf(why, sizeof why, "renderer(flags=0x%x)", game ? 0 : pg->second);
+                    line("vanish", e.first, f, d, f.a, 0.0f, game ? "game" : why, 0);
                 }
             }
             if (c[0] >= 300) {
-                Log("pedpop: window f=%u frames=%d figure_frames=%d appear=%d (at the window edge %d) vanish=%d (game %d, renderer %d, at the edge %d) blink=%d jump=%d swap=%d presence=%d",
-                    g_carFrame, c[0], c[1], c[2], c[9], c[3], c[7], c[8], c[10], c[4], c[5], c[6], presenceOn ? 1 : 0);
+                Log("pedpop: window f=%u frames=%d figure_frames=%d appear=%d (at the window edge %d) vanish=%d (game %d, renderer %d, at the edge %d) blink=%d jump=%d swap=%d presence=%d rekeyed=%d",
+                    g_carFrame, c[0], c[1], c[2], c[9], c[3], c[7], c[8], c[10], c[4], c[5], c[6], presenceOn ? 1 : 0, c[11]);
                 for (int& v : c) v = 0;
             }
         }
