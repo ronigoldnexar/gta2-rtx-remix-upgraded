@@ -246,6 +246,7 @@ void LoadConfig() {
         vm.chaseHideNearPeds = GetPrivateProfileIntA("camera", "chase_hide_near_peds", 1, ini) != 0;   // FIX-CAMERA-17
         vm.pocketLift = GetPrivateProfileIntA("camera", "pocket_lift", 1, ini) != 0;   // FIX-CAMERA-18
         vm.chasePedFade = GetPrivateProfileIntA("camera", "chase_ped_fade", 1, ini) != 0;   // FIX-CAMERA-18
+        vm.pedPresenceFade = GetPrivateProfileIntA("camera", "ped_presence_fade", 1, ini) != 0;   // FIX-PED-POP
         vm.levelStartCut = GetPrivateProfileIntA("camera", "level_start_cut", 1, ini) != 0;   // FIX-CAMERA-18
         vm.tunnelPivot = GetPrivateProfileIntA("camera", "tunnel_pivot", 1, ini) != 0;   // FIX-CAMERA-18
         vm.trainTrail = GetPrivateProfileIntA("camera", "train_trail", 1, ini) != 0;   // FIX-CAMERA-19

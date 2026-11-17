@@ -1807,6 +1807,12 @@ bool CameraTunnelPivotOn() {
     return env >= 0 ? env != 0 : ViewModes().tunnelPivot;
 }
 
+bool PedPresenceFadeOn() {   // FIX-PED-POP
+    static int env = -2;
+    if (env < -1) { char b[8] = {}; env = GetEnvironmentVariableA("GTA2DX9_PED_PRESENCE", b, sizeof b) ? atoi(b) : -1; }
+    return env >= 0 ? env != 0 : ViewModes().pedPresenceFade;
+}
+
 bool CameraPedFadeOn() {
     static int env = -2;
     if (env < -1) { char b[8] = {}; env = GetEnvironmentVariableA("GTA2DX9_CAM_PED_FADE", b, sizeof b) ? atoi(b) : -1; }

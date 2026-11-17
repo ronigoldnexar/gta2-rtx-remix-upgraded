@@ -89,6 +89,9 @@ struct ViewModeSettings {
     // FIX-CAMERA-18: a pedestrian (or a car) hidden at the chase lens fades over six frames instead of popping.
     // [camera] chase_ped_fade.
     bool chasePedFade = true;
+    // FIX-PED-POP: people fade in when the game creates them, are drawn on and fade out when it removes them, and fade
+    // at the edge of the game's own window instead of popping. [camera] ped_presence_fade.
+    bool pedPresenceFade = true;
     // FIX-CAMERA-18 (qaexp32): the first street frame after a level load is cut to, not moved to from the classic camera.
     // [camera] level_start_cut.
     bool levelStartCut = true;
@@ -293,6 +296,7 @@ bool CameraPocketLiftOn();
 bool CameraPocketGlideOn();
 bool CameraLatticeClipOn();   // FIX-CAMERA-20: [camera] chase_lattice_clip, GTA2DX9_CAM_LATTICE_CLIP   // FIX-CAMERA-20: [camera] pocket_glide, GTA2DX9_CAM_POCKET_GLIDE
 bool CameraPedFadeOn();
+bool PedPresenceFadeOn();   // FIX-PED-POP: [camera] ped_presence_fade, GTA2DX9_PED_PRESENCE
 bool CameraTunnelPivotOn();
 bool CameraTrainTrailOn();   // FIX-CAMERA-19: [camera] train_trail, GTA2DX9_CAM_TRAIN_TRAIL  // FIX-CAMERA-18/19: [camera] tunnel_pivot, GTA2DX9_CAM_TUNNEL_PIVOT
 ViewMode CurrentViewMode();

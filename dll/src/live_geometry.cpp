@@ -10760,6 +10760,167 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             ++it;
         }
     }
+    // FIX-PED-POP (owner: "characters sometimes disappear and reappear"): each person's presence in the street views.
+    // gta2.exe creates and removes its people at the edge of its own window (2.6x the top-down one in the street views,
+    // well inside a chase camera's view and its 18-130 block fog), and now and then hands a person's sprite in late or
+    // not at all for a frame; each of those was a whole figure appearing or vanishing in plain view. Now each figure
+    // carries a presence alpha (drawn see-through as the chase lens fade, FIX-CAMERA-18):
+    //   - a person the game hands in for the first time fades in over 0.4 s;
+    //   - one whose sprite stops coming is drawn on from his last sprite, walking on at his last pace: two frames at his
+    //     presence (a dropped frame is bridged, no blink), then fading out over 0.33 s; back within that, he goes on;
+    //   - a newcomer within 0.7 block of one that just went is the same person under a new sprite object (a corpse, a
+    //     re-keyed sprite): he takes that presence over, no fade in and no ghost;
+    //   - a figure near the edge of the game's own window (camera +0x78..+0x84), where the game creates and removes
+    //     people, is faded by its distance to that edge (0 within 0.75 block of it, whole from 3 blocks in), so the
+    //     window's edge, wherever it lies (2.6x, shrunk at five stars or a grid shed), is never a line people pop at.
+    // The player, his seat and boarding, and people getting into or out of cars (the boarding ghosts draw those) are
+    // drawn as before. Classic view: not run. [camera] ped_presence_fade=0 or GTA2DX9_PED_PRESENCE=0: as before (A/B).
+    struct Presence {
+        float alpha = 1.0f;
+        uint32_t seen = 0, ghostFrom = 0;
+        int32_t pedId = -1;
+        float x = 0.0f, z = 0.0f, vx = 0.0f, vz = 0.0f;   // the game's point, blocks a frame
+        bool ghostable = false;
+        Sprite last{};
+    };
+    static std::unordered_map<uintptr_t, Presence> s_presence;
+    static uint32_t s_presenceFrame = 0;
+    std::set<uintptr_t> presenceGhosts;
+    const bool streetFigures = CurrentViewMode() != ViewMode::Classic && StreetPresentation();
+    const bool presenceOn = g_groundModels && PedPresenceFadeOn() && streetFigures;
+    game::ViewExtent gameWin{};
+    bool gameWinOk = false;
+    if (streetFigures) {
+        const uint8_t* cam = game::CameraStruct();
+        if (game::PlausiblePointer(cam)) gameWinOk = game::VisibleExtent(&gameWin);
+    }
+    // Distance (blocks) from a world point to the nearest edge of the game's window (negative: outside it).
+    auto gameWinEdge = [&](float x, float z) -> float {
+        if (!gameWinOk) return 99.0f;
+        const float gy = static_cast<float>(gta2::kMapHeight) - z;
+        return (std::min)((std::min)(x - gameWin.minX, gameWin.maxX - x), (std::min)(gy - gameWin.minY, gameWin.maxY - gy));
+    };
+    auto presenceEdge = [&](float x, float z) -> float {
+        if (!gameWinOk) return 1.0f;
+        const float d = gameWinEdge(x, z);
+        const float span = (std::min)(gameWin.Width(), gameWin.Height());
+        const float d0 = (std::min)(0.75f, span * 0.05f), d1 = (std::min)(3.0f, span * 0.15f);
+        if (d <= d0) return 0.0f;
+        if (d >= d1) return 1.0f;
+        const float t = (d - d0) / (d1 - d0);
+        return t * t * (3.0f - 2.0f * t);
+    };
+    if (!presenceOn) {
+        s_presence.clear();
+    } else {
+        const bool fresh = s_presence.empty() || g_carFrame - s_presenceFrame > 3;   // just into a street view: all there already
+        s_presenceFrame = g_carFrame;
+        constexpr float kIn = 1.0f / 12.0f, kOut = 1.0f / 10.0f, kMaxStep = 0.12f;
+        constexpr uint32_t kGhostHold = 2, kGhostMost = 14;
+        const uintptr_t playerKey = reinterpret_cast<uintptr_t>(g_playerObject);
+        std::vector<uintptr_t> newcomers;
+        std::set<uintptr_t> present;
+        for (size_t i = 0; i < sprites_.size(); ++i) {
+            const Sprite& sp = sprites_[i];
+            if (!(sp.pedestrian || sp.corpse) || sp.corners != 4 || !sp.object) continue;
+            if (!present.insert(sp.object).second) continue;
+            if (i >= boardRealSprites) continue;   // a boarding ghost: the boarding draws it
+            const float x = sp.objectToWorld.m[3][0], z = sp.objectToWorld.m[3][2];
+            const bool hero = (playerKey && sp.object == playerKey) || (sp.pedId >= 0 && sp.pedId == playerPedId) || BoardingIsPlayer(sp.object);
+            const bool carDoor = sp.recentlyInCar || sp.inVehicleNow || sp.climbing || sp.boardUi;
+            auto it = s_presence.find(sp.object);
+            if (it != s_presence.end()) {
+                const Presence& p = it->second;
+                const float jx = x - p.x, jz = z - p.z;
+                // the game's object went to someone else (another ped id, or a jump no one walks)
+                if ((p.pedId >= 0 && sp.pedId >= 0 && p.pedId != sp.pedId) || jx * jx + jz * jz > 9.0f) { s_presence.erase(it); it = s_presence.end(); }
+            }
+            if (it == s_presence.end()) {
+                Presence p;
+                p.alpha = (fresh || hero || carDoor) ? 1.0f : 0.0f;
+                p.x = x; p.z = z;
+                it = s_presence.emplace(sp.object, p).first;
+                if (p.alpha < 1.0f) newcomers.push_back(sp.object);
+            } else {
+                Presence& p = it->second;
+                const uint32_t gap = g_carFrame - p.seen;
+                if (gap >= 1 && gap <= 3) {
+                    float vx = (x - p.x) / static_cast<float>(gap), vz = (z - p.z) / static_cast<float>(gap);
+                    const float l = std::sqrt(vx * vx + vz * vz);
+                    if (l > kMaxStep) { vx *= kMaxStep / l; vz *= kMaxStep / l; }
+                    p.vx += (vx - p.vx) * 0.5f; p.vz += (vz - p.vz) * 0.5f;
+                }
+                p.x = x; p.z = z;
+                p.ghostFrom = 0;   // back: a dropped sprite bridged
+                p.alpha = (hero || carDoor) ? 1.0f : (std::min)(1.0f, p.alpha + kIn);
+            }
+            Presence& p = it->second;
+            p.seen = g_carFrame;
+            p.pedId = sp.pedId;
+            p.ghostable = !hero && !carDoor && !sp.hidden && !sp.ghost && !sp.boardUi && !sp.shadowOnly && !sp.planOnly && !(sp.object & 3u);
+            if (p.ghostable) p.last = sp;
+        }
+        for (auto it = s_presence.begin(); it != s_presence.end();) {
+            Presence& p = it->second;
+            if (p.seen == g_carFrame || present.count(it->first)) { ++it; continue; }
+            const uint32_t since = g_carFrame - p.seen;
+            // the same person under a new sprite object: the newcomer takes his presence over
+            bool handed = false;
+            if (since <= kGhostMost) {
+                for (size_t n = 0; n < newcomers.size(); ++n) {
+                    const auto q = s_presence.find(newcomers[n]);
+                    if (q == s_presence.end()) continue;
+                    const float dx = q->second.x - (p.x + p.vx * static_cast<float>(since)), dz = q->second.z - (p.z + p.vz * static_cast<float>(since));
+                    if (dx * dx + dz * dz < 0.7f * 0.7f) {
+                        q->second.alpha = (std::max)(q->second.alpha, p.alpha);
+                        q->second.vx = p.vx; q->second.vz = p.vz;
+                        newcomers.erase(newcomers.begin() + static_cast<std::ptrdiff_t>(n));
+                        handed = true;
+                        break;
+                    }
+                }
+            }
+            if (!handed && p.ghostable && since <= kGhostMost && p.alpha > 0.02f) {
+                if (!p.ghostFrom) p.ghostFrom = g_carFrame;
+                if (g_carFrame - p.ghostFrom >= kGhostHold) p.alpha = (std::max)(0.0f, p.alpha - kOut);
+            } else {
+                handed = true;   // (dropped below)
+            }
+            if (handed || p.alpha <= 0.02f) { it = s_presence.erase(it); continue; }
+            sprites_.push_back(p.last);   // his last sprite, walked on at his last pace
+            Sprite& g = sprites_.back();
+            const float t = static_cast<float>(since);
+            g.objectToWorld.m[3][0] = p.x + p.vx * t;
+            g.objectToWorld.m[3][2] = p.z + p.vz * t;
+            presenceGhosts.insert(it->first);
+            ++it;
+        }
+        static uint32_t presLog = 0;
+        if (g_logFigures && g_carFrame - presLog >= 30) {
+            presLog = g_carFrame;
+            Log("presence: f=%u %zu figures, %zu fading in, %zu drawn on from their last sprite, game window %.1fx%.1f", g_carFrame,
+                s_presence.size(), newcomers.size(), presenceGhosts.size(), gameWinOk ? gameWin.Width() : 0.0f, gameWinOk ? gameWin.Height() : 0.0f);
+        }
+    }
+    // FIX-PED-POP probe, GTA2DX9_PEDPOP_PROBE=1: every figure drawn in a street view, its key, point and draw alpha, frame
+    // to frame. 'pedpop:' lines: appear (drawn at 0.5+ alpha where it was not drawn last frame), blink (the same, drawn
+    // again within 2 s of its last draw), vanish (drawn at 0.5+ last frame, not now), jump (alpha changed by 0.5+ in a
+    // frame), swap (another model for the same person) - each counted only in the picture: inside the frustum, within 40
+    // blocks, no wall between the eye and its chest. A vanish says whether the game still handed the sprite in
+    // (renderer: one of our hides) or not (game). Every 300 frames a 'pedpop: window' line sums them.
+    static int popProbe = -1;
+    if (popProbe < 0) { char b[8] = {}; popProbe = GetEnvironmentVariableA("GTA2DX9_PEDPOP_PROBE", b, sizeof b) && b[0] == '1' ? 1 : 0; }
+    struct ProbeFig { float x, y, z, a; int32_t pedId; const void* model; };
+    static std::unordered_map<uintptr_t, ProbeFig> s_probeLast, s_probeNow;
+    static std::unordered_map<uintptr_t, uint32_t> s_probeDrawnAt;
+    std::set<uintptr_t> probeGame;
+    if (popProbe) {
+        for (size_t i = 0; i < boardRealSprites && i < sprites_.size(); ++i)
+            if ((sprites_[i].pedestrian || sprites_[i].corpse) && sprites_[i].object) probeGame.insert(sprites_[i].object);
+    }
+    auto probeNote = [&](uintptr_t key, int32_t pedId, float x, float y, float z, float a, const void* model) {
+        if (popProbe && streetFigures) s_probeNow[key] = {x, y, z, a, pedId, model};
+    };
     // FIX-FIGURE-6 (pm24 gang bodies inside each other, pm3 ped inside a parked car): the people on
     // their feet this frame (the game's positions) and the car bodies drawn, for the figures'
     // draw-only separation below. GTA2DX9_NO_FIGURE_SEP=1 turns it off (A/B).
@@ -10953,7 +11114,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             float ox = 0.0f, oz = 0.0f;
             if (PropCollisionPlayerCorrection(&ox, &oz)) { cx += ox; cz += oz; }
         }
-        if (sprite.object && reinterpret_cast<const void*>(sprite.object) != g_playerObject)
+        if (sprite.object && reinterpret_cast<const void*>(sprite.object) != g_playerObject && !presenceGhosts.count(sprite.object))   // FIX-PED-POP: not a fading ghost
             g_aimPeds.push_back({sprite.object, cx, cy, cz, sprite.pedHealth, sprite.corpse});   // QB-6
 
         // Which way the artwork's top points is which way he faces: the sprite's
@@ -12807,6 +12968,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                         pedLensAlpha = alpha;
                     }
                 }
+                bool shoulderHide = false;   // FIX-PED-POP (below)
                 // FIX-FIGURE-9 (pm7-fp-own-head-and-shoulder-fill-left-third-of-view): in first person a stranger at
                 // his shoulder (within 0.42 block, beside the eye: more than 35 degrees off the line of sight, or level
                 // with the eye or behind it) is a head and a shirt cut by the frame's edge, filling a third of the
@@ -12828,9 +12990,38 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                                 Log("view: figure at his shoulder not drawn (%.2f from the eye, %.2f ahead, %.2f aside)", std::sqrt(d2), ahead, side);
                             }
                             shoulderFrame = g_carFrame;
-                            continue;
+                            shoulderHide = true;
                         }
                     }
+                }
+                // FIX-PED-POP: the shoulder clear fades him out and back in (0.2 a frame) instead of popping him at the
+                // 0.42 line as a passer-by walks past (PedPresenceFadeOn; off: the pop as before).
+                if (shoulderHide && !PedPresenceFadeOn()) continue;
+                if (PedPresenceFadeOn() && CurrentViewMode() == ViewMode::FirstPerson && !heroFigure) {
+                    static std::map<uintptr_t, std::pair<float, uint32_t>> s_shoulderFade;
+                    auto it = s_shoulderFade.find(sprite.object);
+                    if (it != s_shoulderFade.end() && g_carFrame - it->second.second > 30) { s_shoulderFade.erase(it); it = s_shoulderFade.end(); }
+                    if (shoulderHide || it != s_shoulderFade.end()) {
+                        if (it == s_shoulderFade.end()) it = s_shoulderFade.emplace(sprite.object, std::make_pair(1.0f, g_carFrame)).first;
+                        float& a = it->second.first;
+                        if (it->second.second != g_carFrame || shoulderHide) a = shoulderHide ? (std::max)(0.0f, a - 0.2f) : (std::min)(1.0f, a + 0.2f);
+                        it->second.second = g_carFrame;
+                        const float sa = a;
+                        if (!shoulderHide && sa >= 1.0f) s_shoulderFade.erase(it);
+                        if (s_shoulderFade.size() > 128)
+                            for (auto e = s_shoulderFade.begin(); e != s_shoulderFade.end();) e = g_carFrame - e->second.second > 30 ? s_shoulderFade.erase(e) : std::next(e);
+                        if (sa <= 0.02f) continue;
+                        pedLensAlpha *= sa;
+                    }
+                }
+            }
+            // FIX-PED-POP: his presence (fading in, drawn on from his last sprite) and the game's window edge.
+            if (presenceOn && !heroFigure && !fpBody && !kdSkipDraw) {
+                const auto pit = s_presence.find(sprite.object);
+                const float a = (pit != s_presence.end() ? pit->second.alpha : 1.0f) * presenceEdge(gx, gz);
+                if (a < 0.98f) {
+                    if (a <= 0.02f) continue;
+                    pedLensAlpha *= a;
                 }
             }
             ModelSetPlayerTextures(model && (sprite.shadowOnly ||
@@ -14378,6 +14569,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 }
                 device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_DIFFUSE);
                 device->SetTexture(0, nullptr);
+                if (!kdSkipDraw && !heroFigure && !fpBody) probeNote(sprite.object, sprite.pedId, gx, cy, gz, pedLensAlpha, model);   // FIX-PED-POP probe
                 ++drawn;
                 continue;
             }
@@ -14427,6 +14619,68 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         for (size_t i = 0; i < seen.size(); ++i) seen[i].second->rank = static_cast<int>(i);
     }
     RagdollEndFrame(g_carFrame);   // QB-27
+    if (popProbe) {   // FIX-PED-POP probe (above)
+        static uint32_t s_probeFrame = 0;
+        static int c[12] = {};   // frames, figure-frames, appear, vanish, blink, jump, swap, vanish(game), vanish(renderer), appear at the window edge, vanish at the edge
+        static int lines = 0;
+        if (streetFigures && s_probeFrame + 1 == g_carFrame && !s_probeLast.empty()) {
+            ++c[0];
+            c[1] += static_cast<int>(s_probeNow.size());
+            auto visible = [&](float x, float y, float z, float* dist) {
+                const float dx = x - g_viewEye.x, dz = z - g_viewEye.z;
+                *dist = std::sqrt(dx * dx + dz * dz);
+                if (*dist > 40.0f || BehindView(x, y + 0.25f, z, 0.0f) || OutsideViewFrustum(x, y + 0.25f, z, 0.0f)) return false;
+                return !ViewLineWalled(g_viewEye.x, g_viewEye.y, g_viewEye.z, x, y + 0.35f, z);
+            };
+            auto line = [&](const char* kind, uintptr_t key, const ProbeFig& f, float d, float a0, float a1, const char* cause, int gap) {
+                if (lines >= 600) return;
+                ++lines;
+                Log("pedpop: f=%u %s key=%04x id=%d d=%.1f alpha=%.2f->%.2f edge=%.1f %s gap=%d at=%.2f,%.2f", g_carFrame, kind,
+                    static_cast<unsigned>((key >> 2) & 0xFFFF), f.pedId, d, a0, a1, gameWinEdge(f.x, f.z), cause, gap, f.x, f.z);
+            };
+            for (const auto& e : s_probeNow) {
+                const ProbeFig& f = e.second;
+                const auto pl = s_probeLast.find(e.first);
+                float d = 0.0f;
+                if (pl == s_probeLast.end()) {
+                    if (f.a >= 0.5f && visible(f.x, f.y, f.z, &d)) {
+                        const auto da = s_probeDrawnAt.find(e.first);
+                        const int gap = da != s_probeDrawnAt.end() ? static_cast<int>(g_carFrame - da->second) : 0;
+                        const bool blink = gap > 0 && gap <= 60;
+                        ++c[blink ? 4 : 2];
+                        if (!blink && gameWinEdge(f.x, f.z) < 1.5f) ++c[9];
+                        line(blink ? "blink" : "appear", e.first, f, d, 0.0f, f.a, probeGame.count(e.first) ? "game" : "ghost", gap);
+                    }
+                } else {
+                    if (std::fabs(f.a - pl->second.a) >= 0.5f && visible(f.x, f.y, f.z, &d)) { ++c[5]; line("jump", e.first, f, d, pl->second.a, f.a, "-", 0); }
+                    if (f.model != pl->second.model && f.pedId == pl->second.pedId && visible(f.x, f.y, f.z, &d)) { ++c[6]; line("swap", e.first, f, d, f.a, f.a, "-", 0); }
+                }
+            }
+            for (const auto& e : s_probeLast) {
+                if (s_probeNow.count(e.first)) continue;
+                const ProbeFig& f = e.second;
+                float d = 0.0f;
+                if (f.a >= 0.5f && visible(f.x, f.y, f.z, &d)) {
+                    const bool game = !probeGame.count(e.first);
+                    ++c[3];
+                    ++c[game ? 7 : 8];
+                    if (gameWinEdge(f.x, f.z) < 1.5f) ++c[10];
+                    line("vanish", e.first, f, d, f.a, 0.0f, game ? "game" : "renderer", 0);
+                }
+            }
+            if (c[0] >= 300) {
+                Log("pedpop: window f=%u frames=%d figure_frames=%d appear=%d (at the window edge %d) vanish=%d (game %d, renderer %d, at the edge %d) blink=%d jump=%d swap=%d presence=%d",
+                    g_carFrame, c[0], c[1], c[2], c[9], c[3], c[7], c[8], c[10], c[4], c[5], c[6], presenceOn ? 1 : 0);
+                for (int& v : c) v = 0;
+            }
+        }
+        for (const auto& e : s_probeNow) s_probeDrawnAt[e.first] = g_carFrame;
+        if (s_probeDrawnAt.size() > 2048)
+            for (auto it = s_probeDrawnAt.begin(); it != s_probeDrawnAt.end();) it = g_carFrame - it->second > 120 ? s_probeDrawnAt.erase(it) : std::next(it);
+        s_probeLast.swap(s_probeNow);
+        s_probeNow.clear();
+        s_probeFrame = g_carFrame;
+    }
     // Tracks of pedestrians gone for a while are dropped.
     if (pedTracks_.size() > 512) {
         for (auto it = pedTracks_.begin(); it != pedTracks_.end();) {
