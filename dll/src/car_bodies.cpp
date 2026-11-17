@@ -4580,6 +4580,141 @@ int CarViewHidden(int mode, const gta2::Vec3& eye, const gta2::Mat4& m, float ha
     return 0;
 }
 
+// FIX-TRUCK-WHEELS-3: where a body's mesh meets the road. The lowest point of each 1/24 slice of its length on each side,
+// kept when it lies within 0.035 block of the body's lowest point: the tyre bottoms of a shell whose tyres are part of its
+// mesh (a truck cab, a bus, the fire engine), in the car frame (through the fit). Cached per model and fit.
+struct TyreContacts { std::vector<gta2::Vec3> pts; float minY = 0.0f; };
+const TyreContacts& TyreContactsFor(const Model& model, const gta2::Mat4& fit) {
+    static std::map<std::tuple<const Model*, int, int, int>, TyreContacts> cache;
+    const auto key = std::make_tuple(&model, static_cast<int>(std::lround(fit.m[0][0] * 4096.0f)), static_cast<int>(std::lround(fit.m[2][2] * 4096.0f)),
+                                     static_cast<int>(std::lround(fit.m[2][0] * 4096.0f)));
+    auto it = cache.find(key);
+    if (it != cache.end()) return it->second;
+    if (cache.size() > 256) cache.clear();
+    TyreContacts& tc = cache[key];
+    std::vector<gta2::Mat4> worlds;
+    ModelRestNodeWorlds(model, &worlds);
+    std::vector<gta2::Vec3> all;
+    float minY = 1e9f, z0 = 1e9f, z1 = -1e9f;
+    for (size_t n = 0; n < model.nodes.size() && n < worlds.size(); ++n) {
+        const int mi = model.nodes[n].mesh;
+        if (mi < 0 || mi >= static_cast<int>(model.meshes.size())) continue;
+        const gta2::Mat4 toCar = Mul(worlds[n], fit);
+        for (const ModelVertex& v : model.meshes[static_cast<size_t>(mi)].vertices) {
+            const gta2::Vec3 q = PointBy(toCar, v.x, v.y, v.z);
+            all.push_back(q);
+            minY = (std::min)(minY, q.y);
+            z0 = (std::min)(z0, q.z); z1 = (std::max)(z1, q.z);
+        }
+    }
+    tc.minY = minY;
+    constexpr int kSlices = 24;
+    gta2::Vec3 best[2][kSlices];
+    bool have[2][kSlices] = {};
+    const float span = (std::max)(1e-4f, z1 - z0);
+    for (const gta2::Vec3& q : all) {
+        const int side = q.x >= 0.0f ? 1 : 0;
+        const int k = (std::min)(kSlices - 1, (std::max)(0, static_cast<int>((q.z - z0) / span * kSlices)));
+        if (!have[side][k] || q.y < best[side][k].y) { best[side][k] = q; have[side][k] = true; }
+    }
+    for (int side = 0; side < 2; ++side)
+        for (int k = 0; k < kSlices; ++k)
+            if (have[side][k] && best[side][k].y < minY + 0.035f) tc.pts.push_back(best[side][k]);
+    return tc;
+}
+
+inline float Clamp01Signed(float v, float lim) { return v > lim ? lim : (v < -lim ? -lim : v); }
+
+// FIX-TRUCK-WHEELS-3 (owner 17 Nov: the truck's rear wheels still lift off the road now and then). The drawn body stood
+// on the game's sprite plane, which the conform (live_geometry.cpp) holds g_spriteHeight + clearance (+ a stack step)
+// over the road: every body's tyres were 0.042 block in the air before any lean (tw3_a, model 63: base 0.0419 in every
+// frame), and the lean then lifted the rear pair to 0.05. A shell whose tyres are in its mesh (the truck cab, buses, the
+// fire engine) cannot drop a wheel back down, so that gap was all on screen. The body is now stood on its own tyres: the
+// road is sampled under each corner's lowest tyre point, the body is turned onto the plane through those (a car on a
+// ramp or straddling a kerb sits on its wheels, a mesh whose axles are not level - 017's front pair 0.012 high - too)
+// and lowered until its highest tyre just touches. `sink` keeps that much of the body's own lean as tyres pressing into
+// the road (never lifting off it). False (nothing changed) when fewer than three corners find a road, or when the game
+// has the car in the air (a jump), which keeps the game's height.
+int g_groundOnTyres = 1;   // [devtools] ground_on_tyres=0: the bodies on the sprite plane as before (A/B)
+bool GroundOnTyres(gta2::Mat4* m, const TyreContacts& tc, float sink, float before[4], float after[4]) {
+    constexpr float kHair = 0.001f;
+    float h[4], px[4], pz[4];
+    bool ok[4];
+    auto measure = [&](const gta2::Mat4& mm) {
+        int n = 0;
+        for (int c = 0; c < 4; ++c) { h[c] = 1e9f; ok[c] = false; }
+        for (const gta2::Vec3& p : tc.pts) {
+            const int c = (p.z >= 0.0f ? 0 : 2) + (p.x >= 0.0f ? 1 : 0);
+            const gta2::Vec3 w = PointBy(mm, p.x, p.y, p.z);
+            float g = 0.0f;
+            if (!VehicleFxGroundAt(w.x, w.z, w.y + 0.75f, &g)) continue;
+            const float d = w.y - g;
+            if (d > 0.30f || d < -0.30f) continue;   // over a drop or under a step: not what this tyre stands on
+            if (d < h[c]) { h[c] = d; px[c] = p.x; pz[c] = p.z; ok[c] = true; }
+        }
+        for (int c = 0; c < 4; ++c) n += ok[c] ? 1 : 0;
+        return n;
+    };
+    if (measure(*m) < 3) return false;
+    float lo = 1e9f;
+    for (int c = 0; c < 4; ++c) {
+        if (before) before[c] = ok[c] ? h[c] : 0.0f;
+        if (ok[c]) lo = (std::min)(lo, h[c]);
+    }
+    if (lo > 0.15f) return false;   // airborne: the game's own height
+    // The plane a + b x + c z that takes every tyre to the road (least squares over the corners found).
+    double S[3][3] = {}, R[3] = {};
+    for (int c = 0; c < 4; ++c) {
+        if (!ok[c]) continue;
+        const double v[3] = {1.0, px[c], pz[c]};
+        for (int i = 0; i < 3; ++i) { for (int j = 0; j < 3; ++j) S[i][j] += v[i] * v[j]; R[i] += v[i] * -h[c]; }
+    }
+    auto det3 = [](const double A[3][3]) {
+        return A[0][0] * (A[1][1] * A[2][2] - A[1][2] * A[2][1]) - A[0][1] * (A[1][0] * A[2][2] - A[1][2] * A[2][0]) +
+               A[0][2] * (A[1][0] * A[2][1] - A[1][1] * A[2][0]);
+    };
+    const double D = det3(S);
+    float pb = 0.0f, pc = 0.0f;
+    if (std::fabs(D) > 1e-9) {
+        double sol[3];
+        for (int k = 0; k < 3; ++k) {
+            double A[3][3];
+            for (int i = 0; i < 3; ++i) for (int j = 0; j < 3; ++j) A[i][j] = j == k ? R[i] : S[i][j];
+            sol[k] = det3(A) / D;
+        }
+        pb = static_cast<float>(sol[1]); pc = static_cast<float>(sol[2]);
+    }
+    // As little of that turn as keeps the tyres within `sink` of each other: the rest of the lean stays.
+    auto spread = [&](float t) {
+        float a = 1e9f, z = -1e9f;
+        for (int c = 0; c < 4; ++c) if (ok[c]) { const float v = h[c] + t * (pb * px[c] + pc * pz[c]); a = (std::min)(a, v); z = (std::max)(z, v); }
+        return z - a;
+    };
+    float t = 0.0f;
+    if (spread(0.0f) > sink) {
+        float t0 = 0.0f, t1 = 1.0f;
+        if (spread(1.0f) > sink) t = 1.0f;
+        else {
+            for (int it = 0; it < 12; ++it) { const float tm = 0.5f * (t0 + t1); if (spread(tm) > sink) t0 = tm; else t1 = tm; }
+            t = t1;
+        }
+    }
+    pb = Clamp01Signed(pb * t, 0.45f); pc = Clamp01Signed(pc * t, 0.45f);
+    if (pb != 0.0f || pc != 0.0f) {
+        gta2::Mat4 rx = gta2::Identity(), rz = gta2::Identity();
+        const float sa = -pc, ca = std::sqrt(1.0f - sa * sa), sb = pb, cb = std::sqrt(1.0f - sb * sb);
+        rx.m[1][1] = ca; rx.m[1][2] = sa; rx.m[2][1] = -sa; rx.m[2][2] = ca;
+        rz.m[0][0] = cb; rz.m[0][1] = sb; rz.m[1][0] = -sb; rz.m[1][1] = cb;
+        *m = Mul(Mul(rx, rz), *m);
+        if (measure(*m) < 3) return false;
+    }
+    float hi = -1e9f;
+    for (int c = 0; c < 4; ++c) if (ok[c]) hi = (std::max)(hi, h[c]);
+    m->m[3][1] += kHair - hi;
+    if (after) for (int c = 0; c < 4; ++c) after[c] = ok[c] ? h[c] + kHair - hi : 0.0f;
+    return true;
+}
+
 void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars, uint32_t frame, const gta2::Vec3& eye) {
     g_lampEye = eye;
     g_built = 0;
@@ -4815,7 +4950,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         g_doorInterior = GetPrivateProfileIntA("devtools", "door_interior", 1, g_devIni);
         g_doorTopCut = GetPrivateProfileIntA("devtools", "door_top_cut", 1, g_devIni);
         g_doorTrim = GetPrivateProfileIntA("devtools", "door_trim", 1, g_devIni);
-        g_trailerBand = GetPrivateProfileIntA("devtools", "trailer_band", 0, g_devIni);
+        g_trailerBand = GetPrivateProfileIntA("devtools", "trailer_band", 0, g_devIni); g_groundOnTyres = GetPrivateProfileIntA("devtools", "ground_on_tyres", 1, g_devIni);
         g_fpSeatFreeze = GetPrivateProfileIntA("devtools", "fp_seat_freeze", 1, g_devIni);
         g_fpSeatLock = GetPrivateProfileIntA("devtools", "fp_seat_lock", FpSeatLockDefault(), g_devIni);
         g_forceOwnLift = GetPrivateProfileIntA("devtools", "force_own_lift", 0, g_devIni);
@@ -4970,7 +5105,8 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         // FIX-SEAT-ENTRY-4 (tri11 probe): [devtools] force_own_lift=N raises the driven car's drawn body N
         // hundredths of a block (a body standing on what it reversed into), for same-spot seat checks.
         if (g_forceOwnLift && use.driven) carToWorldM.m[3][1] += 0.01f * static_cast<float>(g_forceOwnLift);
-        const gta2::Mat4 carToWorld = carToWorldM;
+        gta2::Mat4 carToWorld = carToWorldM;   // FIX-TRUCK-WHEELS-3: stood on its tyres below (GroundOnTyres)
+        const gta2::Mat4 gameCarToWorld = carToWorldM;
         if (g_logNoses && frame % 15 == 0) {
             // The placement's nose (+z of the car frame) in the world, before any
             // model's own `forward`; the checker pairs consecutive samples of one
@@ -5426,6 +5562,14 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                         CarNowMs() - th);
                 }
             }
+            // FIX-TRUCK-WHEELS-3: the body on its own tyres rather than on the sprite plane 0.042 block over the road (see
+            // GroundOnTyres). Not from the driver's seat (the cockpit rides the eye), not for a wreck (its own pose).
+            bool grounded = false;
+            if (g_groundOnTyres && !cpuCut && !WreckModelNumber(modelNumber) && CurrentViewMode() != ViewMode::Classic) {
+                const float ex = carToWorld.m[3][0] - eye.x, ez = carToWorld.m[3][2] - eye.z;
+                if (ex * ex + ez * ez < 40.0f * 40.0f || use.driven)
+                    grounded = GroundOnTyres(&carToWorld, TyreContactsFor(*model, fit), 0.0f, nullptr, nullptr);
+            }
             // VEHICLE-FEEL: the sprung body and the turning wheels (see vehicle_fx.h).
             const float roofH = model->Height() * sy;
             const bool wreckModel = WreckModelNumber(modelNumber);
@@ -5443,7 +5587,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             }
             VehicleFxCar fxCar;
             fxCar.object = use.object;
-            fxCar.carToWorld = &carToWorld;
+            fxCar.carToWorld = &gameCarToWorld;   // the motion the game gives it (FIX-TRUCK-WHEELS-3)
             fxCar.length = b->bodyLength; fxCar.width = b->bodyWidth; fxCar.roof = roofH;
             fxCar.wheelbase = (std::max)(axleF - axleR, 0.3f * b->bodyLength);
             fxCar.wheelRadius = haveWheels && wheels.n ? wheels.radius[0] : (std::max)(0.055f, (std::min)(0.13f, 0.21f * roofH));
@@ -5604,6 +5748,10 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                 } else posed = Mul(feel.pose, carToWorld);
             }
             posed = Mul(posed, sepMove);
+            // FIX-TRUCK-WHEELS-3: a body whose tyres are in its mesh leans only as far as its tyres press into the road
+            // (0.006 block at most), never off it: the lean, heave and an impact's kick are taken back to that.
+            if (grounded && feel.on && fxCar.rigidWheels)
+                GroundOnTyres(&posed, TyreContactsFor(*model, fit), 0.006f, nullptr, nullptr);
             if (use.own) {
                 // FIX-FP-ENTRY (pfeel32): where the first-person eye sits in this posed body. The seat point
                 // (the raw eye in the car's frame) is learned while the body is level and kept while it tilts;
@@ -5713,6 +5861,38 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                             if (len > 0.03f && logs < 30) { ++logs; Log("car bodies: fp seat eye follows the tilted body %.3f (level %.3f)", len, level); }
                         }
                     }
+                }
+            }
+            // FIX-TRUCK-WHEELS-3 probe: GTA2DX9_LOG_TYRES=1 logs, each frame, how far the driven body's tyre bottoms stand
+            // over the road under them (per corner, the lowest contact; + above, - in it) as the game places the car (raw)
+            // and as it is drawn (posed), with the placement's own height and tilt.
+            {
+                static int logTyres = -1;
+                if (logTyres < 0) { char v[8] = {}; logTyres = GetEnvironmentVariableA("GTA2DX9_LOG_TYRES", v, sizeof v) ? atoi(v) : 0; }
+                if (logTyres && use.driven && !wreckModel) {
+                    const TyreContacts& tc = TyreContactsFor(*model, fit);
+                    float raw[4] = {1e9f, 1e9f, 1e9f, 1e9f}, pos[4] = {1e9f, 1e9f, 1e9f, 1e9f};
+                    float rearHi = -1e9f, rearHiRaw = -1e9f;
+                    int miss = 0;
+                    for (const gta2::Vec3& p : tc.pts) {
+                        const int corner = (p.z >= 0.0f ? 0 : 2) + (p.x >= 0.0f ? 1 : 0);
+                        const gta2::Vec3 a = PointBy(gameCarToWorld, p.x, p.y, p.z), b2 = PointBy(posed, p.x, p.y, p.z);
+                        float ga = 0.0f, gb = 0.0f;
+                        if (!VehicleFxGroundAt(a.x, a.z, a.y + 0.75f, &ga) || !VehicleFxGroundAt(b2.x, b2.z, b2.y + 0.75f, &gb)) { ++miss; continue; }
+                        raw[corner] = (std::min)(raw[corner], a.y - ga);
+                        pos[corner] = (std::min)(pos[corner], b2.y - gb);
+                        if (corner >= 2) { rearHi = (std::max)(rearHi, b2.y - gb); rearHiRaw = (std::max)(rearHiRaw, a.y - ga); }
+                    }
+                    float g0 = 0.0f;
+                    const bool haveG0 = VehicleFxGroundAt(gameCarToWorld.m[3][0], gameCarToWorld.m[3][2], gameCarToWorld.m[3][1] + 0.75f, &g0);
+                    const float ul = std::sqrt(carToWorld.m[1][0] * carToWorld.m[1][0] + carToWorld.m[1][1] * carToWorld.m[1][1] + carToWorld.m[1][2] * carToWorld.m[1][2]);
+                    const float fl = std::sqrt(carToWorld.m[2][0] * carToWorld.m[2][0] + carToWorld.m[2][1] * carToWorld.m[2][1] + carToWorld.m[2][2] * carToWorld.m[2][2]);
+                    const float rl = std::sqrt(carToWorld.m[0][0] * carToWorld.m[0][0] + carToWorld.m[0][1] * carToWorld.m[0][1] + carToWorld.m[0][2] * carToWorld.m[0][2]);
+                    Log("tyres: f=%u model %d pts %d miss %d raw %.4f %.4f %.4f %.4f posed %.4f %.4f %.4f %.4f rearHi %.4f (raw %.4f) base %.4f%s gamePitch %.2f gameRoll %.2f view %d",
+                        frame, modelNumber, static_cast<int>(tc.pts.size()), miss, raw[0], raw[1], raw[2], raw[3], pos[0], pos[1], pos[2], pos[3], rearHi, rearHiRaw,
+                        haveG0 ? gameCarToWorld.m[3][1] - g0 : 0.0f, haveG0 ? "" : "?", fl > 1e-6f ? std::asin(carToWorld.m[2][1] / fl) * 57.29578f : 0.0f,
+                        rl > 1e-6f ? std::asin(carToWorld.m[0][1] / rl) * 57.29578f : 0.0f, static_cast<int>(CurrentViewMode()));
+                    (void)ul;
                 }
             }
             // The door: swings open while someone boards or leaves, shuts after.
@@ -6130,7 +6310,11 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                         m = Mul(m, camber);
                     }
                     m.m[3][0] = c.x - (c.x * m.m[0][0] + c.y * m.m[1][0] + c.z * m.m[2][0]);
-                    m.m[3][1] = c.y - (c.x * m.m[0][1] + c.y * m.m[1][1] + c.z * m.m[2][1]) + feel.wheelLift[corner];
+                    // FIX-TRUCK-WHEELS-3: no kerb-strike lift on the drawn wheel. GTA2's kerbs are a change of surface, not a
+                    // step (the road under the tyre stays level), so the strike lifted the wheel off flat road, and it was
+                    // added twice (here and in the hang's drop): 0.036 block for 0.14 s (tw3_e). The strike still jolts
+                    // the body through its springs (vehicle_fx.cpp).
+                    m.m[3][1] = c.y - (c.x * m.m[0][1] + c.y * m.m[1][1] + c.z * m.m[2][1]);
                     m.m[3][2] = c.z - (c.x * m.m[0][2] + c.y * m.m[1][2] + c.z * m.m[2][2]);
                     // FIX-VEHICLE-FEEL-2 (pmy1): the wheel hangs from the posed body (it rolls and pitches with
                     // it, under its arch) and its spring takes it back toward the road, at most the travel
@@ -6141,12 +6325,24 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                         const gta2::Mat4& P = feel.pose;
                         const float arch = c.x * P.m[0][1] + c.y * P.m[1][1] + c.z * P.m[2][1] + P.m[3][1];
                         const float lim = feel.wheelTravel + 0.004f;
-                        const float dy = (std::max)(-lim, (std::min)(lim, c.y + feel.wheelLift[corner] - arch));
+                        // FIX-TRUCK-WHEELS-3: down to the road whatever the arch (an impact's kick lifted a cop car's corner
+                        // 0.012 past the travel for a few frames, tw3_f); up into the arch at most the travel.
+                        const float dy = (std::min)(lim, c.y - arch);
                         gta2::Mat4 drop = gta2::Identity();
                         drop.m[3][1] = dy;
                         hang = Mul(Mul(P, drop), carToWorld);
                     }
                     ModelDraw(device, *wheels.wheel[w], Mul(Mul(Mul(fit, m), hang), sepMove), nullptr, 0.0f);
+                    {   // FIX-TRUCK-WHEELS-3 probe (GTA2DX9_LOG_TYRES=1): the hung wheel's lowest point over the road
+                        static int logTyres = -1;
+                        if (logTyres < 0) { char v[8] = {}; logTyres = GetEnvironmentVariableA("GTA2DX9_LOG_TYRES", v, sizeof v) ? atoi(v) : 0; }
+                        if (logTyres && use.driven) {
+                            const gta2::Vec3 lowW = PointBy(Mul(hang, sepMove), c.x, c.y - wheels.radius[w], c.z);   // spin moves no bottom
+                            float g = 0.0f;
+                            if (VehicleFxGroundAt(lowW.x, lowW.z, lowW.y + 0.75f, &g))
+                                Log("tyres wheel: f=%u model %d corner %d gap %.4f lift %.4f", frame, modelNumber, corner, lowW.y - g, feel.wheelLift[corner]);
+                        }
+                    }
                 }
             } else {
                 CarCoatSetWeight(0.0f);   // FIX-CAR-SHADING-1: not from the seat yet (the hood copy and the cab)
@@ -6568,7 +6764,7 @@ void CarBodiesSetDevIni(const char* ini) {
     g_doorInterior = GetPrivateProfileIntA("devtools", "door_interior", 1, g_devIni);
     g_doorTopCut = GetPrivateProfileIntA("devtools", "door_top_cut", 1, g_devIni);
     g_doorTrim = GetPrivateProfileIntA("devtools", "door_trim", 1, g_devIni);
-    g_trailerBand = GetPrivateProfileIntA("devtools", "trailer_band", 0, g_devIni);
+    g_trailerBand = GetPrivateProfileIntA("devtools", "trailer_band", 0, g_devIni); g_groundOnTyres = GetPrivateProfileIntA("devtools", "ground_on_tyres", 1, g_devIni);
     g_fpSeatFreeze = GetPrivateProfileIntA("devtools", "fp_seat_freeze", 1, g_devIni);
     g_fpSeatLock = GetPrivateProfileIntA("devtools", "fp_seat_lock", FpSeatLockDefault(), g_devIni);
     g_forceOwnLift = GetPrivateProfileIntA("devtools", "force_own_lift", 0, g_devIni);

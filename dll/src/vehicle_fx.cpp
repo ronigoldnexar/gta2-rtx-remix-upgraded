@@ -666,6 +666,9 @@ void ReadEnv() {
 }  // namespace
 
 void VehicleFxSetGround(const GroundSampler* ground) { g_ground = ground; }
+bool VehicleFxGroundAt(float x, float z, float ceiling, float* y) {
+    return g_ground && g_ground->Ready() && g_ground->SurfaceAt(x, z, ceiling, y);
+}
 void VehicleFxSetEnabled(bool on) {
     ReadEnv();
     if (on != g_on) Log("vehicle feel: %s", on ? "on" : "off");
