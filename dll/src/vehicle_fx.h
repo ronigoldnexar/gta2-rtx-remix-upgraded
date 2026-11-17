@@ -78,6 +78,8 @@ struct VehicleFxCar {
 
 // The map, for the ground under each wheel (world_view.cpp, beside LightsSetGround).
 void VehicleFxSetGround(const GroundSampler* ground);
+// The road under a point (the highest lid at or below ceiling); false with no map or no floor there.
+bool VehicleFxGroundAt(float x, float z, float ceiling, float* y);
 // On by default; GTA2DX9_VEHICLE_FEEL=0 or [devtools] vehicle_feel=0 turns it all off
 // (the "before" of the comparison sheet).
 void VehicleFxSetEnabled(bool on);
