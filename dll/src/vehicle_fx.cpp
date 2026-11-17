@@ -1314,7 +1314,11 @@ const VehicleFeel& VehicleFxUpdate(const VehicleFxCar& car, uint32_t frame) {
         }
         st.drawRoll = drawRoll;
         pivotZ = 0.0f;
-        wheelTravel = car.rigidWheels ? Clamp(0.30f * car.wheelRadius, 0.015f, 0.035f) : Clamp(0.50f * car.wheelRadius, 0.022f, 0.050f);
+        // FIX-TRUCK-WHEELS-2 (owner 17 Nov: the truck's rear wheels still lifted now and then): a shell whose tyres are in
+        // its mesh cannot drop a wheel back onto the road, so every degree of lean shows as a tyre in the air (0.035 block
+        // at the old 0.3 r was visible from the chase camera on the truck cab). Those bodies lean only as far as a tyre may
+        // lift unseen: 0.12 of its radius, 0.008-0.015 block.
+        wheelTravel = car.rigidWheels ? Clamp(0.12f * car.wheelRadius, 0.008f, 0.015f) : Clamp(0.50f * car.wheelRadius, 0.022f, 0.050f);
         wheelTravel *= 1.0f - 0.35f * tall;   // a tall cab's tyres are in its mesh too: <5 degrees of roll
         // FIX-TRUCK-WHEELS (owner 16 Nov: a moving truck's rear wheels lift off the road): the bound measured the axles at
         // half the wheelbase, but a shell whose tyres are in its mesh (a truck cab's tandem, a bus) carries wheels out to
