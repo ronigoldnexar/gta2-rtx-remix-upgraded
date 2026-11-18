@@ -2382,3 +2382,37 @@ poses are procedural, not mocap (a hand reaches for the road rather than pressin
 a wide lunge). A death while rising goes through the down-again path but was not caught on camera in these runs. The
 full knock-down's own placement still logs `turned 15.9 deg` on its first get-up frame (the measured correction is
 applied before that frame is drawn; pelvis and head do not move).
+
+## MOTION-QA-1 (18 Nov 2026): repeated motion sweeps (owner: "verify that the physics are flawless ... no jittering")
+
+Probes added (env-gated, nothing drawn differently): `GTA2DX9_LOG_CARSCREEN=1` logs, per frame, where the driven body's
+centre, nose and roof land on the screen (`carscreen:`, with the body's and the game's yaw and the view's eye, yaw and
+pitch) and the chase rig's inputs (`chasecam:` car position, heading, follow yaw, eye, aim, camera yaw). The scripts that
+read them (zig-zag runs of the body on the screen, camera-yaw reversals) live with the sweep's tools outside the repo.
+
+**Defects found and fixed**
+- *The chase camera's impact shake was a random per-frame zig-zag* (mr_3_drv: the driven car jumped 10-16 px on the
+  screen and back, frame after frame, for ~0.3 s after every knock; 34 such runs of >= 3 reversals in a 50 s drive with
+  11 impacts). `Wobble` mixed waves at f, 1.46 f and 2.44 f Hz for f = 5..13, up to 32 Hz, above what 30 fps can show.
+  Now the same mix spans 2.9-6.9 Hz (4-10 frames a wave): a thud and a sway. mr_4_drv, same drive, 19 impacts: 10 runs
+  (the rest are one-frame half-steps of the game's own position at a knock). `GTA2DX9_CAM_SHAKE_OLD=1`: as before.
+- *A car he climbs into from the far side vanished* (mr_2_p49, pfl49_probe third person): the van stood between the
+  chase lens and him and the lens-occluder fade (FIX-CAMERA-18) took it to alpha 0; for 0.25 s he stepped and climbed on
+  empty paving, then the van popped back with him at the wheel. The car the player is boarding or leaving
+  (`BoardingCarPlayerAt`) is no longer faded (mr_3_p49: the van stays whole, he walks round its back to the door).
+- *A man knocked down at the game's window edge came back lying while the game had him running* (mr_b_gu, ped 7965:
+  down 6.5 s, then the get-up pinned 6 blocks behind the game's man, and the walk-off pin was never released: a car later
+  hit the game's man and the death was drawn 12 blocks away, at the old pin). Back after a gap (>= 10 frames out of the
+  window) with the game having him up: no get-up, he is where the game has him; and the get-up pin is released once he is
+  up, so a later fall pins where he then is. mr_1_gu: 32 such returns, the largest drawn-to-game offset 2.15 blocks (the
+  known punched-man walk-off), was 13.5.
+
+**Verified clean in these sweeps** (30 fps frames opened, logs): punches and knock-downs in third and first person
+(fig18_fpgate 6/6 + 6/6 landed, the punched man falls away from the fist), the full knock-down by a car (kd_probe, 3),
+far-side entry third and first, jack in third and first person with the drive-off and the exit, driving launch / turn /
+brake / reverse / ram for 000, 012, 051, 063 with the wheel probe (`tyres wheel:` never above 0.0017 block off the road,
+no wheel flip-flops). Classic: vreg `spawn_classic` 0 changed tiles (mr_vreg1).
+
+**Still short**: the drawn tyres of cut-wheel bodies press up to 0.019 block into the road while a car is pushed into a
+wall (the hang's travel limit; front wheels, out of the chase view); the punched man still trails the game's spot by up to
+~2 blocks after rising; the first-person hands appear on the wheel ~0.4 s after the seat dissolve (hand art, not touched).

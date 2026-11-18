@@ -1166,6 +1166,14 @@ bool BoardingCarLeaving(uintptr_t carObject) {
     return false;
 }
 
+// MOTION-QA-1: whether the player is getting into or out of this car now (any boarding stage before or after the seat).
+bool BoardingCarPlayerAt(uintptr_t carObject) {
+    if (!BoardingEnabled()) return false;
+    for (const auto& e : g_boards)
+        if (e.second.player && e.second.car == carObject && e.second.mode != kSeated && e.second.mode != kNone && !e.second.ended && g_now - e.second.seen <= 30) return true;
+    return false;
+}
+
 bool BoardingCarSeated(uintptr_t carObject) {
     if (!BoardingEnabled()) return false;
     for (const auto& e : g_boards)

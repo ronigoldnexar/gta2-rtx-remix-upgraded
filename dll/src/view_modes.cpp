@@ -3033,9 +3033,20 @@ namespace {
 
 // A cheap, smooth, non-repeating wobble for the impact shake: three sines at
 // incommensurate frequencies.
+// MOTION-QA-1 (mr_3_drv, owner: "no jitter"): the shake's waves were f, 1.46 f and 2.44 f Hz for f = 5..13: 12-32 Hz at the
+// top, above what 30 frames a second can show, so they came out as a random zig-zag of the whole picture from one frame to
+// the next (the driven car jumped 10-16 px on the screen and back, frame after frame, after every knock: 34 such runs in a
+// 50 s drive). Now the same three-wave mix spans 2.9-6.9 Hz (4-10 frames a wave): a thud and a sway that die out, not a
+// shimmer. GTA2DX9_CAM_SHAKE_OLD=1: as before (A/B).
 float Wobble(double t, float f) {
-    return 0.5f * static_cast<float>(std::sin(t * f * 6.2832) + 0.6 * std::sin(t * f * 9.17 + 1.3) +
-                                     0.3 * std::sin(t * f * 15.31 + 2.1));
+    static int old = -1;
+    if (old < 0) { char b[8] = {}; old = GetEnvironmentVariableA("GTA2DX9_CAM_SHAKE_OLD", b, sizeof b) && atoi(b) == 1 ? 1 : 0; }
+    if (old)
+        return 0.5f * static_cast<float>(std::sin(t * f * 6.2832) + 0.6 * std::sin(t * f * 9.17 + 1.3) +
+                                         0.3 * std::sin(t * f * 15.31 + 2.1));
+    const double hz = 2.4 + 0.1 * f;   // 2.9 Hz (f 5) .. 3.7 Hz (f 13)
+    return 0.5f * static_cast<float>(std::sin(t * hz * 6.2832) + 0.6 * std::sin(t * hz * 1.46 * 6.2832 + 1.3) +
+                                     0.3 * std::sin(t * hz * 1.87 * 6.2832 + 2.1));
 }
 
 // The street objects the camera keeps clear of, as upright cylinders (renderer
@@ -6615,6 +6626,13 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     const float flat = std::hypot(dir.x, dir.z);
     float camYaw = flat > 1e-5f ? std::atan2(dir.x, dir.z) : yaw;
     float camPitch = std::atan2(dir.y, (std::max)(flat, 1e-5f));
+    {   // MOTION-QA probe (GTA2DX9_LOG_CARSCREEN=1): the chase rig's inputs each frame in a car (mr/shim3.py)
+        static int logScr = -1;
+        if (logScr < 0) { char v[8] = {}; logScr = GetEnvironmentVariableA("GTA2DX9_LOG_CARSCREEN", v, sizeof v) ? atoi(v) : 0; }
+        if (logScr && inVehicle && mode == ViewMode::ThirdPerson)
+            Log("chasecam: dt %.4f p %.4f %.4f hd %.4f fy %.4f yaw %.4f vel %.3f %.3f eye %.4f %.4f %.4f oe %.4f %.4f aim %.4f %.4f cy %.4f", dt, px, pz, headingYaw,
+                followYaw_, yaw, velX_, velZ_, eyeX_, eyeY_, eyeZ_, orientEye.x, orientEye.z, aim.x, aim.z, camYaw);
+    }
     // FIX-CAMERA-2 (feel8): at the wheel never steeper than 35 degrees down (unless the mouse
     // orbit asks for more), so the horizon stays in the picture when a wall behind the car
     // shortens and lifts the boom; it used to look straight down at the roof.

@@ -5752,6 +5752,33 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             // (0.006 block at most), never off it: the lean, heave and an impact's kick are taken back to that.
             if (grounded && feel.on && fxCar.rigidWheels)
                 GroundOnTyres(&posed, TyreContactsFor(*model, fit), 0.006f, nullptr, nullptr);
+            {   // MOTION-QA probe (GTA2DX9_LOG_CARSCREEN=1): where the driven body's centre, nose and roof land on the screen
+                // each frame (pixels), for a frame-to-frame jitter check of what the viewer sees (mr/carscreen.py).
+                static int logScr = -1;
+                if (logScr < 0) { char v[8] = {}; logScr = GetEnvironmentVariableA("GTA2DX9_LOG_CARSCREEN", v, sizeof v) ? atoi(v) : 0; }
+                D3DMATRIX vw, pj; D3DVIEWPORT9 vp;
+                if (logScr && use.driven && SUCCEEDED(device->GetTransform(D3DTS_VIEW, &vw)) && SUCCEEDED(device->GetTransform(D3DTS_PROJECTION, &pj)) &&
+                    SUCCEEDED(device->GetViewport(&vp))) {
+                    auto scr = [&](float x, float y, float z, float* sx, float* sy) {
+                        const gta2::Vec3 w = PointBy(posed, x, y, z);
+                        const float vx = w.x * vw._11 + w.y * vw._21 + w.z * vw._31 + vw._41, vy = w.x * vw._12 + w.y * vw._22 + w.z * vw._32 + vw._42,
+                                    vz = w.x * vw._13 + w.y * vw._23 + w.z * vw._33 + vw._43;
+                        const float cx = vx * pj._11 + vy * pj._21 + vz * pj._31 + pj._41, cy2 = vx * pj._12 + vy * pj._22 + vz * pj._32 + pj._42,
+                                    cw = vx * pj._14 + vy * pj._24 + vz * pj._34 + pj._44;
+                        if (cw < 1e-4f) { *sx = *sy = -1.0f; return; }
+                        *sx = vp.X + (cx / cw * 0.5f + 0.5f) * vp.Width; *sy = vp.Y + (0.5f - cy2 / cw * 0.5f) * vp.Height;
+                    };
+                    float s0x, s0y, s1x, s1y, s2x, s2y;
+                    scr(0.0f, 0.0f, 0.0f, &s0x, &s0y); scr(0.0f, 0.0f, 0.5f * b->bodyLength, &s1x, &s1y); scr(0.0f, roofH, 0.0f, &s2x, &s2y);
+                    // the camera: eye = -(t * R^T), its forward the view's third column
+                    const float ex = -(vw._41 * vw._11 + vw._42 * vw._12 + vw._43 * vw._13), ey = -(vw._41 * vw._21 + vw._42 * vw._22 + vw._43 * vw._23),
+                                ez = -(vw._41 * vw._31 + vw._42 * vw._32 + vw._43 * vw._33);
+                    Log("carscreen: f=%u model %d view %d c %.2f %.2f nose %.2f %.2f roof %.2f %.2f w %.4f %.4f %.4f yaw %.4f gyaw %.4f eye %.4f %.4f %.4f cyaw %.4f cpitch %.4f", frame, modelNumber,
+                        static_cast<int>(CurrentViewMode()), s0x, s0y, s1x, s1y, s2x, s2y, posed.m[3][0], posed.m[3][1], posed.m[3][2],
+                        std::atan2(posed.m[2][0], posed.m[2][2]), std::atan2(gameCarToWorld.m[2][0], gameCarToWorld.m[2][2]), ex, ey, ez,
+                        std::atan2(vw._13, vw._33), std::asin((std::max)(-1.0f, (std::min)(1.0f, vw._23))));
+                }
+            }
             if (use.own) {
                 // FIX-FP-ENTRY (pfeel32): where the first-person eye sits in this posed body. The seat point
                 // (the raw eye in the car's frame) is learned while the body is level and kept while it tilts;

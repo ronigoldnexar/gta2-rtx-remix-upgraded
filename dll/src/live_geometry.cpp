@@ -5168,6 +5168,10 @@ static void ChaseCarFades(std::vector<CarBodyUse>& cars) {
             // lens rides, a bus beside a pocket) sees its hull from inside: it fades as one between the lens and him.
             if (!hides && e.y > cc->y0 - 0.05f && e.y < cc->y1 + 0.1f && inside(*cc, e.x, e.z, -0.08f)) hides = true;
         }
+        // MOTION-QA-1 (mr_2_p49): the car he is climbing into or out of stays whole. Boarding from the far side the van
+        // stood between the lens and him for the climb and faded out completely: for 0.25 s he stepped and climbed on
+        // empty paving, then the van popped back with him at the wheel (the cut to the car camera).
+        if (hides && BoardingCarPlayerAt(u.object)) hides = false;
         auto it = s_state.find(u.object);
         if (it == s_state.end()) {
             if (!hides) continue;
@@ -11928,6 +11932,18 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         // landed and lain still a beat (kKdMinDown .. kKdMaxDown), then gets up (below). While he lies the
         // game's spot is not followed (an NPC the game walks off more than 0.3 block gets up at once).
         if (track.kd && frames >= 10) { track.kd = false; track.kdOX = track.kdOZ = 0.0f; track.kdRising = false; }
+        // MOTION-QA-1 (mr_b_gu, 7965): back in the game's window after a gap (frames >= 10: the game hands in only the
+        // sprites of its own window, so a man knocked down at its edge is not stepped while out of it). He came back
+        // still in the fall (action 4) while the game had long had him up and running 6 blocks on: the get-up then
+        // played there, pinned at a stale spot, and he trailed the game's man by 6-13 blocks (a later run-over drew the
+        // death 12 blocks from the car). Nobody saw him rise: he is back on his feet where the game has him.
+        if (frames >= 10 && track.frame != 0) {
+            if (track.action == 4 && !sprite.corpse && sprite.pedState != 8) {
+                if (g_logPedFrames) Log("getup: %p back after %u frames out of the window, the game has him up: no get-up", reinterpret_cast<const void*>(sprite.object), frames);
+                track.action = 0; track.actionReverse = false; track.actionTime = 0.0f; track.guClip = nullptr; track.guFromK = 0.0f;
+            }
+            track.guOff = false; track.guPinned = false; track.guOX = track.guOZ = 0.0f;
+        }
         if (track.kd && track.action == 4 && !track.actionReverse) {
             track.kdSecs += dt;
             RagdollInfo ri;
@@ -12824,6 +12840,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 if (!track.guPinned) { track.guPinned = true; track.guPinX = baseX + track.guOX; track.guPinZ = baseZ + track.guOZ; }
                 track.guOX = track.guPinX - baseX; track.guOZ = track.guPinZ - baseZ;
             } else {
+                track.guPinned = false;   // MOTION-QA-1: a fall during the walk-off pins where he is then, not where he rose
                 const float k = 1.0f - std::exp(-dt / kKdWalkOff);
                 float sx = track.guOX * k, sz = track.guOZ * k;
                 const float step = std::sqrt(sx * sx + sz * sz), most = kGuCatchUp * dt;
