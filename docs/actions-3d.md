@@ -2509,3 +2509,28 @@ wall (the hang's travel limit; front wheels, out of the chase view); the punched
 Still short: the remaining screen zig-zags of the driven car are camera, not car: (a) the chase boom pulled in and out
 by walls with the long 063 truck in a narrow street (eye jumps of 0.4-0.7 block a frame, mr_14_drv f3885-3894), (b) the
 rig re-framing when the probe swaps the car model mid-drive (a probe artefact). Neither is the body moving.
+
+### FIX-FP-ARMS-2 (18 Nov 2026): one hand mesh for every pose, curl in-betweens, armed hands, skin material
+
+- Models: `tools/gen_fp_arms.py` now bakes ONE relaxed hand (8000 triangles, forearm muscles: brachioradialis,
+  flexor and extensor masses thinning to a tapered wrist; extensor tendons on the back of the hand; knuckle heads that
+  stand out as the fingers bend; faint forearm hair and freckles; less orange base skin 190,147,126), and
+  `tools/fp_arms_pose.py` makes every pose from it: each vertex skinned to the hand's bones (palm, forearm, three
+  segments per finger and thumb; weights blended only between neighbouring bones), moved rigidly, then projected onto
+  the target pose's own distance field (its own finger's field, so fingers never snap onto each other). All poses share
+  topology and UVs: `fp_bare_relax_right`, `fp_bare_curl1/2/3_right`, `fp_bare_fist_right` (relaxed to fist in
+  quarters) and the armed holds `fp_arm_right` (round the pistol grip, index along the frame), `fp_arm_left` (under the
+  fore grip) and `fp_arm_left_cup` (round the shooting hand), the armed ones scaled x1.5 to the oversized guns and
+  turned onto each weapon's grip (ARMED table), with the upper arm and sleeve attached. Two textures: the rest bake
+  times an ambient occlusion baked in Blender on the posed relaxed hand and on the posed fist (warm: occluded skin goes
+  red-brown); the in-betweens and armed holds use one of the two.
+- Code: the fingers close and open through the curl meshes over ~0.16 s (0.08 s into a punch) instead of a swap at
+  half guard; the bare arms draw with a skin material (ambient x0.8, a soft specular sheen, power 14;
+  `GTA2DX9_FP_ARMS_SHEEN=0` off); the guard turned so the curled fingers, thumb wrap and knuckle row face the eye
+  (roll 0.15, 0.31 ahead). The armed view models keep their placement code; only their models changed.
+- Verified (plain renderer, 12:00): fparms_r12 (guard, jab, cross: knuckles, finger separation, thumb wrap, forearm
+  shape readable at full size), fparms_r11 (the open-to-closed in-between frames on a punch), fparms_g2 (`gamerun/
+  keys_fp_arms_gun.sh` = fig8_gun first person: machine gun with the left hand under the fore grip, pistol with the
+  left hand cupping). Not verified: RTX Remix (the RTX 6000 host refused SSH: its disk is full, "No space left on
+  device" at boot, so the guest agent could not install keys).
+
