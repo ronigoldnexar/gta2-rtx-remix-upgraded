@@ -38,6 +38,9 @@ struct Settings {
     int alphaSrc = 3, vcolorAlpha = 255, filmStatic = 0;
     int waterIor = 133, waterTrans = 80;
     int liftMilli = 4;
+    // FIX-PERF-RAIN (18 Nov): read with the rest once a second. Draw() read these two from the 105 KB ini on every
+    // call (two GetPrivateProfileInt per instance: ~250 instances a frame in heavy rain), and the probe board once a frame.
+    int legacyDraw = 0, doubleSided = 1, probeBoard = 0;
 };
 Settings g_set;
 Settings g_dev;   // the [devtools] wx_* keys as read; g_set is what is drawn (production when wx_wet_mode < 0)
@@ -79,6 +82,9 @@ void ReadSettings() {
     s.waterIor = Dev("wx_water_ior", 133);
     s.liftMilli = Dev("wx_lift_milli", 4);
     s.waterTrans = Dev("wx_water_trans", 80);
+    s.legacyDraw = Dev("wx_legacy_draw", 0);
+    s.doubleSided = Dev("wx_double_sided", 1);
+    s.probeBoard = Dev("wx_probe_board", 0);
     if (memcmp(&s, &g_dev, sizeof s) != 0) {
         Log("remix wet: devtools mode %d alpha %d rough %d%% albedo %d%% puddles %d lift %d", s.mode, s.alpha, s.rough, s.albedo,
             s.puddleAlpha, s.liftMilli);
@@ -177,17 +183,9 @@ remixapi_MaterialHandle MakeWater(uint64_t hash) {
 
 constexpr int kChunk = 16;
 
-// A chunk's open ground lids (road 1, pavement 2; flat; the column's top block) as quads.
-remixapi_MeshHandle ChunkMesh(const gta2::Map& map, int chunkX, int chunkZ, int kind, remixapi_MaterialHandle material) {
-    const uint64_t key = (static_cast<uint64_t>(kind) << 56) | (static_cast<uint64_t>(g_generation & 0xFFFF) << 32) |
-                         (static_cast<uint64_t>(chunkX & 0xFF) << 8) | static_cast<uint64_t>(chunkZ & 0xFF);
-    auto it = g_meshes.find(key);
-    if (it != g_meshes.end()) return it->second;
-    if (g_meshBudget <= 0) return nullptr;   // built on a later frame
-    --g_meshBudget;
-    g_meshes[key] = nullptr;
-    std::vector<remixapi_HardcodedVertex> verts;
-    std::vector<uint32_t> idx;
+// A chunk's open ground lids (road 1, pavement 2; flat; the column's top block) as quads, `lift` over the lid.
+void AppendLids(const gta2::Map& map, int chunkX, int chunkZ, float lift, std::vector<remixapi_HardcodedVertex>* verts,
+                std::vector<uint32_t>* idx) {
     for (int cz = chunkZ * kChunk; cz < chunkZ * kChunk + kChunk; ++cz) {
         for (int cx = chunkX * kChunk; cx < chunkX * kChunk + kChunk; ++cx) {
             const int my = gta2::kMapHeight - 1 - cz;
@@ -206,8 +204,8 @@ remixapi_MeshHandle ChunkMesh(const gta2::Map& map, int chunkX, int chunkZ, int 
                 if (b.lid && g != 0) break;   // covered by a deck or a roof
             }
             if (found < 0) continue;
-            const float y = static_cast<float>(c.offset + found + 1) + g_lift;
-            const uint32_t base = static_cast<uint32_t>(verts.size());
+            const float y = static_cast<float>(c.offset + found + 1) + lift;
+            const uint32_t base = static_cast<uint32_t>(verts->size());
             const float xs[4] = {0, 1, 1, 0}, zs[4] = {0, 0, 1, 1};
             for (int k = 0; k < 4; ++k) {
                 remixapi_HardcodedVertex v = {};
@@ -215,12 +213,26 @@ remixapi_MeshHandle ChunkMesh(const gta2::Map& map, int chunkX, int chunkZ, int 
                 v.normal[1] = 1.0f;
                 v.texcoord[0] = (cx + xs[k]) / 6.0f; v.texcoord[1] = (cz + zs[k]) / 6.0f;
                 v.color = (static_cast<uint32_t>(g_set.vcolorAlpha) << 24) | 0x00FFFFFFu;
-                verts.push_back(v);
+                verts->push_back(v);
             }
             const uint32_t q[6] = {0, 2, 1, 0, 3, 2};
-            for (uint32_t k : q) idx.push_back(base + k);
+            for (uint32_t k : q) idx->push_back(base + k);
         }
     }
+}
+
+// A chunk's open ground lids as one mesh (the developer modes; production draws regions, below).
+remixapi_MeshHandle ChunkMesh(const gta2::Map& map, int chunkX, int chunkZ, int kind, remixapi_MaterialHandle material) {
+    const uint64_t key = (static_cast<uint64_t>(kind) << 56) | (static_cast<uint64_t>(g_generation & 0xFFFF) << 32) |
+                         (static_cast<uint64_t>(chunkX & 0xFF) << 8) | static_cast<uint64_t>(chunkZ & 0xFF);
+    auto it = g_meshes.find(key);
+    if (it != g_meshes.end()) return it->second;
+    if (g_meshBudget <= 0) return nullptr;   // built on a later frame
+    --g_meshBudget;
+    g_meshes[key] = nullptr;
+    std::vector<remixapi_HardcodedVertex> verts;
+    std::vector<uint32_t> idx;
+    AppendLids(map, chunkX, chunkZ, g_lift, &verts, &idx);
     if (verts.empty()) return nullptr;
     remixapi_MeshInfoSurfaceTriangles surface = {};
     surface.vertices_values = verts.data();
@@ -253,7 +265,7 @@ void Draw(remixapi_MeshHandle mesh, uint32_t categories, bool blend, int alphaAr
     instance.categoryFlags = categories;
     remixapi_InstanceInfoBlendEXT b = {};
     b.sType = REMIXAPI_STRUCT_TYPE_INSTANCE_INFO_BLEND_EXT;
-    const bool legacy = Dev("wx_legacy_draw", 0) != 0;   // A/B: the p0 state that rendered nothing opaque
+    const bool legacy = g_dev.legacyDraw != 0;   // A/B: the p0 state that rendered nothing opaque
     b.alphaTestEnabled = (!blend && !legacy) ? 1 : 0;
     b.alphaTestReferenceValue = static_cast<uint32_t>(alphaRef);
     b.alphaTestCompareOp = 6;
@@ -281,7 +293,7 @@ void Draw(remixapi_MeshHandle mesh, uint32_t categories, bool blend, int alphaAr
     b.isVertexColorBakedLighting = 0;
     instance.pNext = &b;
     instance.mesh = mesh;
-    instance.doubleSided = static_cast<remixapi_Bool>(Dev("wx_double_sided", 1));
+    instance.doubleSided = static_cast<remixapi_Bool>(g_dev.doubleSided);
     for (int r = 0; r < 3; ++r)
         for (int c = 0; c < 4; ++c) instance.transform.matrix[r][c] = xf ? xf[r][c] : ((r == c) ? 1.0f : 0.0f);
     RemixApi()->DrawInstance(&instance);
@@ -404,7 +416,7 @@ remixapi_MeshHandle ProbeMesh(int i) {
 }
 
 void DrawProbeBoard(const gta2::Map& map, float ex, float ey, float ez) {
-    const bool on = Dev("wx_probe_board", 0) != 0;
+    const bool on = g_dev.probeBoard != 0;
     if (on && !g_probeOn) {
         g_probeX = ex; g_probeZ = ez; g_probeY = std::floor(ey);
         const int cx = static_cast<int>(std::floor(ex)), cz = static_cast<int>(std::floor(ez)), my = gta2::kMapHeight - 1 - cz;
@@ -448,7 +460,6 @@ void DrawProbeBoard(const gta2::Map& map, float ex, float ey, float ez) {
 // (linear crossing on its edges) and the inside fanned into triangles. Puddles are the
 // translucent water (a mirror); the damp rim is the same cut at two lower thresholds drawn with
 // the darkening film, so the puddle's edge steps down into the wet road instead of ending hard.
-float g_puddleUvOff = 0.0f;   // ripple phase: the puddle mesh texture offset
 float PuddleField(float x, float z) {
     float f = 0.0f, a = 0.5f, scale = 3.0f;   // noise cells a third of a block (~1.3 m): puddles 0.5-2 m
     for (int o = 0; o < 3; ++o, a *= 0.5f, scale *= 2.0f) f += a * Noise(x * scale, z * scale, 1 << 20);
@@ -536,39 +547,69 @@ bool OpenGroundLid(const gta2::Map& map, int cx, int cz, float* y) {
     return false;
 }
 
-remixapi_MeshHandle PuddleMesh(const gta2::Map& map, int chunkX, int chunkZ, int kind, float thr, float lift,
-                               remixapi_MaterialHandle material, int level) {
-    const uint64_t key = (static_cast<uint64_t>(kind) << 56) | (static_cast<uint64_t>(level & 0xFF) << 48) |
-                         (static_cast<uint64_t>(g_generation & 0xFFFF) << 32) | (static_cast<uint64_t>(chunkX & 0xFF) << 8) |
-                         static_cast<uint64_t>(chunkZ & 0xFF);
-    auto it = g_meshes.find(key);
-    if (it != g_meshes.end()) return it->second;
-    if (g_meshBudget <= 0) return nullptr;   // built on a later frame
-    --g_meshBudget;
-    g_meshes[key] = nullptr;
-    constexpr int kSub = 6;
-    std::vector<remixapi_HardcodedVertex> verts;
-    std::vector<uint32_t> idx;
-    for (int cz = chunkZ * kChunk; cz < chunkZ * kChunk + kChunk; ++cz) {
-        for (int cx = chunkX * kChunk; cx < chunkX * kChunk + kChunk; ++cx) {
-            float y = 0.0f;
-            if (!OpenGroundLid(map, cx, cz, &y)) continue;
-            y += lift;
-            float f[kSub + 1][kSub + 1];
-            bool any = false;
-            const CellBias bias = BiasFor(map, cx, cz);
-            for (int j = 0; j <= kSub; ++j)
-                for (int i = 0; i <= kSub; ++i) {
-                    const float fx = i / static_cast<float>(kSub), fz = j / static_cast<float>(kSub);
-                    f[j][i] = PuddleField(cx + fx, cz + fz) + Bias(bias, fx, fz) - thr;
-                    any = any || f[j][i] > 0.0f;
+// The puddle field (noise + kerb/rut bias) on each open lid's 1/6-block grid, per region: it depends on the map alone,
+// so a region samples it once and every cut after that (the rim steps, the water, each new puddle level) reuses it.
+// Only cells that reach above the lowest threshold any level uses (level 8's outer rim, 0.415) are kept.
+constexpr int kSub = 6;
+constexpr float kLowestThr = 0.62f - 0.02f * 8 - 0.045f;
+struct CellField { int cx, cz; float y0; float g[kSub + 1][kSub + 1]; };
+std::map<uint64_t, std::vector<CellField>> g_fieldCache;   // region place -> its cells
+const gta2::Map* g_fieldMap = nullptr;
+size_t g_fieldMapBlocks = 0;   // with the pointer: a new level's map (loaded into the same object) starts a new cache
+
+const std::vector<CellField>& RegionField(const gta2::Map& map, int c0x, int c0z, int chunks, uint64_t place) {
+    if (g_fieldMap != &map || g_fieldMapBlocks != static_cast<size_t>(map.BlockCount())) {
+        g_fieldCache.clear(); g_fieldMap = &map; g_fieldMapBlocks = static_cast<size_t>(map.BlockCount());
+    }
+    auto it = g_fieldCache.find(place);
+    if (it != g_fieldCache.end()) return it->second;
+    if (g_fieldCache.size() >= 32) g_fieldCache.clear();
+    std::vector<CellField>& cells = g_fieldCache[place];
+    for (int chz = c0z; chz < c0z + chunks; ++chz) {
+        for (int chx = c0x; chx < c0x + chunks; ++chx) {
+            if (chx < 0 || chz < 0 || chx >= gta2::kMapWidth / kChunk || chz >= gta2::kMapHeight / kChunk) continue;
+            for (int cz = chz * kChunk; cz < chz * kChunk + kChunk; ++cz) {
+                for (int cx = chx * kChunk; cx < chx * kChunk + kChunk; ++cx) {
+                    CellField c;
+                    c.cx = cx; c.cz = cz;
+                    if (!OpenGroundLid(map, cx, cz, &c.y0)) continue;
+                    // Off the road the bias is 0 and the noise alone peaks at 0.45 x 0.875 = 0.39: never a puddle.
+                    const CellBias bias = BiasFor(map, cx, cz);
+                    if (!bias.road) continue;
+                    bool any = false;
+                    for (int j = 0; j <= kSub; ++j)
+                        for (int i = 0; i <= kSub; ++i) {
+                            const float fx = i / static_cast<float>(kSub), fz = j / static_cast<float>(kSub);
+                            c.g[j][i] = PuddleField(cx + fx, cz + fz) + Bias(bias, fx, fz);
+                            any = any || c.g[j][i] - kLowestThr > 0.0f;
+                        }
+                    if (any) cells.push_back(c);
                 }
-            if (!any) continue;
+            }
+        }
+    }
+    return cells;
+}
+
+// The puddles of the given cells cut at each of `layers` (threshold, lift over the lid), appended.
+struct PuddleLayer { float thr, lift; };
+void AppendPuddles(const std::vector<CellField>& cells, const PuddleLayer* layers, int layerCount,
+                   std::vector<remixapi_HardcodedVertex>* verts, std::vector<uint32_t>* idx) {
+    float minThr = layers[0].thr;
+    for (int l = 1; l < layerCount; ++l) minThr = (std::min)(minThr, layers[l].thr);
+    for (const CellField& c : cells) {
+        const int cx = c.cx, cz = c.cz;
+        bool any = false;
+        for (int j = 0; j <= kSub && !any; ++j)
+            for (int i = 0; i <= kSub && !any; ++i) any = c.g[j][i] - minThr > 0.0f;
+        if (!any) continue;
+        for (int l = 0; l < layerCount; ++l) {
+            const float thr = layers[l].thr, y = c.y0 + layers[l].lift;
             for (int j = 0; j < kSub; ++j) {
                 for (int i = 0; i < kSub; ++i) {
                     const float px[4] = {cx + i / 6.0f, cx + (i + 1) / 6.0f, cx + (i + 1) / 6.0f, cx + i / 6.0f};
                     const float pz[4] = {cz + j / 6.0f, cz + j / 6.0f, cz + (j + 1) / 6.0f, cz + (j + 1) / 6.0f};
-                    const float v[4] = {f[j][i], f[j][i + 1], f[j + 1][i + 1], f[j + 1][i]};
+                    const float v[4] = {c.g[j][i] - thr, c.g[j][i + 1] - thr, c.g[j + 1][i + 1] - thr, c.g[j + 1][i] - thr};
                     if (v[0] <= 0 && v[1] <= 0 && v[2] <= 0 && v[3] <= 0) continue;
                     float ox[8], oz[8];
                     int n = 0;
@@ -581,36 +622,114 @@ remixapi_MeshHandle PuddleMesh(const gta2::Map& map, int chunkX, int chunkZ, int
                         }
                     }
                     if (n < 3) continue;
-                    const uint32_t base = static_cast<uint32_t>(verts.size());
+                    const uint32_t base = static_cast<uint32_t>(verts->size());
                     for (int k = 0; k < n; ++k) {
                         remixapi_HardcodedVertex vx = {};
                         vx.position[0] = ox[k]; vx.position[1] = y; vx.position[2] = oz[k];
                         vx.normal[1] = 1.0f;
-                        vx.texcoord[0] = ox[k] / 1.5f + g_puddleUvOff; vx.texcoord[1] = oz[k] / 1.5f + g_puddleUvOff * 0.7f;
+                        vx.texcoord[0] = ox[k] / 1.5f; vx.texcoord[1] = oz[k] / 1.5f;
                         vx.color = 0xFFFFFFFFu;
-                        verts.push_back(vx);
+                        verts->push_back(vx);
                     }
-                    for (int k = 1; k + 1 < n; ++k) { idx.push_back(base); idx.push_back(base + k + 1); idx.push_back(base + k); }
+                    for (int k = 1; k + 1 < n; ++k) { idx->push_back(base); idx->push_back(base + k + 1); idx->push_back(base + k); }
                 }
             }
         }
     }
-    if (verts.empty()) return nullptr;
-    remixapi_MeshInfoSurfaceTriangles surface = {};
-    surface.vertices_values = verts.data(); surface.vertices_count = verts.size();
-    surface.indices_values = idx.data(); surface.indices_count = idx.size();
-    surface.skinning_hasvalue = 0; surface.material = material;
-    remixapi_MeshInfo mesh = {};
-    mesh.sType = REMIXAPI_STRUCT_TYPE_MESH_INFO; mesh.hash = key ^ 0x5055444C00000000ull;
-    mesh.surfaces_values = &surface; mesh.surfaces_count = 1;
+}
+
+// ---- FIX-PERF-RAIN (18 Nov): the wet ground as a few region meshes ------------------------------------------------
+// 5090 under Remix, third person in heavy rain: the sprites stage 61 ms against 6 ms dry. Every 16-block chunk in the
+// 96-block square was its own API instance for the film, three for the puddle rim and one for the water (~250
+// DrawInstance a frame through the bridge, each of which also read two ini keys). Now a region of kRegion x kRegion
+// chunks is one mesh per layer: the film, the rim (its three steps in one mesh), the water (or one of its four ripple
+// phases) - at most 16 regions x 3 instances. A region's mesh is built once per (level, generation) and kept; while a
+// new level's mesh waits for its frame, the region draws the last one it had, so puddles grow without a blink.
+constexpr int kRegion = 2;                                // chunks per region side (32 blocks)
+enum RegionKind { kRegFilm = 30, kRegRim = 31, kRegWater = 32, kRegNightWater = 33, kRegRipple = 40 /* + phase 0..3 */ };
+std::map<uint64_t, remixapi_MeshHandle> g_regionLast;     // (kind family, region) -> the last mesh built there
+// The water's cut (at no ripple offset) per (level, generation, region), kept until all four ripple phases are built from
+// it: a phase is the same polygons with the texture moved, so the field is sampled once, not four times.
+struct WaterCut { std::vector<remixapi_HardcodedVertex> verts; std::vector<uint32_t> idx; int phasesLeft = 4; };
+std::map<uint64_t, WaterCut> g_waterCut;
+
+remixapi_MeshHandle RegionMesh(const gta2::Map& map, int rx, int rz, int kind, int level, float thr, remixapi_MaterialHandle material) {
+    const int c0x = rx * kRegion, c0z = rz * kRegion;
+    const uint64_t place = (static_cast<uint64_t>(c0x & 0xFF) << 8) | static_cast<uint64_t>(c0z & 0xFF);
+    const uint64_t key = (static_cast<uint64_t>(kind) << 56) | (static_cast<uint64_t>(level & 0xFF) << 48) |
+                         (static_cast<uint64_t>(g_generation & 0xFFFF) << 32) | place;
+    const uint64_t lastKey = (static_cast<uint64_t>(kind >= kRegRipple ? kRegRipple : kind) << 56) | place;
+    auto it = g_meshes.find(key);
+    if (it != g_meshes.end()) return it->second;
+    if (g_meshBudget < kRegion * kRegion) {   // built on a later frame (a region costs as much as its chunks did)
+        auto last = g_regionLast.find(lastKey);
+        return last != g_regionLast.end() ? last->second : nullptr;
+    }
+    g_meshBudget -= kRegion * kRegion;
+    g_meshes[key] = nullptr;
+    LARGE_INTEGER t0, t1, t2, qf;
+    QueryPerformanceCounter(&t0);
+    std::vector<remixapi_HardcodedVertex> verts;
+    std::vector<uint32_t> idx;
+    const uint64_t cutKey = (static_cast<uint64_t>(level & 0xFF) << 48) | (static_cast<uint64_t>(g_generation & 0xFFFF) << 32) | place;
+    auto cut = kind >= kRegRipple ? g_waterCut.find(cutKey) : g_waterCut.end();
+    if (cut != g_waterCut.end()) {
+        verts = cut->second.verts;
+        idx = cut->second.idx;
+        const float uvOff = (kind - kRegRipple) * 0.25f;
+        for (remixapi_HardcodedVertex& v : verts) { v.texcoord[0] += uvOff; v.texcoord[1] += uvOff * 0.7f; }
+        if (--cut->second.phasesLeft <= 0) g_waterCut.erase(cut);
+    } else {
+        verts.reserve(4096); idx.reserve(8192);
+        if (kind == kRegFilm || kind == kRegNightWater) {
+            for (int cz = c0z; cz < c0z + kRegion; ++cz)
+                for (int cx = c0x; cx < c0x + kRegion; ++cx) {
+                    if (cx < 0 || cz < 0 || cx >= gta2::kMapWidth / kChunk || cz >= gta2::kMapHeight / kChunk) continue;
+                    AppendLids(map, cx, cz, kind == kRegFilm ? g_lift : g_lift + 0.004f, &verts, &idx);
+                }
+        } else if (kind == kRegRim) {
+            // The damp rim: three faint steps, each a little smaller and on top, so the edge darkens gradually.
+            const PuddleLayer rim[3] = {{thr - 0.045f, 0.0050f}, {thr - 0.030f, 0.0052f}, {thr - 0.015f, 0.0054f}};
+            AppendPuddles(RegionField(map, c0x, c0z, kRegion, place), rim, 3, &verts, &idx);
+        } else {
+            const PuddleLayer water = {thr, 0.006f};
+            AppendPuddles(RegionField(map, c0x, c0z, kRegion, place), &water, 1, &verts, &idx);
+        }
+        if (kind >= kRegRipple) {
+            // Kept for the other three phases; this one takes its offset.
+            if (g_waterCut.size() > 24) g_waterCut.clear();   // ~16 regions in view: a bound, not a working size
+            WaterCut& c = g_waterCut[cutKey];
+            c.verts = verts; c.idx = idx; c.phasesLeft = 3;
+            const float uvOff = (kind - kRegRipple) * 0.25f;
+            for (remixapi_HardcodedVertex& v : verts) { v.texcoord[0] += uvOff; v.texcoord[1] += uvOff * 0.7f; }
+        }
+    }
+    QueryPerformanceCounter(&t1);
     remixapi_MeshHandle handle = nullptr;
-    const remixapi_ErrorCode rc = RemixApi()->CreateMesh(&mesh, &handle);
+    remixapi_ErrorCode rc = REMIXAPI_ERROR_CODE_SUCCESS;
+    if (!verts.empty()) {
+        remixapi_MeshInfoSurfaceTriangles surface = {};
+        surface.vertices_values = verts.data(); surface.vertices_count = verts.size();
+        surface.indices_values = idx.data(); surface.indices_count = idx.size();
+        surface.skinning_hasvalue = 0; surface.material = material;
+        remixapi_MeshInfo mesh = {};
+        mesh.sType = REMIXAPI_STRUCT_TYPE_MESH_INFO; mesh.hash = key ^ 0x5245474E00000000ull;
+        mesh.surfaces_values = &surface; mesh.surfaces_count = 1;
+        rc = RemixApi()->CreateMesh(&mesh, &handle);
+        if (rc != REMIXAPI_ERROR_CODE_SUCCESS) handle = nullptr;
+    }
+    QueryPerformanceCounter(&t2);
+    QueryPerformanceFrequency(&qf);
     static int logs = 0;
-    if (logs++ < 6) Log("remix wet: puddle chunk %d,%d kind %d level %d: %zu tris -> %d", chunkX, chunkZ, kind, level, idx.size() / 3, static_cast<int>(rc));
-    if (rc != REMIXAPI_ERROR_CODE_SUCCESS) return nullptr;
+    if (logs++ < 24)
+        Log("remix wet: region %d,%d kind %d level %d: %zu verts %zu tris -> %d (cut %.2f ms, create %.2f ms)", rx, rz, kind, level,
+            verts.size(), idx.size() / 3, static_cast<int>(rc), (t1.QuadPart - t0.QuadPart) * 1000.0 / qf.QuadPart,
+            (t2.QuadPart - t1.QuadPart) * 1000.0 / qf.QuadPart);
     g_meshes[key] = handle;
+    g_regionLast[lastKey] = handle;
     return handle;
 }
+
 remixapi_MaterialHandle g_puddleWater = nullptr;
 remixapi_MaterialHandle g_puddleRipple = nullptr;   // the same water with the layer's ripple normal map (rain)
 bool g_rippleTried = false;
@@ -1232,7 +1351,11 @@ void RemixWetFrame(const gta2::Map& map, float eyeX, float eyeY, float eyeZ, flo
                 const int cxk = static_cast<int>((it->first >> 8) & 0xFF), czk = static_cast<int>(it->first & 0xFF);
                 const float mx = (cxk + 0.5f) * kChunk - eyeX, mz = (czk + 0.5f) * kChunk - eyeZ;
                 if (mx * mx + mz * mz > 64.0f * 64.0f) {
-                    if (it->second) RemixApi()->DestroyMesh(it->second);
+                    if (it->second) {
+                        for (auto l = g_regionLast.begin(); l != g_regionLast.end();)
+                            l = l->second == it->second ? g_regionLast.erase(l) : std::next(l);
+                        RemixApi()->DestroyMesh(it->second);
+                    }
                     it = g_meshes.erase(it); ++dropped;
                 } else {
                     ++it;
@@ -1393,44 +1516,58 @@ void RemixWetFrame(const gta2::Map& map, float eyeX, float eyeY, float eyeZ, flo
         g_filmGen = g_generation;
     }
     const float puddleThr = 0.62f - 0.02f * puddleLevel;   // level 1 0.60 (gutter peaks only) .. level 8 0.46
-    for (int z = cz0; z <= cz1; ++z) {
-        for (int x = cx0; x <= cx1; ++x) {
-            if (x < 0 || z < 0 || x >= gta2::kMapWidth / kChunk || z >= gta2::kMapHeight / kChunk) continue;
-            if (g_set.mode == 1 && g_film) {
-                if (remixapi_MeshHandle m = ChunkMesh(map, x, z, 1, g_film)) Draw(m, static_cast<uint32_t>(g_set.decalBits), !g_set.filmStatic, g_set.alphaSrc, 0, 1, alpha);
-            } else if ((g_set.mode == 3 || g_set.mode == 6) && g_film) {
-                if (remixapi_MeshHandle m = ChunkMesh(map, x, z, 1, g_film)) Draw(m, 0, !g_set.filmStatic, g_set.alphaSrc, 0, 1, alpha);
-                if (g_set.mode == 6 && g_water && viewMix > 0.99f) {
-                    const float keep = g_lift; g_lift += 0.004f;
-                    if (remixapi_MeshHandle w = ChunkMesh(map, x, z, 2, g_water)) Draw(w, 0, false, 1, 0, 1, 255);
-                    g_lift = keep;
+    // Regions (kRegion chunks a side) covering the 96-block square, nearest first so they build first.
+    constexpr int kRegionBlocks = kChunk * kRegion;
+    const int rx0 = static_cast<int>(std::floor((eyeX - 48.0f) / kRegionBlocks)), rx1 = static_cast<int>(std::floor((eyeX + 48.0f) / kRegionBlocks));
+    const int rz0 = static_cast<int>(std::floor((eyeZ - 48.0f) / kRegionBlocks)), rz1 = static_cast<int>(std::floor((eyeZ + 48.0f) / kRegionBlocks));
+    struct Reg { int x, z; float d2; };
+    Reg regs[64];
+    int regCount = 0;
+    for (int z = rz0; z <= rz1; ++z)
+        for (int x = rx0; x <= rx1; ++x) {
+            if (x < 0 || z < 0 || x * kRegion >= gta2::kMapWidth / kChunk || z * kRegion >= gta2::kMapHeight / kChunk || regCount >= 64) continue;
+            const float dx = (x + 0.5f) * kRegionBlocks - eyeX, dz = (z + 0.5f) * kRegionBlocks - eyeZ;
+            regs[regCount++] = {x, z, dx * dx + dz * dz};
+        }
+    std::sort(regs, regs + regCount, [](const Reg& p, const Reg& q) { return p.d2 < q.d2; });
+    const gta2::WeatherState& ws = gta2::WeatherNow();
+    const bool ripple = g_puddleRipple && ws.active && ws.rain > 0.05f;
+    // Rain on the water: the ripple map moved in four steps (~8 a second), a mesh per step.
+    const int phase = static_cast<int>(std::fmod(ws.seconds * 8.0, 4.0));
+    for (int r = 0; r < regCount; ++r) {
+        const int rx = regs[r].x, rz = regs[r].z;
+        // The developer modes (wx_wet_mode 1, 2, 4, 5; wx_puddle_alpha) keep their chunk meshes.
+        for (int z = rz * kRegion; z < rz * kRegion + kRegion; ++z) {
+            for (int x = rx * kRegion; x < rx * kRegion + kRegion; ++x) {
+                if (x < cx0 || x > cx1 || z < cz0 || z > cz1) continue;
+                if (x < 0 || z < 0 || x >= gta2::kMapWidth / kChunk || z >= gta2::kMapHeight / kChunk) continue;
+                if (g_set.mode == 1 && g_film) {
+                    if (remixapi_MeshHandle m = ChunkMesh(map, x, z, 1, g_film)) Draw(m, static_cast<uint32_t>(g_set.decalBits), !g_set.filmStatic, g_set.alphaSrc, 0, 1, alpha);
+                } else if ((g_set.mode == 4 || g_set.mode == 5) && g_film) {
+                    if (remixapi_MeshHandle m = ChunkMesh(map, x, z, 4, g_film)) Draw(m, 0, false, 1, 0, 1, 255);
+                } else if (g_set.mode == 2 && g_water && viewMix > 0.99f) {
+                    if (remixapi_MeshHandle m = ChunkMesh(map, x, z, 2, g_water)) Draw(m, 0, false, 1, 0, 1, 255);
                 }
-            } else if ((g_set.mode == 4 || g_set.mode == 5) && g_film) {
-                if (remixapi_MeshHandle m = ChunkMesh(map, x, z, 4, g_film)) Draw(m, 0, false, 1, 0, 1, 255);
-            } else if (g_set.mode == 2 && g_water && viewMix > 0.99f) {
-                if (remixapi_MeshHandle m = ChunkMesh(map, x, z, 2, g_water)) Draw(m, 0, false, 1, 0, 1, 255);
-            }
-            if (puddleLevel > 0 && g_puddleWater && g_film) {
-                // Rim first (lower thresholds, larger), then the water on top.
-                // The damp rim: three faint steps, each a little smaller and on top, so the edge darkens gradually.
-                if (remixapi_MeshHandle m = PuddleMesh(map, x, z, 10, puddleThr - 0.045f, 0.0050f, g_film, puddleLevel)) Draw(m, 0, true, 3, 0, 1, static_cast<int>(12 * viewMix));
-                if (remixapi_MeshHandle m = PuddleMesh(map, x, z, 11, puddleThr - 0.030f, 0.0052f, g_film, puddleLevel)) Draw(m, 0, true, 3, 0, 1, static_cast<int>(12 * viewMix));
-                if (remixapi_MeshHandle m = PuddleMesh(map, x, z, 12, puddleThr - 0.015f, 0.0054f, g_film, puddleLevel)) Draw(m, 0, true, 3, 0, 1, static_cast<int>(12 * viewMix));
-                if (viewMix > 0.99f) {
-                    const gta2::WeatherState& ws = gta2::WeatherNow();
-                    if (g_puddleRipple && ws.active && ws.rain > 0.05f) {
-                        // Rain on the water: the ripple map moved in four steps (~8 a second), a mesh per step.
-                        const int phase = static_cast<int>(std::fmod(ws.seconds * 8.0, 4.0));
-                        g_puddleUvOff = phase * 0.25f;
-                        if (remixapi_MeshHandle m = PuddleMesh(map, x, z, 20 + phase, puddleThr, 0.006f, g_puddleRipple, puddleLevel)) Draw(m, 0, false, 1, 0, 1, 255);
-                        g_puddleUvOff = 0.0f;
-                    } else if (remixapi_MeshHandle m = PuddleMesh(map, x, z, 13, puddleThr, 0.006f, g_puddleWater, puddleLevel)) {
-                        Draw(m, 0, false, 1, 0, 1, 255);
-                    }
+                if (palpha > 0 && g_puddle) {
+                    if (remixapi_MeshHandle m = ChunkMesh(map, x, z, 3, g_puddle)) Draw(m, static_cast<uint32_t>(g_set.decalBits), true, 1, 3, 3, palpha);
                 }
             }
-            if (palpha > 0 && g_puddle) {
-                if (remixapi_MeshHandle m = ChunkMesh(map, x, z, 3, g_puddle)) Draw(m, static_cast<uint32_t>(g_set.decalBits), true, 1, 3, 3, palpha);
+        }
+        // Production: the darkening film (and by night the water film) over the region's open lids.
+        if ((g_set.mode == 3 || g_set.mode == 6) && g_film) {
+            if (remixapi_MeshHandle m = RegionMesh(map, rx, rz, kRegFilm, 0, 0.0f, g_film)) Draw(m, 0, !g_set.filmStatic, g_set.alphaSrc, 0, 1, alpha);
+            if (g_set.mode == 6 && g_water && viewMix > 0.99f)
+                if (remixapi_MeshHandle m = RegionMesh(map, rx, rz, kRegNightWater, 0, 0.0f, g_water)) Draw(m, 0, false, 1, 0, 1, 255);
+        }
+        if (puddleLevel > 0 && g_puddleWater && g_film) {
+            // Rim first (lower thresholds, larger), then the water on top.
+            if (remixapi_MeshHandle m = RegionMesh(map, rx, rz, kRegRim, puddleLevel, puddleThr, g_film)) Draw(m, 0, true, 3, 0, 1, static_cast<int>(12 * viewMix));
+            if (viewMix > 0.99f) {
+                if (ripple) {
+                    if (remixapi_MeshHandle m = RegionMesh(map, rx, rz, kRegRipple + phase, puddleLevel, puddleThr, g_puddleRipple)) Draw(m, 0, false, 1, 0, 1, 255);
+                } else if (remixapi_MeshHandle m = RegionMesh(map, rx, rz, kRegWater, puddleLevel, puddleThr, g_puddleWater)) {
+                    Draw(m, 0, false, 1, 0, 1, 255);
+                }
             }
         }
     }

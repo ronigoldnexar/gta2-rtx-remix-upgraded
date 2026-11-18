@@ -2167,3 +2167,49 @@ row, then taken out): it is not the DLL's CRT heap. Left for later.
 **The gate for new assets (13 Nov 2026):** 320 MB largest free block at one minute of pedsvar2, 5 of 5 runs, 0 FAULT;
 the largest single request seen in 20-min plain and Remix sessions is 66.3 MB (x 4 plus margin). Method and numbers:
 docs/ped-identity.md, "The address-space gate".
+
+## Heavy rain under Remix: 61 ms of sprites stage down to 7 (18 Nov 2026, FIX-PERF-RAIN)
+
+Owner's RTX 5090 laptop, RTX Remix, the play build (`C:\gta2\play`), third person standing at the level start
+(`C:\gta2\rc\measure.ps1`: two frame-time lines 30-50 s after V), `[weather] spell=` forcing the weather. Sprites =
+the sprites stage, avg/worst ms of the two lines; frame = the sum of every stage (game + lights + world + sprites +
+ui + present).
+
+**Cause.** The wet ground under Remix (`dll/src/remix_wet.cpp`, `RemixWetFrame`) drew every 16-block chunk of the
+96-block square as its own API instances: the darkening film, three rim steps and the water (or a ripple phase) per
+chunk, ~250 `DrawInstance` a frame once the gate-1 gutter widening (1f654305) gave nearly every road chunk a puddle
+mesh. Each `Draw()` also read two ini keys (`wx_legacy_draw`, `wx_double_sided`) with `GetPrivateProfileInt` from the
+105 KB ini, and the probe board read one more every frame: ~500 ini parses a frame. Only the instance count and the
+reads were the cost; the geometry is unchanged.
+
+**Fix.**
+- The three keys are read with the rest of `[devtools] wx_*` once a second (`Settings`).
+- Production film, rim and water are drawn per **region** of 2 x 2 chunks (32 blocks): one mesh per layer (film, the
+  rim with its three steps in one mesh, the water or the current ripple phase), at most 16 regions x 3 instances,
+  nearest regions built first, one region mesh per frame. While a region's mesh for a new puddle level (or ripple
+  phase) waits for its frame the last one built there is drawn, so puddles grow without a blink.
+- The puddle field (noise + kerb/rut bias, 7 x 7 samples per open road lid) is sampled once per region and kept (32
+  regions); the rim, the water and every later puddle level cut from it (a region: ~5 ms the first time, 0.1-0.2 ms
+  after). The four ripple phases are one cut with the texture moved. Pavement cells are skipped (no bias: the noise
+  alone peaks at 0.39, under every threshold).
+- The developer modes (`wx_wet_mode` 1, 2, 4, 5, `wx_puddle_alpha`) keep their chunk meshes. The classic view never
+  reaches any of it (`viewMix` 0 returns first).
+
+Same puddles: the region meshes log the same vertex counts as the first region build (pr2, pr3, pr4 runs), and the
+road shots (`scene_key` warp to 164.5,149.5) show the same puddles, rims and ripples in day and night rain.
+
+| scene (5090, third person) | sprites before (315c1fce) | sprites after | frame before | frame after |
+|---|---|---|---|---|
+| clear | 6.2 / 5.9 | 6.0 / 5.7 | ~37 | ~37 |
+| heavy rain (spell=rain) | 60.5 / 60.8 | 6.7 / 7.1 | ~68 | ~44 |
+| rain, on the road (after the warp) | 62.8 | 5.2 | ~70 | ~42 |
+| storm (spell=storm) | 62.6 / 63.4 | 6.6 / 6.6 | ~70 | ~45 |
+| night rain (23:00, clock paused) | 60.3 / 61.2 | 6.5 / 6.8 | ~68 | ~45 |
+| day rain (13:00, clock paused) | 61.1 / 62.1 | 7.6 / 7.2 | ~67 | ~44 |
+
+What is left between rain and clear is GPU time in "present" (Remix): ~25 ms clear, ~31 ms in rain. Of that, the
+film and puddles are ~2.5 ms (31.5 -> 29 with `wx_wet_mode=0`); turning off the stepped wet materials
+(`wx_wet_level=0`) or the screen rain (`remix_screen_rain=0`) moved nothing measurable; the rest comes with the rain
+itself (not taken further here). Before the fix the CPU-side instance traffic hid that GPU time (present 0.3 ms: the
+frame waited in the sprites stage instead). The one-frame ~115 ms sprites spike on the frame of the V switch in rain is
+older and not the wet ground (it is there with `wx_wet_mode=0`; the log puts it with "Remix wet material level 3").
