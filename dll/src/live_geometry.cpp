@@ -9338,7 +9338,7 @@ const char* const kBareArmsNames[kBaCount] = {
 const float kBareArmsDefaults[kBaCount] = {
     1.35f, 0.20f, -0.30f, -0.10f, 0.265f,
     0.22f, -0.31f, 0.42f, 0.80f, -0.20f, -0.05f,
-    0.12f, -0.19f, 0.33f, -0.35f, -0.45f, 0.25f, 0.035f, 0.012f,
+    0.12f, -0.19f, 0.31f, 0.15f, -0.45f, 0.25f, 0.035f, 0.012f,
     0.02f, -0.10f, 0.66f, 0.0f, -0.25f, 0.12f,
     0.45f, 0.40f, 0.030f, 0.12f};
 
@@ -9451,6 +9451,31 @@ static bool DrawBareArms(IDirect3DDevice9* device, const gta2::Vec3& eye, const 
         return o;
     };
     const float swingR = in.stride * in.walkAmp;
+    // FIX-FP-ARMS-2: skin, not plastic: a little less of the flat ambient (the shadow side reads as shadow) and a soft
+    // per-vertex sheen on the knuckles and the forearm's top. GTA2DX9_FP_ARMS_SHEEN=0: the gun's flat material.
+    static const bool sheenOn = [] { char b[4] = {}; return !(GetEnvironmentVariableA("GTA2DX9_FP_ARMS_SHEEN", b, sizeof b) && b[0] == '0'); }();
+    D3DMATERIAL9 oldMat = {};
+    DWORD oldSpec = FALSE;
+    if (sheenOn) {
+        device->GetMaterial(&oldMat);
+        device->GetRenderState(D3DRS_SPECULARENABLE, &oldSpec);
+        D3DMATERIAL9 skinMat = {};
+        skinMat.Diffuse = {1.08f, 1.06f, 1.05f, 1.0f};
+        skinMat.Ambient = {0.80f, 0.76f, 0.76f, 1.0f};
+        skinMat.Specular = {0.16f, 0.15f, 0.14f, 1.0f};
+        skinMat.Power = 14.0f;
+        device->SetMaterial(&skinMat);
+        device->SetRenderState(D3DRS_SPECULARENABLE, TRUE);
+    }
+    // FIX-FP-ARMS-2: the fingers close and open over ~0.16 s (0.08 s into a punch) through the in-between curl meshes
+    // (tools/fp_arms_pose.py: one mesh posed relaxed, 1/4, 1/2, 3/4 and closed), not a swap at half guard.
+    static const Model* curlM[5] = {relaxM, ModelByName("fp_bare_curl1_right"), ModelByName("fp_bare_curl2_right"),
+                                    ModelByName("fp_bare_curl3_right"), fistM};
+    static float curl[2] = {0.0f, 0.0f};
+    static DWORD curlTick = 0;
+    const DWORD nowTick = GetTickCount();
+    const float cdt = curlTick ? (std::min)(0.1f, static_cast<float>(nowTick - curlTick) / 1000.0f) : 0.0f;
+    curlTick = nowTick;
     for (int side = 0; side < 2; ++side) {
         const bool left = side == 1;
         const float t = left ? in.punchL : in.punchR;
@@ -9473,7 +9498,13 @@ static bool DrawBareArms(IDirect3DDevice9* device, const gta2::Vec3& eye, const 
         const BaV3 z = BaUnit(a.wrist - a.elbow);
         const BaV3 y = a.back;
         const BaV3 x = BaCross(y, z);
-        const Model* hand = (guardK > 0.5f || reach > 0.0f) ? fistM : relaxM;
+        const float curlWant = reach > 0.0f ? 1.0f : BaSmooth((guardK - 0.15f) / 0.6f);
+        const float curlRate = cdt / (reach > 0.0f ? 0.08f : 0.16f);
+        curl[side] += (std::max)(-curlRate, (std::min)(curlRate, curlWant - curl[side]));
+        int ci = static_cast<int>(curl[side] * 4.0f + 0.5f);
+        ci = (std::max)(0, (std::min)(4, ci));
+        while (!curlM[ci]) ci = ci < 2 ? ci - 1 : ci + 1;   // a curl mesh missing: the nearer end
+        const Model* hand = curlM[ci];
         gta2::Mat4 m;
         const BaV3 X = dirWorld(mir(x)), Y = dirWorld(mir(y)), Z = dirWorld(mir(z)), W = toWorld(mir(a.wrist));
         for (int c = 0; c < 3; ++c) { m.m[0][c] = (&X.x)[c] * G; m.m[1][c] = (&Y.x)[c] * G; m.m[2][c] = (&Z.x)[c] * G; m.m[3][c] = (&W.x)[c]; }
@@ -9494,6 +9525,10 @@ static bool DrawBareArms(IDirect3DDevice9* device, const gta2::Vec3& eye, const 
             Log("view model: bare arm %s guard %.2f reach %.2f wrist %.2f,%.2f,%.2f elbow %.2f,%.2f,%.2f (m, eye space)", left ? "L" : "R", guardK, reach,
                 a.wrist.x * mx, a.wrist.y, a.wrist.z, a.elbow.x * mx, a.elbow.y, a.elbow.z);
         }
+    }
+    if (sheenOn) {
+        device->SetMaterial(&oldMat);
+        device->SetRenderState(D3DRS_SPECULARENABLE, oldSpec);
     }
     return true;
 }

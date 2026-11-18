@@ -3313,30 +3313,6 @@
    ]
   },
   {
-   "name": "fp_arm_right",
-   "glb": "weapons/fp_arm_right.glb",
-   "scale": 1.0,
-   "texture_max": 256,
-   "forward": "+z",
-   "_licence": "procedural (this repository)"
-  },
-  {
-   "name": "fp_arm_left",
-   "glb": "weapons/fp_arm_left.glb",
-   "scale": 1.0,
-   "texture_max": 256,
-   "forward": "+z",
-   "_licence": "procedural (this repository)"
-  },
-  {
-   "name": "fp_arm_left_cup",
-   "glb": "weapons/fp_arm_left_cup.glb",
-   "scale": 1.0,
-   "texture_max": 256,
-   "forward": "+z",
-   "_licence": "procedural (this repository)"
-  },
-  {
    "name": "fp_fist_right",
    "glb": "weapons/fp_fist_right.glb",
    "scale": 1.0,
@@ -6595,7 +6571,31 @@
    "scale": 1.0,
    "texture_max": 1024,
    "forward": "+z",
-   "_licence": "procedural (this repository, tools/gen_fp_arms.py)"
+   "_licence": "procedural (this repository, tools/gen_fp_arms.py + tools/fp_arms_pose.py)"
+  },
+  {
+   "name": "fp_bare_curl1_right",
+   "glb": "weapons/fp_bare_curl1_right.glb",
+   "scale": 1.0,
+   "texture_max": 1024,
+   "forward": "+z",
+   "_licence": "procedural (this repository, tools/gen_fp_arms.py + tools/fp_arms_pose.py)"
+  },
+  {
+   "name": "fp_bare_curl2_right",
+   "glb": "weapons/fp_bare_curl2_right.glb",
+   "scale": 1.0,
+   "texture_max": 1024,
+   "forward": "+z",
+   "_licence": "procedural (this repository, tools/gen_fp_arms.py + tools/fp_arms_pose.py)"
+  },
+  {
+   "name": "fp_bare_curl3_right",
+   "glb": "weapons/fp_bare_curl3_right.glb",
+   "scale": 1.0,
+   "texture_max": 1024,
+   "forward": "+z",
+   "_licence": "procedural (this repository, tools/gen_fp_arms.py + tools/fp_arms_pose.py)"
   },
   {
    "name": "fp_bare_fist_right",
@@ -6603,15 +6603,39 @@
    "scale": 1.0,
    "texture_max": 1024,
    "forward": "+z",
-   "_licence": "procedural (this repository, tools/gen_fp_arms.py)"
+   "_licence": "procedural (this repository, tools/gen_fp_arms.py + tools/fp_arms_pose.py)"
   },
   {
    "name": "fp_uparm_right",
    "glb": "weapons/fp_uparm_right.glb",
    "scale": 1.0,
-   "texture_max": 512,
+   "texture_max": 1024,
    "forward": "+z",
-   "_licence": "procedural (this repository, tools/gen_fp_arms.py)"
+   "_licence": "procedural (this repository, tools/gen_fp_arms.py + tools/fp_arms_pose.py)"
+  },
+  {
+   "name": "fp_arm_right",
+   "glb": "weapons/fp_arm_right.glb",
+   "scale": 1.0,
+   "texture_max": 1024,
+   "forward": "+z",
+   "_licence": "procedural (this repository, tools/gen_fp_arms.py + tools/fp_arms_pose.py)"
+  },
+  {
+   "name": "fp_arm_left",
+   "glb": "weapons/fp_arm_left.glb",
+   "scale": 1.0,
+   "texture_max": 1024,
+   "forward": "+z",
+   "_licence": "procedural (this repository, tools/gen_fp_arms.py + tools/fp_arms_pose.py)"
+  },
+  {
+   "name": "fp_arm_left_cup",
+   "glb": "weapons/fp_arm_left_cup.glb",
+   "scale": 1.0,
+   "texture_max": 1024,
+   "forward": "+z",
+   "_licence": "procedural (this repository, tools/gen_fp_arms.py + tools/fp_arms_pose.py)"
   }
  ],
  "cars": {
@@ -12964,51 +12988,6 @@
    ],
    "skins": 0,
    "forward": "",
-   "stride": 0.0,
-   "run_stride": 0.0
-  },
-  {
-   "name": "fp_arm_right",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 902,
-   "animations": [],
-   "textures": [
-    "fp_arm_right_0.tga",
-    "fp_arm_right_1.tga"
-   ],
-   "skins": 0,
-   "forward": "+z",
-   "stride": 0.0,
-   "run_stride": 0.0
-  },
-  {
-   "name": "fp_arm_left",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 825,
-   "animations": [],
-   "textures": [
-    "fp_arm_left_0.tga",
-    "fp_arm_left_1.tga"
-   ],
-   "skins": 0,
-   "forward": "+z",
-   "stride": 0.0,
-   "run_stride": 0.0
-  },
-  {
-   "name": "fp_arm_left_cup",
-   "nodes": 2,
-   "meshes": 2,
-   "vertices": 825,
-   "animations": [],
-   "textures": [
-    "fp_arm_left_cup_0.tga",
-    "fp_arm_left_cup_1.tga"
-   ],
-   "skins": 0,
-   "forward": "+z",
    "stride": 0.0,
    "run_stride": 0.0
   },
@@ -28902,7 +28881,7 @@
    "name": "fp_bare_relax_right",
    "nodes": 1,
    "meshes": 1,
-   "vertices": 3391,
+   "vertices": 5119,
    "animations": [],
    "textures": [
     "fp_bare_relax_right_0.tga"
@@ -28913,10 +28892,52 @@
    "run_stride": 0.0
   },
   {
+   "name": "fp_bare_curl1_right",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 5119,
+   "animations": [],
+   "textures": [
+    "fp_bare_relax_right_0.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "fp_bare_curl2_right",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 5119,
+   "animations": [],
+   "textures": [
+    "fp_bare_fist_right_0.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "fp_bare_curl3_right",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 5119,
+   "animations": [],
+   "textures": [
+    "fp_bare_fist_right_0.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
    "name": "fp_bare_fist_right",
    "nodes": 1,
    "meshes": 1,
-   "vertices": 3649,
+   "vertices": 5119,
    "animations": [],
    "textures": [
     "fp_bare_fist_right_0.tga"
@@ -28930,9 +28951,57 @@
    "name": "fp_uparm_right",
    "nodes": 2,
    "meshes": 2,
-   "vertices": 1209,
+   "vertices": 1553,
    "animations": [],
    "textures": [
+    "fp_uparm_right_0.tga",
+    "fp_uparm_right_1.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "fp_arm_right",
+   "nodes": 3,
+   "meshes": 3,
+   "vertices": 6672,
+   "animations": [],
+   "textures": [
+    "fp_bare_fist_right_0.tga",
+    "fp_uparm_right_0.tga",
+    "fp_uparm_right_1.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "fp_arm_left",
+   "nodes": 3,
+   "meshes": 3,
+   "vertices": 6672,
+   "animations": [],
+   "textures": [
+    "fp_bare_fist_right_0.tga",
+    "fp_uparm_right_0.tga",
+    "fp_uparm_right_1.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "fp_arm_left_cup",
+   "nodes": 3,
+   "meshes": 3,
+   "vertices": 6672,
+   "animations": [],
+   "textures": [
+    "fp_bare_fist_right_0.tga",
     "fp_uparm_right_0.tga",
     "fp_uparm_right_1.tga"
    ],

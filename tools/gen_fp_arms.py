@@ -32,7 +32,7 @@ import numpy as np
 
 SCALE = 4.8 ** -1          # blocks a metre (a block ~4.8 m)
 FOREARM = 0.265            # wrist to elbow
-SKIN = np.array([188, 140, 114], np.float32)   # the base skin (sRGB); less orange than the old (178,128,98)
+SKIN = np.array([190, 147, 126], np.float32)   # the base skin (sRGB); less orange than the old (178,128,98)
 SLEEVE = np.array([150, 150, 156], np.float32)  # light neutral cloth: the renderer tints it to the player's shirt
 
 
@@ -97,6 +97,16 @@ POSES = {
                   thumb=[(-0.50, -0.42, 0.76), (-0.18, -0.45, 0.87), (0.02, -0.45, 0.89)], splay=0.25, wrist=0.18),
     "fist": dict(flex=[(1.42, 1.98, 1.00), (1.48, 2.00, 1.00), (1.52, 2.02, 1.00), (1.58, 2.05, 1.00)],
                  thumb=[(-0.42, -0.55, 0.72), (0.55, -0.50, 0.67), (0.98, -0.15, 0.10)], splay=1.0, wrist=0.0),
+    # FIX-FP-ARMS-2: the armed holds (tools/fp_arms_pose.py places them on the weapon). grip: round a pistol grip
+    # (middle..little fingers wrapped, the index forward along the frame to the trigger, the thumb along the far side);
+    # fore: under a fore grip or handguard (all four fingers up its far side); cup: the support hand round the
+    # shooting hand's fingers.
+    "grip": dict(flex=[(0.42, 0.62, 0.30), (1.42, 1.50, 0.70), (1.48, 1.55, 0.72), (1.55, 1.60, 0.75)],
+                 thumb=[(-0.42, -0.55, 0.72), (-0.05, -0.62, 0.78), (0.10, -0.55, 0.83)], splay=0.4, wrist=0.0),
+    "fore": dict(flex=[(1.05, 1.15, 0.50), (1.10, 1.20, 0.52), (1.15, 1.25, 0.55), (1.22, 1.30, 0.58)],
+                 thumb=[(-0.50, -0.50, 0.70), (-0.20, -0.55, 0.81), (0.00, -0.55, 0.84)], splay=0.3, wrist=0.0),
+    "cup": dict(flex=[(1.00, 1.05, 0.45), (1.05, 1.10, 0.48), (1.10, 1.15, 0.50), (1.18, 1.20, 0.52)],
+                thumb=[(-0.55, -0.35, 0.76), (-0.25, -0.30, 0.92), (-0.10, -0.25, 0.96)], splay=0.3, wrist=0.0),
 }
 
 
@@ -130,8 +140,8 @@ def forearm_field(p):
     (8.2 x 7.0 cm, toward the elbow on the back and thumb side) and down to the elbow."""
     z = p[:, 2]
     zs = np.array([0.045, 0.0, -0.040, -0.110, -0.175, -0.225, -FOREARM + 0.01, -FOREARM])
-    rx = np.array([0.0275, 0.0290, 0.0315, 0.0370, 0.0410, 0.0385, 0.0345, 0.0300])
-    ry = np.array([0.0150, 0.0195, 0.0225, 0.0300, 0.0345, 0.0335, 0.0320, 0.0290])
+    rx = np.array([0.0270, 0.0272, 0.0295, 0.0345, 0.0385, 0.0370, 0.0340, 0.0300])
+    ry = np.array([0.0150, 0.0178, 0.0205, 0.0275, 0.0315, 0.0315, 0.0310, 0.0290])
     cy = np.array([0.0000, 0.0000, 0.0010, 0.0030, 0.0040, 0.0030, 0.0020, 0.0020])
     cx = np.array([0.0000, 0.0000, -0.0010, -0.0030, -0.0040, -0.0020, 0.0000, 0.0000])
     zz = np.clip(z, zs[-1], zs[0])
@@ -144,24 +154,42 @@ def forearm_field(p):
     return np.where(over > 0, np.sqrt(np.maximum(d, 0) ** 2 + over ** 2), d)
 
 
-def hand_field(p_arm, pose):
+def wrist_rot(pose):
+    """The hand's turn at the wrist (arm space <- hand space): "Rw" when the pose gives the whole rotation (the armed
+    holds), else "wrist" radians of flexion toward the palm."""
+    return np.asarray(pose["Rw"]) if "Rw" in pose else rot((1, 0, 0), pose.get("wrist", 0.0))
+
+
+def hand_parts(p_arm, pose):
+    """The pose's field split by part: the wrist (palm, pads, knuckle heads, tendons, forearm) and one field per finger
+    (the index..little fingers, then the thumb), each to be blended into the wrist; plus the joints for the colours."""
     # the hand turned at the wrist (pose "wrist": + bends it toward the palm); the forearm stays
-    Rw = rot((1, 0, 0), pose.get("wrist", 0.0))
+    Rw = wrist_rot(pose)
     p = (p_arm @ Rw).astype(np.float32)
     # the palm: a slab with the metacarpals in it, the pads under, the knuckle heads on the front edge
     palm = rbox(p, (0.0010, -0.0025, 0.0500), (0.0300, 0.0110, 0.0400), 0.0095)
     for fd in FINGERS:
         palm = smin(palm, capsule(p, fd["base"], np.array(fd["mcp"]) + (0, -0.001, -0.004), 0.0085, fd["r"][0] * 1.02), 0.008)
-    palm = smin(palm, ellipsoid(p, (-0.0215, -0.0095, 0.0330), (0.0150, 0.0125, 0.0250), rot((0, 1, 0), -0.45)), 0.010)   # thenar
+    palm = smin(palm, ellipsoid(p, (-0.0215, -0.0095, 0.0330), (0.0155, 0.0130, 0.0255), rot((0, 1, 0), -0.45)), 0.010)   # thenar
     palm = smin(palm, ellipsoid(p, (0.0245, -0.0080, 0.0420), (0.0105, 0.0105, 0.0300)), 0.010)                          # hypothenar
     palm = smin(palm, ellipsoid(p, (0.0000, -0.0105, 0.0740), (0.0300, 0.0070, 0.0120)), 0.008)                            # the pad under the knuckles
-    for fd in FINGERS:
-        palm = smin(palm, ellipsoid(p, fd["mcp"], (fd["r"][0] * 1.05, fd["r"][0] * 1.0, fd["r"][0] * 1.0)), 0.004)   # knuckle head
+    flexed = [min(1.0, max(0.0, fl[0] / 1.4)) for fl in pose["flex"]]
+    for fd, fx in zip(FINGERS, flexed):
+        # the metacarpal head: stands out as a knuckle as the finger bends away from it
+        r0 = fd["r"][0]
+        palm = smin(palm, ellipsoid(p, np.array(fd["mcp"]) + (0, 0.0012 * fx, 0.0015 * fx), (r0 * 1.05, r0 * (1.0 + 0.06 * fx), r0 * 1.0)), 0.004)
+        # the extensor tendon from the wrist to the knuckle, a fine ridge on the back of the hand
+        palm = smin(palm, capsule(p, (fd["base"][0] * 0.6, 0.0105, 0.012), np.array(fd["mcp"]) + (0, r0 * 0.78, -0.006), 0.0019, 0.0021), 0.0035)
     fa = smin(forearm_field(p_arm), ellipsoid(p_arm, (0.0, 0.002, -FOREARM), (0.033, 0.031, 0.028)), 0.01)   # rounded at the elbow
+    # the forearm's muscles: the brachioradialis swelling on the thumb side toward the elbow, the flexors under,
+    # the extensors on the back; they thin into tendons at the lower third, so the wrist tapers
+    fa = smin(fa, ellipsoid(p_arm, (-0.0230, 0.0090, -0.1800), (0.0200, 0.0190, 0.0750), rot((0, 1, 0), 0.10)), 0.016)
+    fa = smin(fa, ellipsoid(p_arm, (0.0040, -0.0190, -0.1550), (0.0300, 0.0170, 0.0850)), 0.018)
+    fa = smin(fa, ellipsoid(p_arm, (0.0080, 0.0200, -0.1650), (0.0240, 0.0140, 0.0700)), 0.016)
     wrist = smin(palm, fa, 0.026)
     wrist = smin(wrist, ellipsoid(p_arm, (0.0240, 0.0070, -0.0060), (0.0045, 0.0040, 0.0060)), 0.007)   # the ulna's head
     # the fingers: each blended into the palm, never into each other
-    total = None
+    chains = []
     joints = []
     for fd, fl in zip(FINGERS, pose["flex"]):
         pts, _ = finger_chain(fd, fl, pose.get("splay", 1.0))
@@ -172,17 +200,25 @@ def hand_field(p_arm, pose):
         f = smin(f, capsule(p, pts[2], pts[3] - unit(pts[3] - pts[2]) * r[3] * 0.4, r[2] * 0.98, r[3]), 0.002)
         f = smin(f, ellipsoid(p, pts[1], (r[1] * 1.08, r[1] * 1.06, r[1] * 1.06)), 0.002)   # PIP knuckle
         f = smin(f, ellipsoid(p, pts[2], (r[2] * 1.04, r[2] * 1.03, r[2] * 1.03)), 0.0015)   # DIP
-        u = smin(wrist, f, 0.0045)
-        total = u if total is None else np.minimum(total, u)
+        chains.append((f, 0.0045))
     tp = thumb_chain(pose)
     tr = THUMB_R
     t = capsule(p, tp[0], tp[1], tr[0], tr[1])
     t = smin(t, capsule(p, tp[1], tp[2], tr[1] * 0.98, tr[2]), 0.002)
     t = smin(t, capsule(p, tp[2], tp[3] - unit(tp[3] - tp[2]) * tr[4] * 0.4, tr[3], tr[4]), 0.002)
     t = smin(t, ellipsoid(p, tp[1], (tr[1] * 1.08,) * 3), 0.002)
-    total = np.minimum(total, smin(wrist, t, 0.009))
+    chains.append((t, 0.009))
     joints = [[Rw @ q for q in pts] for pts in joints]
     tp = [Rw @ q for q in tp]
+    return wrist, chains, joints, tp
+
+
+def hand_field(p_arm, pose):
+    wrist, chains, joints, tp = hand_parts(p_arm, pose)
+    total = None
+    for f, k in chains:
+        u = smin(wrist, f, k)
+        total = u if total is None else np.minimum(total, u)
     return total, joints, tp
 
 
@@ -204,7 +240,8 @@ def uparm_field(p):
     # the sleeve: a shell 6 mm out from 0.105 up, the hem rolled
     hem = 0.105
     ang = np.arctan2(p[:, 1], p[:, 0])
-    fold = 0.0018 * np.sin(ang * 2.0 + 0.6) * np.clip((z - hem) / 0.08, 0, 1) + 0.0012 * np.sin(z * 70.0 + ang * 3.0)
+    fold = (0.0020 * np.sin(ang * 2.0 + 0.6) * np.clip((z - hem) / 0.08, 0, 1) + 0.0012 * np.sin(z * 70.0 + ang * 3.0)
+            + 0.0008 * np.sin(z * 150.0 - ang * 5.0) * np.clip((0.2 - (z - hem)) / 0.2, 0, 1))   # creases near the hem
     sl = (q - 1.0) * np.minimum(ax, ay) - 0.0062 - fold
     sl = np.maximum(sl, hem - z)
     sl = np.maximum(sl, z - 0.36)
@@ -308,7 +345,15 @@ def hand_colour(v, n, fn, joints, tp, rng):
     # the forearm: a little paler on the inside, faint hair shading on the back toward the elbow
     fa = np.clip(-v[:, 2] / 0.05, 0, 1)
     col = col * (1 - 0.05 * fa[:, None] * np.clip(dorsal, 0, 1)[:, None]) + np.array([6, 4, 4]) * (fa * palmk)[:, None]
-    col = col * cavity(fn, v, n)[:, None]
+    # fine hair on the back of the forearm and the wrist (short dark strokes along the arm) and a few freckles
+    def hash3(q):
+        h = np.sin(q[:, 0] * 127.1 + q[:, 1] * 311.7 + q[:, 2] * 74.7) * 43758.5453
+        return h - np.floor(h)
+    cell = np.floor(v / np.array([0.0008, 0.0008, 0.0026]))
+    hair = (hash3(cell) > 0.86) * np.clip(dorsal + 0.2, 0, 1) * np.clip((-v[:, 2] - 0.005) / 0.03, 0, 1)
+    col = col * (1 - 0.05 * hair[:, None])
+    fr = (hash3(np.floor(v / 0.0016) + 7.0) > 0.985) * np.clip(dorsal, 0, 1)
+    col = col * (1 - 0.12 * fr[:, None]) + np.array([4, -2, -4]) * fr[:, None]
     return np.clip(col, 0, 255)
 
 
@@ -350,7 +395,9 @@ def build_uparm(work, h):
         else:
             c = np.tile(SLEEVE, (len(v), 1))
             hem = np.exp(-((v[:, 2] - 0.112) / 0.0018) ** 2)
-            c = c * (1 - 0.25 * hem[:, None])
+            ang = np.arctan2(v[:, 1], v[:, 0])
+            seam = np.exp(-((ang + 1.5708) / 0.03) ** 2) + np.exp(-((v[:, 2] - 0.118) / 0.0007) ** 2) * 0.6   # the seam, the hem's stitching
+            c = c * (1 - 0.25 * hem[:, None] - 0.18 * seam[:, None])
         c = c * cavity(fn, v, n)[:, None]
         path = os.path.join(work, f"uparm_{name}.ply")
         write_ply(path, v, f, c)
@@ -365,30 +412,29 @@ def main():
     args = sys.argv[2:]
     blender = args[args.index("--blender") + 1] if "--blender" in args else None
     imp = args[args.index("--import") + 1] if "--import" in args else None
-    only = args[args.index("--only") + 1].split(",") if "--only" in args else list(POSES) + ["uparm"]
+    only = args[args.index("--only") + 1].split(",") if "--only" in args else ["hand", "uparm"]
     h = 0.0009
     jobs = []
-    for pose in POSES:
-        if pose in only:
-            jobs.append((f"fp_bare_{pose}_right", [build_hand(pose, work, h)], ["skin"], 5200))
+    if "hand" in only:   # the relaxed hand: the rest mesh every pose is made from (tools/fp_arms_pose.py)
+        jobs.append(("fp_hand_base", [build_hand("relax", work, h)], ["skin"], 8000, os.path.join(work, "base")))
     if "uparm" in only:
-        jobs.append(("fp_uparm_right", build_uparm(work, h), ["skin", "sleeve"], 1800))
+        jobs.append(("fp_uparm_right", build_uparm(work, h), ["skin", "sleeve"], 2400, imp))
     if not blender:
         return
     here = os.path.dirname(os.path.abspath(__file__))
-    models = []
-    for name, plys, nodes, tris in jobs:
+    for name, plys, nodes, tris, dest in jobs:
         glb = os.path.join(work, name + ".glb")
         cmd = [blender, "-b", "--factory-startup", "-noaudio", "--python", os.path.join(here, "fp_arms_bake.py"), "--",
                glb, str(SCALE), str(tris)] + [f"{n}={p}" for n, p in zip(nodes, plys)]
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL if "-q" in args else None)
-        models.append(dict(name=name, glb=os.path.basename(glb), scale=1.0, texture_max=512 if name == "fp_uparm_right" else 1024, forward="+z",
-                           _licence="procedural (this repository, tools/gen_fp_arms.py)"))
-    with open(os.path.join(work, "manifest_fp_arms.json"), "w") as fh:
-        json.dump({"models": models}, fh, indent=1)
-    if imp:
-        os.makedirs(imp, exist_ok=True)
-        subprocess.run([sys.executable, os.path.join(here, "import_assets.py"), os.path.join(work, "manifest_fp_arms.json"), imp], check=True)
+        man = os.path.join(work, f"manifest_{name}.json")
+        json.dump({"models": [dict(name=name, glb=os.path.basename(glb), scale=1.0, texture_max=512 if name == "fp_uparm_right" else 1024,
+                                   forward="+z", _licence="procedural (this repository, tools/gen_fp_arms.py)")]}, open(man, "w"), indent=1)
+        if dest:
+            os.makedirs(dest, exist_ok=True)
+            subprocess.run([sys.executable, os.path.join(here, "import_assets.py"), man, dest], check=True, stdout=subprocess.DEVNULL)
+    if imp and "hand" in only:
+        subprocess.run([sys.executable, os.path.join(here, "fp_arms_pose.py"), work, imp, "--blender", blender], check=True)
 
 
 if __name__ == "__main__":
