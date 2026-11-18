@@ -4636,6 +4636,7 @@ inline float Clamp01Signed(float v, float lim) { return v > lim ? lim : (v < -li
 // the road (never lifting off it). False (nothing changed) when fewer than three corners find a road, or when the game
 // has the car in the air (a jump), which keeps the game's height.
 int g_groundOnTyres = 1;   // [devtools] ground_on_tyres=0: the bodies on the sprite plane as before (A/B)
+int g_bodyLiftOn = [] { char v[8] = {}; return GetEnvironmentVariableA("GTA2DX9_BODY_LIFT", v, sizeof v) && v[0] == '0' ? 0 : 1; }();   // MOTION-QA-2: GTA2DX9_BODY_LIFT=0 off (A/B)
 bool GroundOnTyres(gta2::Mat4* m, const TyreContacts& tc, float sink, float before[4], float after[4]) {
     constexpr float kHair = 0.001f;
     float h[4], px[4], pz[4];
@@ -5748,6 +5749,21 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                 } else posed = Mul(feel.pose, carToWorld);
             }
             posed = Mul(posed, sepMove);
+            // MOTION-QA-2 (mr_b_drv / mr_1_drv, the wheel probe): a body pressed down at a corner by more than its wheel's
+            // travel (an impact's kick into a wall, a hard dive) put that hung wheel into the road (the hang below stops at
+            // the travel): up to 0.0196 block, 25 % of a 0.07 tyre, in 345 corner-frames of a 50 s drive. The body is
+            // lifted by that excess instead, so every hung wheel reaches the road and none is pushed into it.
+            float bodyLift = 0.0f;
+            if (feel.on && !wreckModel && !cpuCut && haveWheels && feel.wheelTravel > 0.0f && g_bodyLiftOn) {
+                const gta2::Mat4& P = feel.pose;
+                for (int w = 0; w < wheels.n; ++w) {
+                    const gta2::Vec3& c = wheels.centre[w];
+                    const float arch = c.x * P.m[0][1] + c.y * P.m[1][1] + c.z * P.m[2][1] + P.m[3][1];
+                    bodyLift = (std::max)(bodyLift, (c.y - arch) - (feel.wheelTravel + 0.004f));
+                }
+                bodyLift = (std::min)(bodyLift, 0.04f);
+                posed.m[3][1] += bodyLift;
+            }
             // FIX-TRUCK-WHEELS-3: a body whose tyres are in its mesh leans only as far as its tyres press into the road
             // (0.006 block at most), never off it: the lean, heave and an impact's kick are taken back to that.
             if (grounded && feel.on && fxCar.rigidWheels)
@@ -6350,13 +6366,13 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                     gta2::Mat4 hang = carToWorld;
                     if (feel.wheelTravel > 0.0f) {
                         const gta2::Mat4& P = feel.pose;
-                        const float arch = c.x * P.m[0][1] + c.y * P.m[1][1] + c.z * P.m[2][1] + P.m[3][1];
+                        const float arch = c.x * P.m[0][1] + c.y * P.m[1][1] + c.z * P.m[2][1] + P.m[3][1] + bodyLift;   // MOTION-QA-2
                         const float lim = feel.wheelTravel + 0.004f;
                         // FIX-TRUCK-WHEELS-3: down to the road whatever the arch (an impact's kick lifted a cop car's corner
                         // 0.012 past the travel for a few frames, tw3_f); up into the arch at most the travel.
                         const float dy = (std::min)(lim, c.y - arch);
                         gta2::Mat4 drop = gta2::Identity();
-                        drop.m[3][1] = dy;
+                        drop.m[3][1] = dy + bodyLift;   // MOTION-QA-2: with the lifted body
                         hang = Mul(Mul(P, drop), carToWorld);
                     }
                     ModelDraw(device, *wheels.wheel[w], Mul(Mul(Mul(fit, m), hang), sepMove), nullptr, 0.0f);

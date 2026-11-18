@@ -2416,3 +2416,21 @@ no wheel flip-flops). Classic: vreg `spawn_classic` 0 changed tiles (mr_vreg1).
 **Still short**: the drawn tyres of cut-wheel bodies press up to 0.019 block into the road while a car is pushed into a
 wall (the hang's travel limit; front wheels, out of the chase view); the punched man still trails the game's spot by up to
 ~2 blocks after rising; the first-person hands appear on the wheel ~0.4 s after the seat dissolve (hand art, not touched).
+
+## MOTION-QA-2 (18 Nov 2026): wheels never pressed into the road; no get-up frozen out of the picture
+
+- *A hung wheel sank into the road when the body was pushed down past its travel* (the `tyres wheel:` probe, mr_1_drv:
+  345 corner-frames down to -0.0196 block, 25 % of a 0.07 tyre, in a 50 s drive, at wall impacts and hard dives). The hang
+  stops a wheel at its travel up into the arch, so the arch had gone below the road. The body (`posed`) is now lifted by
+  the largest such excess (at most 0.04 block) and the wheels hang from the lifted body. mr_6_drv (000, 012, rams, hard
+  stops): 0 sunk corner-frames, every hung wheel within 0.0010..0.0014 block of the road. `GTA2DX9_BODY_LIFT=0`: off.
+- *A get-up begun outside the picture froze* (mr_7_gu, ped b8cb): the action clock runs only where a figure is drawn, so a
+  man who started rising behind the camera stayed on the rise's first frame, pinned where he lay, for 14 s while the game
+  had him walking off; turned back into view he rose there with the clip blended in from a standing pose (feet 0.053 block
+  through the road) and then ran blocks to the game's spot. A rise that is out of the picture now ends at once (nobody sees
+  it; he walks on where the game has him). mr_8_gu / mr_8_gu2 (14 knock-downs, 31 traced rises incl. an NPC brawl's
+  repeated knock-downs): every rise starts from the lying pose (pelvis <= 0.021), lowest foot >= +0.006, 10 hidden rises
+  ended, 99 returns to the window handled. `GTA2DX9_HIDDEN_RISE_OLD=1`: as before.
+- Also swept, clean: driving up and down the wil road ramp and over its kerbs in third and first person (mr_6_ramp3/1,
+  van 068: shell tyres within -0.005..+0.001 of the road, 0 screen zig-zag runs), a third-person jack with drive-off and
+  exit (0 zig-zag runs, 0 camera-yaw reversals), death in first person (fixfp_wasted: WASTED, fade, hospital).

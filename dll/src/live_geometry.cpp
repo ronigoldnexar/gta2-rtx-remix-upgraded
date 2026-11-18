@@ -13007,8 +13007,21 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             // GTA2DX9_FP_BODY_CULL_OLD=1: culled as before (A/B).
             static const bool fpCullOld = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_FP_BODY_CULL_OLD", b, sizeof b) && b[0] == '1'; }();
             const bool fpNoCull = fpBody && !fpCullOld;
-            if (model && !sprite.shadowOnly && !fpNoCull && BehindView(gx, cy, gz, 0.6f)) { if (heroFigure) g_ownLensFrame = g_carFrame; if (kdKeep) kdSkipDraw = true; else continue; }
-            if (model && !sprite.shadowOnly && !kdSkipDraw && !fpNoCull && OutsideViewFrustum(gx, cy, gz, 0.75f)) { if (heroFigure) g_ownLensFrame = g_carFrame; if (kdKeep) kdSkipDraw = true; else continue; }   // beside the picture: not drawn, track kept
+            // MOTION-QA-2 (mr_7_gu, ped b8cb): a figure outside the picture is not stepped (the action clock runs where it is
+            // drawn, below), so a man who began his get-up behind the camera stayed frozen at its first frame, pinned where
+            // he lay, for as long as he was out of the picture (14 s), while the game had him walking off; turned back into
+            // view he rose there, feet 0.05 block through the road (the clip blended in from a standing pose), and then ran
+            // to the game's spot blocks away. Out of the picture the get-up is over at once: nobody sees it, he walks on
+            // where the game has him. GTA2DX9_HIDDEN_RISE_OLD=1: as before.
+            static const bool hiddenRiseOld = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_HIDDEN_RISE_OLD", b, sizeof b) && b[0] == '1'; }();
+            auto endHiddenRise = [&]() {
+                if (hiddenRiseOld || track.action != 4 || !track.actionReverse || track.kd) return;
+                if (g_logPedFrames) Log("getup: %p out of the picture while rising: up at once", reinterpret_cast<const void*>(sprite.object));
+                track.action = 0; track.actionReverse = false; track.actionTime = 0.0f; track.actionWeight = 0.0f; track.fadeClip = nullptr;
+                track.guClip = nullptr; track.guFromK = 0.0f; track.guOff = false; track.guPinned = false; track.guOX = track.guOZ = 0.0f;
+            };
+            if (model && !sprite.shadowOnly && !fpNoCull && BehindView(gx, cy, gz, 0.6f)) { if (heroFigure) g_ownLensFrame = g_carFrame; if (kdKeep) kdSkipDraw = true; else { endHiddenRise(); continue; } }
+            if (model && !sprite.shadowOnly && !kdSkipDraw && !fpNoCull && OutsideViewFrustum(gx, cy, gz, 0.75f)) { if (heroFigure) g_ownLensFrame = g_carFrame; if (kdKeep) kdSkipDraw = true; else { endHiddenRise(); continue; } }   // beside the picture: not drawn, track kept
             if (heroFigure && model && CurrentViewMode() == ViewMode::FirstPerson) {
                 // FIX-FIGURE-10 pfl23: his chest and head both off the picture (under its bottom edge on the
                 // move into his eyes): he is out of the frame though inside the frustum's margin.
