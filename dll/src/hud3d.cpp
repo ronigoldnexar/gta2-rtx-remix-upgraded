@@ -2065,7 +2065,7 @@ void DrawAimLayer(ImDrawList* dl, float alpha, float W, float H) {
 // kMarkerLiftMax clears it the target is shown by the edge chevron, as when off screen ("blocked"
 // in the log); in third person the pin is pushed above the figure's screen box.
 struct MarkerStats {
-    int arrows = 0, pins = 0, lifted = 0, blocked = 0, edges = 0;
+    int arrows = 0, pins = 0, lifted = 0, blocked = 0, edges = 0, xray = 0;
     bool hit = false; float hitAt[3] = {}, hitFrom[3] = {}, hitTo[3] = {};   // the nearest arrow's first wall sample
 };
 MarkerStats g_markerStats;
@@ -2226,13 +2226,35 @@ void DrawObjectiveMarkers(ImDrawList* dl, const Values& v, float W, float H, flo
         // One chevron, for the nearest place: three gang arrows plus the job's at once read as noise
         // on the screen edge (pm15-orange-arrowhead-sprites-scatter-across-3d-views).
         if (&ar != nearestPlace) continue;
+        // QA5090-ARROW (owner, 18 Nov: "the arrow pointed at the sky"): a place straight ahead but behind
+        // the block used to get the edge chevron at the top of the screen pointing up, over the roofs.
+        // Now a target whose spot is in front of the eye and inside the picture keeps a pin, see-through,
+        // pointing down at where it is behind the wall; off the picture the chevron follows the spot's
+        // own direction on screen (ahead and below is down, not up), and only a spot behind the eye
+        // falls back to the bearing round the camera (behind is down).
+        float hx = 0.0f, hy = 0.0f;
+        const bool front = LiveWorldToScreen(wx, wy, wz, &hx, &hy);
+        if (hidden && front && hx > 0.04f && hx < 0.96f && hy > 0.10f && hy < 0.94f) {
+            const float s = u * (std::max)(13.0f, (std::min)(20.0f, 20.0f - (dist - 6.0f) * 0.15f));
+            ImVec2 tip(hx * W, hy * H + bob * 0.18f * s);
+            const float top = tip.y - 2.05f * s;
+            if (figure && tip.x + 0.9f * s > fx0 && tip.x - 0.9f * s < fx1 && tip.y > fy0 && top < fy1) tip.y = fy0 - 6.0f * u;
+            DrawMarkerPin(dl, tip, s, col, A * 0.6f);
+            ++g_markerStats.xray;
+            char t[24];
+            snprintf(t, sizeof t, "%.0fm", dist * 2.0f);
+            const ImVec2 ts = Measure(g_fonts.label, g_fonts.labelPx, t);
+            Text(dl, g_fonts.label, g_fonts.labelPx, ImVec2(tip.x - ts.x * 0.5f, tip.y - 2.05f * s - 3.0f * u - ts.y), kWhite, t, A * 0.75f);
+            continue;
+        }
         ++g_markerStats.edges;
-        // Off screen (or behind the eye): the bearing from the camera's heading, laid on an
-        // ellipse inside the screen's edge; ahead is up, behind is down.
+        // Off screen: toward the spot's own place on screen when it is in front of the eye; behind the
+        // eye, the bearing from the camera's heading. Laid on an ellipse inside the screen's edge.
         const float dx = wx - p.x, dz = wz - (static_cast<float>(gta2::kMapHeight) - p.y);
         const float fx = std::sin(yaw), fz = std::cos(yaw);
         const float ahead = dx * fx + dz * fz, side = dx * fz - dz * fx;
-        const float b = std::atan2(side, ahead);   // 0 ahead, + to the right
+        float b = std::atan2(side, ahead);   // 0 ahead (up), + to the right
+        if (front) b = std::atan2((hx - 0.5f) * W, (0.5f - hy) * H);   // 0 up, + to the right, as on screen
         const ImVec2 c(W * 0.5f + std::sin(b) * (W * 0.5f - edge), H * 0.5f - std::cos(b) * (H * 0.5f - edge));
         const float r = 11.0f * u, ca = std::cos(b), sa = std::sin(b);
         auto rot = [&](float x, float y) { return ImVec2(c.x + x * ca - y * sa, c.y + x * sa + y * ca); };
@@ -3861,10 +3883,10 @@ void Hud3dRender(IDirect3DDevice9* device, int width, int height, const gta2::Ma
             Log("hud3d: markers: nearest's sight line %.2f,%.2f,%.2f -> %.2f,%.2f,%.2f first walled at %.2f,%.2f,%.2f",
                 g_markerStats.hitFrom[0], g_markerStats.hitFrom[1], g_markerStats.hitFrom[2], g_markerStats.hitTo[0], g_markerStats.hitTo[1], g_markerStats.hitTo[2],
                 g_markerStats.hitAt[0], g_markerStats.hitAt[1], g_markerStats.hitAt[2]);
-        Log("hud3d: markers: view=%s modern=%d slots=%zu (nearest kind %d at %.1f,%.1f,%.1f, %.1f blocks) frames: arrows=%d pins=%d lifted=%d blocked=%d edges=%d; game arrow sprites swallowed=%d",
+        Log("hud3d: markers: view=%s modern=%d slots=%zu (nearest kind %d at %.1f,%.1f,%.1f, %.1f blocks) frames: arrows=%d pins=%d lifted=%d blocked=%d edges=%d xray=%d; game arrow sprites swallowed=%d",
             CurrentViewMode() == ViewMode::FirstPerson ? "first" : "third", g_cfg.modern ? 1 : 0, v.arrows.size(),
             nearest ? nearest->kind : -1, nearest ? nearest->x : 0.0f, nearest ? nearest->y : 0.0f, nearest ? nearest->z : 0.0f, nearest ? nd : 0.0f,
-            g_markerStats.arrows, g_markerStats.pins, g_markerStats.lifted, g_markerStats.blocked, g_markerStats.edges, g_markerSwallowed);
+            g_markerStats.arrows, g_markerStats.pins, g_markerStats.lifted, g_markerStats.blocked, g_markerStats.edges, g_markerStats.xray, g_markerSwallowed);
         g_markerStats = MarkerStats{};
         g_markerSwallowed = 0;
     }
