@@ -5397,6 +5397,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     auto CarSwingEarlyOn = [&]() { return carSwingEarly != 0; };
     float carSwingStep = 0.0f;      // FIX-INCAR-1: this frame's turn of the in-car boom (the view's yaw cap below lets it through)
     bool carDriveOffCut = false;    // FIX-CAMERA-13: this frame the in-car boom cuts from ahead of the car to behind it
+    static float carSwingVel = 0.0f;   // MOTION-QA-4: the turn's rate (rad/s), acceleration-limited
     static float carSwing = 0.0f;   // FIX-CAMERA-9: the in-car boom's turn aside (radians; the aim below uses it too)
     {
         static int carSwingOn = -1;
@@ -5586,6 +5587,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                         carSwing = to;
                         want = to;
                         carDriveOffCut = true;
+                        carSwingVel = 0.0f;
                     }
                 }
             }
@@ -5621,6 +5623,22 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             // FIX-INCAR-1: tripped earlier now, the turn can be gentler (140 degrees a second, was 200).
             const float cap = (CarSwingEarlyOn() ? 140.0f : 200.0f) * kDegToRad * (std::min)(dt, 1.0f / 20.0f);
             d = (std::max)(-cap, (std::min)(cap, d));
+            // MOTION-QA-4 (mr_16_t63: the truck along a narrow street's wall; the swing's want flipped 100 -> 40 -> 80 ->
+            // 20 degrees in as many frames and the turn's rate with it, so the view's yaw rate jumped 5-6 degrees a frame
+            // from one frame to the next): the turn's rate now changes at most 700 degrees/s^2 (0 to its 140 deg/s in
+            // 0.2 s), so a change of mind bends the turn instead of jerking it. GTA2DX9_CAM_SWING_ACCEL=0: as before.
+            {
+                static int accelOn = -1;
+                if (accelOn < 0) { char b[8] = {}; accelOn = GetEnvironmentVariableA("GTA2DX9_CAM_SWING_ACCEL", b, sizeof b) && b[0] == '0' ? 0 : 1; }
+                if (accelOn && dt > 1e-4f) {
+                    const float h = (std::min)(dt, 1.0f / 20.0f);
+                    const float wantV = d / h, maxDv = 700.0f * kDegToRad * h;
+                    carSwingVel += (std::max)(-maxDv, (std::min)(maxDv, wantV - carSwingVel));
+                    float dd = carSwingVel * h;
+                    if ((want - carSwing) * dd > 0.0f && std::fabs(dd) > std::fabs(want - carSwing)) { dd = want - carSwing; carSwingVel = dd / h; }
+                    d = dd;
+                }
+            }
             carSwing += d;
             carSwingStep = std::fabs(d);
             if (CarSwingEarlyOn() && d != 0.0f) {
@@ -5637,12 +5655,12 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                     eyeZ_ = rot.z;
                 }
             }
-            if (std::fabs(carSwing) < 1e-3f) carSwing = 0.0f;
+            if (std::fabs(carSwing) < 1e-3f && std::fabs(carSwingVel) < 0.05f) { carSwing = 0.0f; carSwingVel = 0.0f; }
             if (carSwing != 0.0f) desired = turned(carSwing, len0);
             if (cameraLogOn() && (carSwing != 0.0f || want != 0.0f))
                 Log("cam: car swing %.1f want %.1f (behind reaches %.2f of %.2f, backing %.2f)", carSwing / kDegToRad, want / kDegToRad, straight, good, backing);
         } else {
-            carSwing = 0.0f;
+            carSwing = 0.0f; carSwingVel = 0.0f;
         }
     }
     if (s.tpCollide && q.blocked) {
@@ -5964,7 +5982,13 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     gta2::Vec3 orientEye{eyeX_, eyeY_, eyeZ_};
     float pulledShort = 0.0f, rigLength = 0.0f;   // FIX-CAMERA-6: how much shorter than the rig the boom is shown
     {
-        constexpr float kBoomIn = 9.0f, kBoomOut = 2.2f, kBoomHold = 0.3f;
+        // MOTION-QA-4 (mr_16_t63/t0: at the wheel along a narrow street the boom came in 0.6 block in one frame by a wall
+        // edge and went out again as soon as the line cleared: 63 jerks of the eye in 80 s): at the wheel the boom comes
+        // in at most kBoomIn 4.5 a second (a wall too, while the slower lens is not inside it or within 0.06 of it), and
+        // lets go after a 0.6 s hold at most 1.2 a second. GTA2DX9_CAM_CAR_BOOM_OLD=1: as before.
+        static const bool carBoomOld = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_CAM_CAR_BOOM_OLD", b, sizeof b) && b[0] == '1'; }();
+        const bool carBoom = inVehicle && !carBoomOld;
+        const float kBoomIn = carBoom ? 4.5f : 9.0f, kBoomOut = carBoom ? 1.2f : 2.2f, kBoomHold = carBoom ? 0.6f : 0.3f;
         const gta2::Vec3 solved{eyeX_, eyeY_, eyeZ_};
         const gta2::Vec3 arm = solved - pivot;
         const float armLen = std::sqrt(arm.x * arm.x + arm.y * arm.y + arm.z * arm.z);
@@ -6100,7 +6124,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                 if (want < boom_) {
                     const float slow = softPanels && boomAtStart > 0.0f ? (std::min)(boom_, (std::max)(want, boomAtStart - kBoomIn * dt)) : want;
                     const gta2::Vec3 at{shownPivot.x + dir.x * slow, shownPivot.y + dir.y * slow, shownPivot.z + dir.z * slow};
-                    const bool open = slow > want && !eyecol::InsideSolid(at) && eyecol::Nearest(at, 0.2f) >= 0.14f &&
+                    const bool open = slow > want && !eyecol::InsideSolid(at) && eyecol::Nearest(at, 0.2f) >= (carBoom ? 0.06f : 0.14f) &&
                                       !(q.blocked && solidAt(at.x, at.y, at.z));
                     boom_ = open ? slow : want;
                     if (open && cameraLogOn()) {

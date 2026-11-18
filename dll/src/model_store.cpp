@@ -4221,7 +4221,7 @@ std::vector<GuKey> GuFromBack() {
         {1.15f, {{kGuRoot, 'r', -35}, {"Bip01 Spine1", 'r', -10}, {"Bip01 Head", 'r', 20},
                  {"Bip01 R Thigh", 'r', 150}, {"Bip01 L Thigh", 'r', 150}, {"Bip01 R Thigh", 'u', -8}, {"Bip01 L Thigh", 'u', 8}, {"Bip01 R Calf", 'r', -140}, {"Bip01 L Calf", 'r', -140},
                  {"Bip01 R Foot", 'r', 25}, {"Bip01 L Foot", 'r', 25},
-                 {"Bip01 R UpperArm", 'f', -15}, {"Bip01 R UpperArm", 'r', 45}, {"Bip01 R Forearm", 'r', 10},
+                 {"Bip01 R UpperArm", 'f', -15}, {"Bip01 R UpperArm", 'r', 45}, {"Bip01 R Forearm", 'r', 10}, {"Bip01 R Hand", 'r', 75},
                  {"Bip01 L UpperArm", 'r', 80}, {"Bip01 L Forearm", 'r', 40}}, 2},
         // rising: torso 20 forward, thighs 45, shins 15 forward, the hands coming off
         {1.50f, {{kGuRoot, 'r', -20}, {"Bip01 Head", 'r', 10},
@@ -4236,11 +4236,13 @@ constexpr float kGuBackLen = 1.85f;
 std::vector<GuKey> GuFromFront() {
     return {
         // hands under the shoulders, head up, legs together, toes tucked
+        // (MOTION-QA-4: the hands flat on the road, fingers ahead, not hanging off the wrists fingers-down)
         {0.40f, {{kGuRoot, 'r', -90}, {"Bip01 Head", 'r', 25},
-                 {"Bip01 R UpperArm", 'r', 50}, {"Bip01 R Forearm", 'r', 60}, {"Bip01 L UpperArm", 'r', 50}, {"Bip01 L Forearm", 'r', 60}}, 1},
+                 {"Bip01 R UpperArm", 'r', 50}, {"Bip01 R Forearm", 'r', 60}, {"Bip01 L UpperArm", 'r', 50}, {"Bip01 L Forearm", 'r', 60},
+                 {"Bip01 R Hand", 'r', 70}, {"Bip01 L Hand", 'r', 70}}, 1},
         // pushed up onto hands and knees: back level, arms straight down, thighs straight down, shins on the road
         {0.85f, {{kGuRoot, 'r', -85}, {"Bip01 Spine1", 'r', 5}, {"Bip01 Head", 'r', 20},
-                 {"Bip01 R UpperArm", 'r', 85}, {"Bip01 L UpperArm", 'r', 85},
+                 {"Bip01 R UpperArm", 'r', 85}, {"Bip01 L UpperArm", 'r', 85}, {"Bip01 R Hand", 'r', 85}, {"Bip01 L Hand", 'r', 85},
                  {"Bip01 R Thigh", 'r', 85}, {"Bip01 L Thigh", 'r', 85}, {"Bip01 R Calf", 'r', -90}, {"Bip01 L Calf", 'r', -90}}, 3},
         // kneeling up on the left knee, the right foot planted a short step ahead (MOTION-QA-3: was 105/20 degrees of
         // thigh, a long stride that ended the rise in a wide lunge), the right hand pressing on that knee

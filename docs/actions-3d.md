@@ -2534,3 +2534,33 @@ rig re-framing when the probe swaps the car model mid-drive (a probe artefact). 
   left hand cupping). Not verified: RTX Remix (the RTX 6000 host refused SSH: its disk is full, "No space left on
   device" at boot, so the guest agent could not install keys).
 
+
+## MOTION-QA-4 (18 Nov 2026): the chase camera along walls, hands flat in the get-ups
+
+- *The chase camera pulled in and out at walls* (mr_16_t63: truck 063 in narrow streets, one model a drive): the boom came
+  in 0.6 block in one frame by a wall edge and went out as soon as the line cleared, and the turn aside (car swing)
+  flipped its wanted angle 100 -> 40 -> 80 -> 20 degrees in as many frames, the view's yaw rate jumping 5-6 degrees a
+  frame. At the wheel the boom now comes in at most 4.5 blocks/s (a wall too, while the slower lens is not inside it or
+  within 0.06 of it), lets go after a 0.6 s hold at most 1.2 blocks/s, and the turn aside changes its rate at most
+  700 deg/s^2. Eye/yaw jerks (eye 2nd difference > 0.15 block or yaw rate change > 3 deg in a frame, `cam: pose` trace),
+  camera-yaw reversals and screen zig-zag runs of the driven body, one model per drive (5 rounds each):
+
+  | run | model | jerks | yaw reversals | zig-zag runs |
+  |---|---|---|---|---|
+  | mr_16_t63 (before) | 063 | 63 | 11 | 4 |
+  | mr_17_t63 | 063 | 16 | 0 | 0 |
+  | mr_16_t0 (before) | 000 | 52 | 12 | 8 |
+  | mr_17_t0 | 000 | 9 | 2 | 10 (6 frames, all at the game's own stalls while scraping: steps 0.065 / 0.008 / 0.065) |
+  | mr_19_t12 | 012 | 3 | 4 | 0 |
+
+  `GTA2DX9_CAM_CAR_BOOM_OLD=1` / `GTA2DX9_CAM_SWING_ACCEL=0`: as before.
+- *Hands in the get-ups*: on hands and knees (and the back get-up's push off the road) the hands hung off the wrists
+  fingers down; they are now flat on the road, fingers ahead (wrist +70..+85 degrees in the key poses). mr_19_kd3 frames:
+  palms on the pavement under the shoulders through the hands-and-knees phase; the getup trace now logs the hands (`lh`
+  `rh`), level with the standing soles over the figure's ground through that phase.
+- *The parked-car entry that did not seat* (mr_11_jackfp): no game fault: the probe's F9 door warp never fired that run
+  (no `devtools: warped` line; he stood on the kerb 51 blocks from the parked van). mr_18_entry (pfl49 copy, near and far
+  side, third and first person): 4 of 4 seated.
+- Sweep on this build: punches 6/6 first and third person (mr_19_fp), get-ups (mr_20_gu, 6 knock-downs, lowest foot
+  >= +0.006), the full knock-down x3 (mr_19_kd3), a jack with drive-off and exit (mr_20_jack, 0 zig-zags), the cop car
+  drive (0 wheel frames off the road), classic `spawn_classic` 0 changed tiles (mr_vreg4). No faults.
