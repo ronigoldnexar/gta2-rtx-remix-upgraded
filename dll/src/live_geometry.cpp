@@ -14642,22 +14642,22 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     if (guTrace && lod == 0) {
                         if (track.action == 4) track.guLogTill = g_carFrame + 60;
                         if (track.guLogTill && g_carFrame <= track.guLogTill) {
-                            static const char* const kJ[4] = {"Bip01 Pelvis", "Bip01 Head", "Bip01 L Foot", "Bip01 R Foot"};
-                            float j[4][3] = {};
-                            for (int k = 0; k < 4; ++k) {
+                            static const char* const kJ[6] = {"Bip01 Pelvis", "Bip01 Head", "Bip01 L Foot", "Bip01 R Foot", "Bip01 L Hand", "Bip01 R Hand"};
+                            float j[6][3] = {};
+                            for (int k = 0; k < 6; ++k) {
                                 gta2::Mat4 nm;
                                 if (!ModelNodeWorld(*model, kJ[k], locoA, locoTA, locoB, locoTB, locoW, &nm)) continue;
                                 const float q[3] = {nm.m[3][0], nm.m[3][1], nm.m[3][2]};
                                 for (int c = 0; c < 3; ++c) j[k][c] = q[0] * world.m[0][c] + q[1] * world.m[1][c] + q[2] * world.m[2][c] + world.m[3][c];
                             }
                             Log("getup: f=%u o=%04x st=%d sub=0x%x pf=%u corpse=%d act=%d rev=%d kd=%d rise=%d lie=%d t=%.3f aw=%.2f clip=%s rag=%d hd=%.3f "
-                                "org %.3f,%.3f,%.3f pel %.3f,%.3f,%.3f head %.3f,%.3f,%.3f lf %.3f rf %.3f g %.3f,%.3f gu %d%d %.3f,%.3f dx %.3f,%.3f road %.3f",
+                                "org %.3f,%.3f,%.3f pel %.3f,%.3f,%.3f head %.3f,%.3f,%.3f lf %.3f rf %.3f g %.3f,%.3f gu %d%d %.3f,%.3f dx %.3f,%.3f road %.3f lh %.3f rh %.3f",
                                 g_carFrame, static_cast<unsigned>((sprite.object >> 2) & 0xFFFF), sprite.pedState, sprite.pedSub, sprite.pedFrame % 158u,
                                 sprite.corpse ? 1 : 0, track.action, track.actionReverse ? 1 : 0, track.kd ? 1 : 0, track.kdRising ? 1 : 0, track.lieClip,
                                 track.actionTime, actW, actionClip ? actionClip->name.c_str() : (locoA ? locoA->name.c_str() : "-"), ragdoll ? 1 : 0,
                                 track.heading, world.m[3][0], world.m[3][1], world.m[3][2], j[0][0], j[0][1] - cy, j[0][2], j[1][0], j[1][1] - cy, j[1][2],
                                 j[2][1] - cy, j[3][1] - cy, gx, gz, track.guOff ? 1 : 0, track.guPinned ? 1 : 0, track.guOX, track.guOZ, track.dx, track.dz,
-                                [&] { float r = 0.0f; return VehicleFxGroundAt(j[0][0], j[0][2], cy + 0.75f, &r) ? r - cy : 9.0f; }());   // MOTION-QA-3: the road under the pelvis against cy
+                                [&] { float r = 0.0f; return VehicleFxGroundAt(j[0][0], j[0][2], cy + 0.75f, &r) ? r - cy : 9.0f; }(), j[4][1] - cy, j[5][1] - cy);   // MOTION-QA-3: the road under the pelvis against cy
                         }
                     }
                 }
