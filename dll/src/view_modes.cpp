@@ -3044,6 +3044,16 @@ float Wobble(double t, float f) {
     if (old)
         return 0.5f * static_cast<float>(std::sin(t * f * 6.2832) + 0.6 * std::sin(t * f * 9.17 + 1.3) +
                                          0.3 * std::sin(t * f * 15.31 + 2.1));
+    // MOTION-QA-3 (mr_13_drv: with MOTION-QA-1's 2.9-6.9 Hz mix the view's yaw still reversed 1-2 degrees from one frame
+    // to the next after a knock, its 7 Hz part a 4-frame wave): one smooth swing per wave, 2.5-3.0 Hz (10-12 frames), the
+    // three per-axis waves told apart by their own frequency and phase; the shake's 0.22 s decay makes it a single thud.
+    // GTA2DX9_CAM_SHAKE_MIX=1: the MOTION-QA-1 mix.
+    static int mix = -1;
+    if (mix < 0) { char b[8] = {}; mix = GetEnvironmentVariableA("GTA2DX9_CAM_SHAKE_MIX", b, sizeof b) && atoi(b) == 1 ? 1 : 0; }
+    if (!mix) {
+        const double hz = 2.2 + 0.06 * f;   // 2.5 Hz (f 5) .. 3.0 Hz (f 13)
+        return 0.8f * static_cast<float>(std::sin(t * hz * 6.2832 + 0.37 * f));
+    }
     const double hz = 2.4 + 0.1 * f;   // 2.9 Hz (f 5) .. 3.7 Hz (f 13)
     return 0.5f * static_cast<float>(std::sin(t * hz * 6.2832) + 0.6 * std::sin(t * hz * 1.46 * 6.2832 + 1.3) +
                                      0.3 * std::sin(t * hz * 1.87 * 6.2832 + 2.1));

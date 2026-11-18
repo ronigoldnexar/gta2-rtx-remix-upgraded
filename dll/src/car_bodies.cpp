@@ -5754,12 +5754,25 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             // the travel): up to 0.0196 block, 25 % of a 0.07 tyre, in 345 corner-frames of a 50 s drive. The body is
             // lifted by that excess instead, so every hung wheel reaches the road and none is pushed into it.
             float bodyLift = 0.0f;
+            // MOTION-QA-3 (mr_12_drv: 307 corner-frames of 051 with a wheel 0.019 block in the road, a car with two wheels
+            // on a kerb): the body is stood on the plane through its tyres (GroundOnTyres), and a hung wheel was hung to
+            // that plane, so on ground that is not a plane one wheel stood under the road (and another over it). Each
+            // hung wheel now hangs to the road under it (within +-0.05 of the plane), up into its arch at most its travel.
+            float roadDy[16] = {};
+            if (feel.on && !wreckModel && !cpuCut && haveWheels && feel.wheelTravel > 0.0f && g_bodyLiftOn) {
+                for (int w = 0; w < wheels.n && w < 16; ++w) {
+                    const gta2::Vec3& c = wheels.centre[w];
+                    const gta2::Vec3 bot = PointBy(carToWorld, c.x, c.y - wheels.radius[w], c.z);
+                    float g = 0.0f;
+                    if (VehicleFxGroundAt(bot.x, bot.z, bot.y + 0.3f, &g)) roadDy[w] = (std::max)(-0.05f, (std::min)(0.05f, g - bot.y));
+                }
+            }
             if (feel.on && !wreckModel && !cpuCut && haveWheels && feel.wheelTravel > 0.0f && g_bodyLiftOn) {
                 const gta2::Mat4& P = feel.pose;
                 for (int w = 0; w < wheels.n; ++w) {
                     const gta2::Vec3& c = wheels.centre[w];
                     const float arch = c.x * P.m[0][1] + c.y * P.m[1][1] + c.z * P.m[2][1] + P.m[3][1];
-                    bodyLift = (std::max)(bodyLift, (c.y - arch) - (feel.wheelTravel + 0.004f));
+                    bodyLift = (std::max)(bodyLift, (c.y + (w < 16 ? roadDy[w] : 0.0f) - arch) - (feel.wheelTravel + 0.004f));
                 }
                 bodyLift = (std::min)(bodyLift, 0.04f);
                 posed.m[3][1] += bodyLift;
@@ -6370,7 +6383,7 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                         const float lim = feel.wheelTravel + 0.004f;
                         // FIX-TRUCK-WHEELS-3: down to the road whatever the arch (an impact's kick lifted a cop car's corner
                         // 0.012 past the travel for a few frames, tw3_f); up into the arch at most the travel.
-                        const float dy = (std::min)(lim, c.y - arch);
+                        const float dy = (std::min)(lim, c.y + (w < 16 ? roadDy[w] : 0.0f) - arch);   // MOTION-QA-3: to the road under it
                         gta2::Mat4 drop = gta2::Identity();
                         drop.m[3][1] = dy + bodyLift;   // MOTION-QA-2: with the lifted body
                         hang = Mul(Mul(P, drop), carToWorld);

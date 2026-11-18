@@ -2434,3 +2434,41 @@ wall (the hang's travel limit; front wheels, out of the chase view); the punched
 - Also swept, clean: driving up and down the wil road ramp and over its kerbs in third and first person (mr_6_ramp3/1,
   van 068: shell tyres within -0.005..+0.001 of the road, 0 screen zig-zag runs), a third-person jack with drive-off and
   exit (0 zig-zag runs, 0 camera-yaw reversals), death in first person (fixfp_wasted: WASTED, fade, hospital).
+
+## MOTION-QA-3 (18 Nov 2026): wheels on uneven ground, a walked catch-up, the front get-up, falls cut short, the first-person ring
+
+- *Hung wheels on ground that is not a plane* (mr_12_drv: 307 corner-frames of 051 with a wheel 0.019 block in the road,
+  two wheels on a kerb): the body stands on the plane through its tyres and the wheels hung to that plane. Each hung wheel
+  now hangs to the road under it (within +-0.05 of the plane), up into its arch at most its travel (the body lifted by any
+  excess, MOTION-QA-2). mr_13_drv / mr_14_drv (000, 012, 051, 063): 0 corner-frames off the road (gap 0.0000..0.0004
+  block) apart from the game's own jumps (raw height 0.6-0.7 block: airborne, drawn as the game has it).
+- *The walk-off after a get-up* started at full speed in its first frame (the knocked-down player broke into a 4.4 block/s
+  sprint for 0.4 s to cover 0.9 block). The closing speed now builds from rest at 3 blocks/s^2, is a walk's 1.1 blocks/s
+  under a 2-block gap (the full rate only past it), eases off over the last quarter block, and the rise turns him toward
+  where he is going (the game's spot when it is more than 0.3 block off). mr_12/13/14_kd: pelvis at most 0.037-0.042
+  block a frame after the rise (was 0.150). `GTA2DX9_CATCHUP_OLD=1`: as before.
+- *The front get-up's wide lunge*: the kneel (right thigh 105 / left 20 degrees) and the rise (60 / -10, a split stance)
+  are a short step (90 / 5) and feet brought in under the hips (40 / 25); frames of mr_13_kd3 show hands and knees, a
+  kneel, a narrow stance, then the walk.
+- *Struck again on his hands and knees* (mr_12_kd1): the new fall started from the lying clip's first frame, standing:
+  the pelvis popped 0.08 -> 0.23 and the head 0.35 block in one frame, and the ragdoll was seeded upright. It now starts
+  from the rising pose, blended (mr_14_kd3: pelvis 0.138 -> 0.151 -> 0.167, no jump).
+- *A fall cut short* (mr_13_kd1, a jacked driver the game stood up 0.4 s into his fall, pelvis still 0.20 up): the
+  get-up's first frame dropped him 0.19 block in a frame. The fall now lands into the get-up from the pose he is in
+  (mr_14_fp: pelvis 0.189 -> 0.166 -> 0.142 -> 0.118).
+- *Two people one through the other in a first-person punch clip* (mr_1_fp): a woman 0.10 from the eye was drawn out to
+  0.40 straight into the man 0.30 behind her (drawn 0.046 apart). The ring out to 0.80 is now drawn out as a whole in
+  proportion (0 -> 0.40, 0.80 -> 0.80), the punched man excepted (FIX-FIGURE-18's framing). Pairs the game keeps over 0.2
+  apart drawn under 0.12: mr_1_fp 49 (min 0.001), mr_14_fp 2 (min 0.09). `GTA2DX9_FP_EYE_RING_OLD=1`: as before.
+- *Impact shake*: one smooth wave per axis, 2.5-3.0 Hz (10-12 frames), instead of MOTION-QA-1's three-wave mix with a
+  7 Hz part. `GTA2DX9_CAM_SHAKE_MIX=1`: the MOTION-QA-1 mix.
+- The getup trace (`GTA2DX9_LOG_GETUP=1`) now also logs `road`, the road under the pelvis against the figure's ground
+  `cy`: the `lf`/`rf` lows of -0.010 at a knock-down's ragdoll hand-over are relative to `cy`, which stands 0.042 above
+  the road there; the ankles are 0.031 block above the road (mr_12_kd1/kd3).
+- Tried and dropped (measured worse): easing the drawn car and the camera over the game's one-frame stalls (a filter on
+  position and heading: wheels sank where the eased body met a wall, 11 camera-yaw reversals), moving the chase eye with
+  the car's raw step, and easing the heading the chase aims with.
+
+Still short: the remaining screen zig-zags of the driven car are camera, not car: (a) the chase boom pulled in and out
+by walls with the long 063 truck in a narrow street (eye jumps of 0.4-0.7 block a frame, mr_14_drv f3885-3894), (b) the
+rig re-framing when the probe swaps the car model mid-drive (a probe artefact). Neither is the body moving.
