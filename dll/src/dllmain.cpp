@@ -970,6 +970,50 @@ void WatchGameFocusPause() {
     }
 }
 
+// QA5090-TDR (5090 QA round 1, storm night: a GPU TDR right after a Remix camera cut, VK_ERROR_DEVICE_LOST in
+// remix-dxvk.log, "Exiting after GPU device loss"): the bridge client then waits for the dead server forever and the
+// game thread never comes back (865 s until it was killed). A Remix device is not recovered after a loss, so once the
+// game thread has been stuck for kLostAfterMs and the runtime's own log says the device was lost, the game is ended
+// with a log line instead of leaving a frozen window. A long stall without that line (a cold shader cache) is left
+// alone. True when it ended the process (never returns then).
+bool EndOnRemixDeviceLoss(DWORD idleMs) {
+    constexpr DWORD kLostAfterMs = 6000;
+    static DWORD lastCheck = 0;
+    if (idleMs < kLostAfterMs || GetTickCount() - lastCheck < 2000) return false;
+    lastCheck = GetTickCount();
+    char path[MAX_PATH] = {};
+    const DWORD n = GetModuleFileNameA(nullptr, path, MAX_PATH);
+    if (!n || n >= MAX_PATH) return false;
+    char* slash = strrchr(path, '\\');
+    if (!slash || static_cast<size_t>(slash - path) + 40 >= MAX_PATH) return false;
+    strcpy(slash + 1, "rtx-remix\\logs\\remix-dxvk.log");
+    HANDLE f = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
+    if (f == INVALID_HANDLE_VALUE) return false;
+    LARGE_INTEGER size = {};
+    GetFileSizeEx(f, &size);
+    static char tail[32769];
+    DWORD got = 0;
+    const LONGLONG from = size.QuadPart > 32768 ? size.QuadPart - 32768 : 0;
+    LARGE_INTEGER at; at.QuadPart = from;
+    SetFilePointerEx(f, at, nullptr, FILE_BEGIN);
+    ReadFile(f, tail, 32768, &got, nullptr);
+    CloseHandle(f);
+    tail[got] = 0;
+    for (DWORD i = 0; i < got; ++i) if (!tail[i]) tail[i] = ' ';
+    const char* hit = strstr(tail, "VK_ERROR_DEVICE_LOST");
+    if (!hit) hit = strstr(tail, "after GPU device loss");
+    if (!hit) return false;
+    const char* line = hit;
+    while (line > tail && line[-1] != '\n') --line;
+    char quoted[200] = {};
+    for (size_t k = 0; k + 1 < sizeof quoted && line[k] && line[k] != '\r' && line[k] != '\n'; ++k) quoted[k] = line[k];
+    Log("stall sampler: GPU device lost under RTX Remix (remix-dxvk.log: \"%s\"); the game thread has waited %lu ms on the "
+        "lost device and cannot come back: ending the game instead of a frozen window", quoted, static_cast<unsigned long>(idleMs));
+    gta2dx9::LogFlush();
+    TerminateProcess(GetCurrentProcess(), 0xDEAD);
+    return true;
+}
+
 DWORD WINAPI StallSampler(LPVOID) {
     HANDLE thread = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION,
                                FALSE, g_gameThread);
@@ -1030,6 +1074,7 @@ DWORD WINAPI StallSampler(LPVOID) {
         if (!stallBeat) ++stalls;
         stallBeat = beat;
         longest = now - beat;
+        if (!game::FocusPausedFlag()) EndOnRemixDeviceLoss(now - beat);   // QA5090-TDR
         const bool capped = samples >= kStacksPerStall || stackLines >= kMaxStackLines;
         if (capped && now - lastSample >= 5000) {
             lastSample = now;

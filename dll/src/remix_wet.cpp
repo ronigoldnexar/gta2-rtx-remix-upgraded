@@ -1304,6 +1304,7 @@ void DrawFogProxy(float ex, float ey, float ez, float viewMix, const float fwd[3
 
 // Lightning under Remix: one distant light from the strike's direction, its radiance the flash (cool white).
 void* g_flashHandle = nullptr;
+DWORD g_eyeJumpAt = 0;   // QA5090-TDR: when the eye last jumped (a warp, a respawn: a Remix camera cut)
 void DrawLightning() {
     const gta2::WeatherState& w = gta2::WeatherNow();
     if (!w.active || w.flash < 0.01f) return;
@@ -1341,7 +1342,7 @@ void RemixWetFrame(const gta2::Map& map, float eyeX, float eyeY, float eyeZ, flo
     {
         static float px = 0, pz = 0; static bool have = false; static DWORD jumpAt = 0;
         const float dx = eyeX - px, dz = eyeZ - pz;
-        if (have && dx * dx + dz * dz > 20.0f * 20.0f) { jumpAt = GetTickCount(); Log("remix wet: eye jumped %.0f blocks; mesh building paused 1 s", std::sqrt(dx * dx + dz * dz)); }
+        if (have && dx * dx + dz * dz > 20.0f * 20.0f) { jumpAt = g_eyeJumpAt = GetTickCount(); Log("remix wet: eye jumped %.0f blocks; mesh building paused 1 s", std::sqrt(dx * dx + dz * dz)); }
         px = eyeX; pz = eyeZ; have = true;
         g_meshBudget = GetTickCount() - jumpAt < 1000 ? 0 : kMeshBudget;
         // Trim: up to 4 a frame, once the cache is past its cap, meshes of chunks > 64 blocks away.
@@ -1367,7 +1368,10 @@ void RemixWetFrame(const gta2::Map& map, float eyeX, float eyeY, float eyeZ, flo
     DrawRemixRain(eyeX, eyeY, eyeZ, viewMix);
     DrawRainProxies(eyeX, eyeY, eyeZ, viewMix);
     DrawFogProxy(eyeX, eyeY, eyeZ, viewMix, fwd);
-    DrawLightning();
+    // QA5090-TDR (storm night: the 5090's device loss came 60 ms after a camera cut, the runtime re-initialising its
+    // radiance cache and baking the new view): no lightning light in the 1.5 s after the eye jumps, so a strike's
+    // light is not one more thing that frame has to take in. The flash on the sky and the thunder go on.
+    if (GetTickCount() - g_eyeJumpAt >= 1500 || !g_eyeJumpAt) DrawLightning();
     {
         // The lights near the eye, for the screen-space rain (weather_fx DrawScreenRain).
         std::vector<gta2::ScreenRainLight> sl;
