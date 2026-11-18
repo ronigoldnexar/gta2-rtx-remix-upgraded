@@ -6588,6 +6588,30 @@
    "name": "human_business_female_04^human_female_adult_07",
    "detail_of": "human_business_female_04",
    "head_of": "human_female_adult_07"
+  },
+  {
+   "name": "fp_bare_relax_right",
+   "glb": "weapons/fp_bare_relax_right.glb",
+   "scale": 1.0,
+   "texture_max": 1024,
+   "forward": "+z",
+   "_licence": "procedural (this repository, tools/gen_fp_arms.py)"
+  },
+  {
+   "name": "fp_bare_fist_right",
+   "glb": "weapons/fp_bare_fist_right.glb",
+   "scale": 1.0,
+   "texture_max": 1024,
+   "forward": "+z",
+   "_licence": "procedural (this repository, tools/gen_fp_arms.py)"
+  },
+  {
+   "name": "fp_uparm_right",
+   "glb": "weapons/fp_uparm_right.glb",
+   "scale": 1.0,
+   "texture_max": 512,
+   "forward": "+z",
+   "_licence": "procedural (this repository, tools/gen_fp_arms.py)"
   }
  ],
  "cars": {
@@ -28873,6 +28897,49 @@
     30.3,
     23.7
    ]
+  },
+  {
+   "name": "fp_bare_relax_right",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 3391,
+   "animations": [],
+   "textures": [
+    "fp_bare_relax_right_0.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "fp_bare_fist_right",
+   "nodes": 1,
+   "meshes": 1,
+   "vertices": 3649,
+   "animations": [],
+   "textures": [
+    "fp_bare_fist_right_0.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
+  },
+  {
+   "name": "fp_uparm_right",
+   "nodes": 2,
+   "meshes": 2,
+   "vertices": 1209,
+   "animations": [],
+   "textures": [
+    "fp_uparm_right_0.tga",
+    "fp_uparm_right_1.tga"
+   ],
+   "skins": 0,
+   "forward": "+z",
+   "stride": 0.0,
+   "run_stride": 0.0
   }
  ]
 }

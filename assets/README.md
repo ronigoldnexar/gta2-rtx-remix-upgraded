@@ -261,3 +261,10 @@ photo wall tiles to a dark painted-wood tone, and `tools/arch_door_tile.py` (pm6
 double door (wil 538) at 1024 px with its paint grain from ambientCG Wood067 (CC0); docs/asset-audit.md s10.
 `tools/awning_sign_tile.py` (pm3) writes the Residential awning sign (ste 283) with real lettering in DejaVu Sans
 Condensed Bold (same licence as above), rendered into the tile.
+
+## First-person bare arms (procedural, no third-party content)
+
+`fp_bare_relax_right`, `fp_bare_fist_right` (forearm and hand, ~5200 triangles, 1024 px skin) and `fp_uparm_right`
+(upper arm in the short sleeve, ~1800 triangles, 512 px) are made by `tools/gen_fp_arms.py` from an anatomical signed
+distance field (marching cubes, colour from the anatomy) and `tools/fp_arms_bake.py` (Blender 4.2: decimate, unwrap,
+bake). Self-made; no scanned, purchased or ripped data. Regenerate as the script's docstring says.
