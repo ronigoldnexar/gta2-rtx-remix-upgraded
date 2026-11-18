@@ -2564,3 +2564,28 @@ rig re-framing when the probe swaps the car model mid-drive (a probe artefact). 
 - Sweep on this build: punches 6/6 first and third person (mr_19_fp), get-ups (mr_20_gu, 6 knock-downs, lowest foot
   >= +0.006), the full knock-down x3 (mr_19_kd3), a jack with drive-off and exit (mr_20_jack, 0 zig-zags), the cop car
   drive (0 wheel frames off the road), classic `spawn_classic` 0 changed tiles (mr_vreg4). No faults.
+
+## MOTION-QA-5 (18 Nov 2026): the scrape stutter, the steep-view spin, the punched man's rise into his stride; night and rain
+
+- *The scrape stutter* (the driven car's last zig-zags: the game moves a car scraping a wall or another car 0.065, 0.008,
+  0.065 ... block a frame). `CarScrapeSmooth` (view_modes.cpp), shared by the camera and the drawn body (car_bodies.cpp):
+  only while the alternating pattern is seen (a step under 0.35 of both neighbours or over 2.5 times both, held 0.6 s), and
+  on the frame a stall happens (the step before carried on), the place is the least-squares line through the game's last
+  four places at this frame (no lag on a straight run) and the heading likewise, at most 0.035 block / 2 degrees off the
+  game's; out of it the offset eases off in ~0.05 s. Free driving and the classic view are the game's own places.
+  `GTA2DX9_CAR_SCRAPE_SMOOTH=0`: off. Zig-zag frames (one model a drive, 5 rounds; traffic differs run to run):
+  000 9 -> 3 / 4 (mr_21_t0 before the stall frame was handled; mr_23_t0, mr_25_t0), 051 7 -> 1 (mr_23_t51). Night rain,
+  000: everything off 5 frames / 37 camera jerks (mr_27_base), on 3 / 7 (mr_27_off). Not 0: the rest are first frames of
+  an impact and slow scrapes whose steps alternate less than 0.35 (0.039 / 0.045 / 0.034).
+- *The view spun looking steeply down* (mr_23_t0: crawling round in a tight spot, the chase in its pocket 60-72 degrees down,
+  the yaw at its 10 degrees a frame for 8 frames): at the wheel the yaw cap shrinks with the pitch (full to 30 degrees down,
+  a third at 70). `GTA2DX9_CAM_STEEP_YAW_OLD=1`: as before.
+- *The punched man's rise into his stride*: his rise is 1.8x the clip (1.0 s, was 1.23) and over its last 15 % he already
+  moves toward the game's spot (up to 1.4 blocks/s, from rest), so he comes up into his first stride; earlier the planted
+  feet would skate. The gap left after the rise: 1.19-1.65 blocks (mr_22_gu), was 1.9-2.2.
+- Tried and dropped: a cap on the shown chase eye's step at the wheel (0.12 block a frame beyond the car's own): it fought
+  the berth and the pocket (55-64 holds a drive) and measured worse (mr_27_on 6 frames / 31 jerks against 3 / 7 off).
+- Night (23:00) and rain (85 %) on the plain renderer: punches 6/6 first person, 5/6 third (mr_28_fp_rain), get-ups x5
+  (mr_24_gu_rain, lowest foot >= +0.007), the full knock-down x3 (mr_28_kd_rain), near-side entry third and first
+  (mr_28_entry_rain), drives of 000 / 051 / 063 with 0 wheel frames under the road. Classic `spawn_classic` 0 changed
+  tiles (mr_vreg5). No faults.

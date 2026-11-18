@@ -142,6 +142,88 @@ float WrapAngle(float a) {
     while (a < -kPi) a += 2.0f * kPi;
     return a;
 }
+}  // namespace (MOTION-QA-5: the scrape filter is the module's own API)
+
+// MOTION-QA-5 (mr_17_t0: the driven car's last screen zig-zags, all while it scrapes along a wall or another car: the game
+// moves it 0.065, 0.008, 0.065, 0.008 ... block a frame, so the body and the chase view stutter at 15 Hz). Only while
+// that pattern is seen (a step under 0.35 of both neighbours, or over 2.5 times both, the larger over 0.025 block; held
+// 0.6 s after the last one) the drawn car and the camera take the least-squares line through the game's last four places,
+// at this frame (no lag on a straight run), at most 0.035 block from the game's place (a stall the frame it happens: the
+// step before carried on); out of it the offset eases off in
+// ~0.05 s. Free driving, a stop at a wall (no alternation) and the classic view are the game's own places.
+// GTA2DX9_CAR_SCRAPE_SMOOTH=0: off.
+namespace scrapesmooth {
+const void* g_car = nullptr;
+float g_hx[4] = {}, g_hz[4] = {}, g_hy[4] = {}, g_oy = 0.0f;
+int g_n = 0;
+float g_hold = 0.0f, g_ox = 0.0f, g_oz = 0.0f;
+uint32_t g_frames = 0, g_seen = 0, g_on = 0;
+}  // namespace scrapesmooth
+void CarScrapeSmooth(const void* car, float dt, float* px, float* pz, float* yaw) {
+    using namespace scrapesmooth;
+    static int on = -1;
+    if (on < 0) { char b[8] = {}; on = GetEnvironmentVariableA("GTA2DX9_CAR_SCRAPE_SMOOTH", b, sizeof b) && b[0] == '0' ? 0 : 1; }
+    if (!on || !car || !px) { g_car = nullptr; g_n = 0; g_hold = 0.0f; g_ox = g_oz = g_oy = 0.0f; return; }
+    const float gx = *px, gz = *pz, gy = yaw ? *yaw : 0.0f;
+    if (car != g_car || (g_n > 0 && std::hypot(gx - g_hx[0], gz - g_hz[0]) > 0.6f)) { g_car = car; g_n = 0; g_hold = 0.0f; g_ox = g_oz = 0.0f; }
+    for (int k = 3; k > 0; --k) { g_hx[k] = g_hx[k - 1]; g_hz[k] = g_hz[k - 1]; g_hy[k] = g_hy[k - 1]; }
+    g_hx[0] = gx; g_hz[0] = gz; g_hy[0] = gy;
+    g_n = (std::min)(4, g_n + 1);
+    ++g_frames;
+    if (g_n == 4) {
+        const float s0 = std::hypot(g_hx[0] - g_hx[1], g_hz[0] - g_hz[1]), s1 = std::hypot(g_hx[1] - g_hx[2], g_hz[1] - g_hz[2]),
+                    s2 = std::hypot(g_hx[2] - g_hx[3], g_hz[2] - g_hz[3]);
+        const bool dip = s1 < 0.35f * (std::min)(s0, s2) && (std::min)(s0, s2) > 0.025f;
+        const bool peak = s1 > 2.5f * (std::max)(s0, s2) && s1 > 0.025f;
+        if (dip || peak) { g_hold = 0.6f; ++g_seen; }
+    }
+    float wx = 0.0f, wz = 0.0f;
+    // A stall this very frame (a step under 0.35 of the one before, that one over 0.025 block) or the jump after it: the
+    // step before carried on, at most kMax from the game's place; the next frames say whether it was a stall (the game
+    // goes on and the line through the last places takes over) or a real stop (the offset eases off in ~0.05 s).
+    constexpr float kMax = 0.035f;
+    bool now = false;
+    if (g_n >= 3) {
+        const float s0 = std::hypot(g_hx[0] - g_hx[1], g_hz[0] - g_hz[1]), s1 = std::hypot(g_hx[1] - g_hx[2], g_hz[1] - g_hz[2]);
+        if ((s0 < 0.35f * s1 && s1 > 0.025f) || (s0 > 2.5f * s1 && s0 > 0.025f && g_hold > 0.0f)) {
+            wx = g_hx[1] + (g_hx[1] - g_hx[2]) - gx; wz = g_hz[1] + (g_hz[1] - g_hz[2]) - gz;
+            const float l = std::hypot(wx, wz);
+            if (l > kMax) { wx *= kMax / l; wz *= kMax / l; }
+            g_ox = wx; g_oz = wz; now = true; ++g_on;
+            if (g_hold <= 0.0f) g_hold = 0.2f;
+        }
+    }
+    if (now) {
+    } else if (g_hold > 0.0f && g_n == 4) {
+        g_hold -= (std::min)(dt, 0.1f);
+        // least-squares line through the four places (times 0, -1, -2, -3), at time 0: 0.7 p0 + 0.4 p1 + 0.1 p2 - 0.2 p3
+        const float fx = 0.7f * g_hx[0] + 0.4f * g_hx[1] + 0.1f * g_hx[2] - 0.2f * g_hx[3];
+        const float fz = 0.7f * g_hz[0] + 0.4f * g_hz[1] + 0.1f * g_hz[2] - 0.2f * g_hz[3];
+        wx = fx - gx; wz = fz - gz;
+        const float l = std::hypot(wx, wz);
+        if (l > kMax) { wx *= kMax / l; wz *= kMax / l; }
+        g_ox = wx; g_oz = wz;
+        ++g_on;
+        // the heading too, in scrape mode only: the game turns a scraping car in alternate steps (2.0, 0.75, 1.5, 0.75 deg)
+        const float y1 = g_hy[0] + WrapAngle(g_hy[1] - g_hy[0]), y2 = g_hy[0] + WrapAngle(g_hy[2] - g_hy[0]), y3 = g_hy[0] + WrapAngle(g_hy[3] - g_hy[0]);
+        g_oy = (std::max)(-0.035f, (std::min)(0.035f, 0.7f * g_hy[0] + 0.4f * y1 + 0.1f * y2 - 0.2f * y3 - g_hy[0]));
+    } else {
+        const float k = std::exp(-(std::min)(dt, 0.1f) / 0.05f);
+        g_ox *= k; g_oz *= k;
+        if (std::hypot(g_ox, g_oz) < 1e-4f) g_ox = g_oz = 0.0f;
+    }
+    if (!(g_hold > 0.0f && g_n == 4)) { g_oy *= std::exp(-(std::min)(dt, 0.1f) / 0.05f); if (std::fabs(g_oy) < 1e-4f) g_oy = 0.0f; }
+    *px = gx + g_ox; *pz = gz + g_oz;
+    if (yaw) *yaw = WrapAngle(gy + g_oy);
+    if ((g_frames % 900) == 0) { Log("car scrape smooth: %u scrape steps seen, %u frames smoothed in the last 900", g_seen, g_on); g_seen = g_on = 0; }
+}
+bool CarScrapeOffset(const void* car, float* dx, float* dz, float* dyaw) {
+    using namespace scrapesmooth;
+    if (!car || car != g_car) return false;
+    *dx = g_ox; *dz = g_oz; *dyaw = g_oy;
+    return g_ox != 0.0f || g_oz != 0.0f || g_oy != 0.0f;
+}
+namespace {
 
 // A read that cannot fault, for pointers that came out of a scan rather than
 // off a known structure. It was ReadProcessMemory on every read, which under Wine
@@ -2908,7 +2990,10 @@ bool ViewCameraSolver::Update(const PlayerState& player, const ViewQueries& quer
     }
     // The camera's yaw convention: 0 looks north (+z), and Forward() is
     // (sin yaw, ., cos yaw). The game's facing is (dirX east, dirY south).
-    const float headingYaw = player.facingKnown ? std::atan2(player.dirX, -player.dirY) : followYaw_;
+    float headingYaw = player.facingKnown ? std::atan2(player.dirX, -player.dirY) : followYaw_;
+    // MOTION-QA-5: the car he drives over the game's scrape stutter (CarScrapeSmooth); car_bodies draws the body with the same offset.
+    if (player.inVehicle && mode != ViewMode::Classic) CarScrapeSmooth(player.vehicleSprite, dt, &px, &pz, &headingYaw);
+    else CarScrapeSmooth(nullptr, dt, nullptr, nullptr, nullptr);
 
     // A developer aid for the camera tests: [devtools] set_car_damage=N (re-read
     // twice a second, -1 off) writes N once into the damage word (+0x74) of the
@@ -6919,8 +7004,14 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             // FIX-CAMERA-17: on foot under the turn budget, yaw and pitch each at most the budget's rate (8 a frame at
             // 30 fps by default, against 10 of yaw and 9.3 of pitch before).
             const float budgetRate = inVehicle ? 0.0f : CameraTurnBudgetDeg() * 30.0f;   // on foot (the in-car chase keeps its rates)
-            const float maxP = (budgetRate > 0.0f ? (std::min)(budgetRate, inVehicle ? 280.0f : footPitchRate) : (inVehicle ? 280.0f : footPitchRate)) * kDegToRad * step,
-                        maxY = (budgetRate > 0.0f ? (std::min)(budgetRate, 300.0f) : 300.0f) * kDegToRad * step;
+            const float maxP = (budgetRate > 0.0f ? (std::min)(budgetRate, inVehicle ? 280.0f : footPitchRate) : (inVehicle ? 280.0f : footPitchRate)) * kDegToRad * step;
+            float maxY = (budgetRate > 0.0f ? (std::min)(budgetRate, 300.0f) : 300.0f) * kDegToRad * step;
+            // MOTION-QA-5 (mr_23_t0: the car crawling round in a tight spot, the chase lifted into its pocket and looking
+            // 60-72 degrees down, the view spun 10 degrees a frame for 8 frames wanting 74): looking steeply down, a turn
+            // of the yaw spins the whole picture about its middle, so at the wheel the yaw's cap shrinks with the pitch
+            // (full to 30 degrees down, a third at 70). GTA2DX9_CAM_STEEP_YAW_OLD=1: as before.
+            static const bool steepOld = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_CAM_STEEP_YAW_OLD", b, sizeof b) && b[0] == '1'; }();
+            if (inVehicle && !steepOld) maxY *= (std::max)(0.33f, (std::min)(1.0f, (std::cos(shownPitch_) - 0.30f) / 0.57f));
             const float dp = camPitch - shownPitch_, dy = WrapAngle(camYaw - shownYaw_);
             if (std::fabs(dp) > maxP || std::fabs(dy) > maxY) {
                 if (cameraLogOn()) {

@@ -5108,6 +5108,17 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
         if (g_forceOwnLift && use.driven) carToWorldM.m[3][1] += 0.01f * static_cast<float>(g_forceOwnLift);
         gta2::Mat4 carToWorld = carToWorldM;   // FIX-TRUCK-WHEELS-3: stood on its tyres below (GroundOnTyres)
         const gta2::Mat4 gameCarToWorld = carToWorldM;
+        {   // MOTION-QA-5: the driven body over the game's scrape stutter, with the camera's offset (view_modes.cpp CarScrapeSmooth)
+            float ox = 0.0f, oz = 0.0f, oy = 0.0f;
+            if (use.driven && CurrentViewMode() != ViewMode::Classic && CarScrapeOffset(reinterpret_cast<const void*>(use.object), &ox, &oz, &oy)) {
+                const float c = std::cos(oy), sn = std::sin(oy);
+                for (int r = 0; r < 3; ++r) {
+                    const float x = carToWorld.m[r][0], z = carToWorld.m[r][2];
+                    carToWorld.m[r][0] = x * c + z * sn; carToWorld.m[r][2] = -x * sn + z * c;
+                }
+                carToWorld.m[3][0] += ox; carToWorld.m[3][2] += oz;
+            }
+        }
         if (g_logNoses && frame % 15 == 0) {
             // The placement's nose (+z of the car frame) in the world, before any
             // model's own `forward`; the checker pairs consecutive samples of one

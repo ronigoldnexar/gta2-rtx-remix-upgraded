@@ -689,4 +689,9 @@ struct ViewLook {
 };
 ViewLook& LookOffsets();
 
+// MOTION-QA-5: the driven car's place over the game's scrape stutter (view_modes.cpp); car_bodies draws the body with the
+// offset (world x/z, blocks) the camera used this frame. False: none.
+void CarScrapeSmooth(const void* car, float dt, float* px, float* pz, float* yaw);
+bool CarScrapeOffset(const void* car, float* dx, float* dz, float* dyaw);
+
 }  // namespace gta2dx9

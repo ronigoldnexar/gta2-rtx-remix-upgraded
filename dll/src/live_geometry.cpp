@@ -12419,7 +12419,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     }
                     static const float rate = [] { char b[16] = {}; return GetEnvironmentVariableA("GTA2DX9_GETUP_RATE", b, sizeof b) ? static_cast<float>(atof(b)) : 0.0f; }();
                     track.guClip = gc; track.guModel = gm; track.guInfo = gi;
-                    track.guRate = rate > 0.05f ? rate : (track.kd ? kGuKdRate : kGuRate);
+                    track.guRate = rate > 0.05f ? rate : (track.kd ? kGuKdRate : (CatchUpOld() ? kGuRate : 1.8f));   // MOTION-QA-5
                     track.actionTime = track.kdRiseLen = gi->length;
                     const float mx = track.kdMirror ? -1.0f : 1.0f, S = track.kdScaleS;
                     const float pmx = mx * gi->endX, pmz = gi->endZ, ch = std::cos(track.heading), sh = std::sin(track.heading);
@@ -13161,6 +13161,20 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             if (track.action == 4) {   // rising, or down again while rising: held where he is
                 track.catchV = 0.0f;
                 if (!track.guPinned) { track.guPinned = true; track.guPinX = baseX + track.guOX; track.guPinZ = baseZ + track.guOZ; }
+                // MOTION-QA-5 (coordinator: the punched man's visible chase after he rises): over the rise's last 15 % (he is
+                // up, facing the game's spot by then, the clip handing over to the legs) he already moves toward it, at up
+                // to 1.4 blocks/s built up from rest, so he comes up into his first stride; and a punched man's rise is
+                // 1.8x the clip (was 1.5x: 1.03 s, not 1.23), less time for the game's man to run off. Earlier than 85 %
+                // the planted feet would skate. GTA2DX9_CATCHUP_OLD=1: pinned to the end, as before.
+                if (!CatchUpOld() && track.actionReverse && track.guClip && track.guInfo) {
+                    const ModelGetUpInfo* gi = static_cast<const ModelGetUpInfo*>(track.guInfo);
+                    const float done = gi->length > 0.0f ? 1.0f - track.actionTime / gi->length : 1.0f;
+                    if (done > 0.85f) {
+                        const float ox = baseX - track.guPinX, oz = baseZ - track.guPinZ, l = std::sqrt(ox * ox + oz * oz);
+                        const float v = 1.4f * (std::min)(1.0f, (done - 0.85f) / 0.1f);
+                        if (l > 1e-4f) { const float st = (std::min)(l, v * dt); track.guPinX += ox / l * st; track.guPinZ += oz / l * st; }
+                    }
+                }
                 track.guOX = track.guPinX - baseX; track.guOZ = track.guPinZ - baseZ;
             } else {
                 track.guPinned = false;   // MOTION-QA-1: a fall during the walk-off pins where he is then, not where he rose
