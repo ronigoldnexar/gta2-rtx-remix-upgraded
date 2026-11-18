@@ -2589,3 +2589,25 @@ rig re-framing when the probe swaps the car model mid-drive (a probe artefact). 
   (mr_24_gu_rain, lowest foot >= +0.007), the full knock-down x3 (mr_28_kd_rain), near-side entry third and first
   (mr_28_entry_rain), drives of 000 / 051 / 063 with 0 wheel frames under the road. Classic `spawn_classic` 0 changed
   tiles (mr_vreg5). No faults.
+
+## MOTION-QA-6 (18 Nov 2026): 5090 QA items: lens inside another car, people inside street objects; the awning and the stairs
+
+- *The chase lens on a truck's bonnet* (5090 QA r2 car_golden 10_carV4: a truck crossing behind his van at 4 blocks/s ran
+  through the lens): the lens-occluder fade (FIX-CAMERA-18) took six frames to clear a body the lens was inside; with the
+  lens inside or within 0.08 of a body it is now gone at once. `GTA2DX9_CAM_CAR_LENS_CUT_OLD=1`: as before.
+- *The cockpit inside another car after a collision* (QA r2 soak c000/c006, the frame all red): first person had no such
+  rule; a car whose body the eye is in is no longer drawn in first person (only that rule). `GTA2DX9_FP_CAR_LENS_OLD=1`.
+- *A pedestrian inside a blue street box* (QA r1-r3, mr_24_gu_rain): people are drawn out of the footprint of the game's
+  standing objects (boxes, bins, phone boxes: radius + 0.08, at most 0.25 block, with the rest of the figure separation);
+  mr_31_gu / mr_34_gu log the push-outs. `GTA2DX9_PROP_SEP=0`: as before.
+- *The cockpit under the shop awning* (QA r1-r3, MAJOR in first person): reproduced (mr_30_aw / mr_32_aw: a car with the
+  truck body, `force_own_car_model=63`, nosed into the HOTEL DINER front at 175.7,179.5; the frame is the awning's
+  underside; with a car's lower eye the awning only crosses the top of the frame). NOT fixed: the awning is part of the
+  district facade kit's streamed meshes, which the eye-collision mesh (eyecol, the map's blocks only) does not hold, so no
+  clearance test sees it. A tried "duck under an overhang" against eyecol never fired and was taken out. Needs the
+  kit's triangles in eyecol (or a near-geometry fade for kit chunks).
+- *The van on the church stairs* (QA r1-r3): not reproduced in 3 scripted approaches at the QA's spot (191-192,178.4
+  heading west); a rule leaving out tyre corners over a step the game does not have (two-wheel lift) put normal kerb
+  driving at +-0.035 block (mr_31_t0: 351 frames off the road, was 0) and was taken out.
+- Checks on this build: car 000 drive 3 zig-zag frames (mr_33_t0), wheels 0 frames off the road; far-side entry third and
+  first seated (mr_34_p49); get-ups clean (mr_34_gu); classic `spawn_classic` 0 changed tiles (mr_vreg6). No faults.

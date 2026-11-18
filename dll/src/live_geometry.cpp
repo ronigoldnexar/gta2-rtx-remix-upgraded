@@ -5122,7 +5122,12 @@ static void ChaseCarFades(std::vector<CarBodyUse>& cars) {
     static int carFadeOn = -1;
     if (carFadeOn < 0) { char b[8] = {}; carFadeOn = GetEnvironmentVariableA("GTA2DX9_CAM_CAR_FADE", b, sizeof b) && atoi(b) == 0 ? 0 : 1; }
     static std::map<uintptr_t, std::pair<float, uint32_t>> s_state;   // alpha, the last frame with a reason
-    const bool on = carFadeOn && CameraPedFadeOn() && CurrentViewMode() == ViewMode::ThirdPerson && StreetPresentation() && g_playerPosValid;
+    // MOTION-QA-6 (5090 QA r2 soak c000/c006: after a collision the cockpit view was the inside of another car, the
+    // frame all red): in first person too, a car whose body the eye is in is not drawn (only that rule: the lines to him
+    // are the third person's). GTA2DX9_FP_CAR_LENS_OLD=1: as before.
+    static const bool fpLensOld = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_FP_CAR_LENS_OLD", b, sizeof b) && b[0] == '1'; }();
+    const bool fpLens = !fpLensOld && CurrentViewMode() == ViewMode::FirstPerson;
+    const bool on = carFadeOn && CameraPedFadeOn() && (CurrentViewMode() == ViewMode::ThirdPerson || fpLens) && StreetPresentation() && g_playerPosValid;
     if (!on) { s_state.clear(); return; }
     auto inside = [](const CameraCar& c, float x, float z, float m) {
         // the footprint is a convex quad: inside when on the inner side of all four edges (by m blocks)
@@ -5156,7 +5161,7 @@ static void ChaseCarFades(std::vector<CarBodyUse>& cars) {
         if (u.own || u.driven) continue;
         const CameraCar* cc = nullptr;
         for (const CameraCar& c : LiveCameraCars()) if (c.object == u.object) { cc = &c; break; }
-        bool hides = false;
+        bool hides = false, lensInside = false;
         if (cc && camLogOn && e.y > cc->y0 - 0.05f && e.y < cc->y1 + 0.05f && inside(*cc, e.x, e.z, -0.05f)) {
             static uint32_t lastIn = 0;
             if (g_carFrame - lastIn > 10) {   // FIX-CAMERA-19 probe: the lens inside a car's body
@@ -5165,7 +5170,9 @@ static void ChaseCarFades(std::vector<CarBodyUse>& cars) {
                     u.driven ? 1 : 0, inside(*cc, g_playerPosX, g_playerPosZ, -0.1f) ? 1 : 0, cc->y0, cc->y1, e.x, e.y, static_cast<float>(gta2::kMapHeight) - e.z);
             }
         }
-        if (cc && !inside(*cc, g_playerPosX, g_playerPosZ, -0.1f)) {
+        if (cc && fpLens) {
+            if (e.y > cc->y0 - 0.08f && e.y < cc->y1 + 0.12f && inside(*cc, e.x, e.z, -0.06f)) { hides = true; lensInside = true; }
+        } else if (cc && !inside(*cc, g_playerPosX, g_playerPosZ, -0.1f)) {
             int lines = 0;
             for (const gta2::Vec3& to : {chest, head}) {
                 const gta2::Vec3 d = to - e;
@@ -5182,6 +5189,11 @@ static void ChaseCarFades(std::vector<CarBodyUse>& cars) {
             // FIX-CAMERA-19 (qaexp8 residual): a lens inside another body (a trailing carriage on the line the train
             // lens rides, a bus beside a pocket) sees its hull from inside: it fades as one between the lens and him.
             if (!hides && e.y > cc->y0 - 0.05f && e.y < cc->y1 + 0.1f && inside(*cc, e.x, e.z, -0.08f)) hides = true;
+            // MOTION-QA-6 (5090 QA r2 car_golden 10_carV4: a truck crossing behind his van at 4 blocks/s ran through the
+            // chase lens and the frame was its bonnet, lamps and exhaust stack): with the lens inside or within a hand
+            // (0.08) of a body the fade does not take its six frames, it is gone at once. GTA2DX9_CAM_CAR_LENS_CUT_OLD=1.
+            static const bool lensCutOld = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_CAM_CAR_LENS_CUT_OLD", b, sizeof b) && b[0] == '1'; }();
+            if (!lensCutOld && e.y > cc->y0 - 0.08f && e.y < cc->y1 + 0.12f && inside(*cc, e.x, e.z, -0.08f)) lensInside = true;
         }
         // MOTION-QA-1 (mr_2_p49): the car he is climbing into or out of stays whole. Boarding from the far side the van
         // stood between the lens and him for the climb and faded out completely: for 0.25 s he stepped and climbed on
@@ -5196,6 +5208,7 @@ static void ChaseCarFades(std::vector<CarBodyUse>& cars) {
         if (hides) it->second.second = g_carFrame;
         const bool held = g_carFrame - it->second.second <= 8;
         a = held ? (std::max)(0.0f, a - 0.17f) : (std::min)(1.0f, a + 0.17f);
+        if (lensInside) a = 0.0f;   // MOTION-QA-6
         u.fade = a;
         static int camLog = -1;
         if (camLog < 0) { char b[8] = {}; camLog = GetEnvironmentVariableA("GTA2DX9_LOG_CAMERA", b, sizeof b) && atoi(b) ? 1 : 0; }
@@ -12939,6 +12952,23 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     break;
                 }
                 if (!inCar) track.sepCar = 0;
+                // MOTION-QA-6 (5090 QA r1-r3, mr_24_gu_rain: a woman standing inside a blue street box for seconds): the
+                // game lets people stand where its objects are (a sprite has no body), and drawn as models the boxes, bins
+                // and phone boxes went through them. A figure inside a standing object's footprint (its radius and a body's
+                // 0.08) is drawn out of it by the shortest way, at most 0.25 block (eased with the rest of the separation).
+                // GTA2DX9_PROP_SEP=0: as before.
+                static const bool propSepOff = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_PROP_SEP", b, sizeof b) && b[0] == '0'; }();
+                if (!inCar && !propSepOff && !sprite.corpse) {
+                    for (const PropFootprint& f : MapObjectObstacles()) {
+                        if (f.radius <= 0.0f || f.radius > 0.6f || cy < f.y - 0.3f || cy > f.y + (std::max)(f.height, 0.3f)) continue;
+                        const float px = selfX + sx - f.x, pz = selfZ + sz - f.z, d = std::sqrt(px * px + pz * pz), need = f.radius + 0.08f;
+                        if (d >= need) continue;
+                        const float out = (std::min)(0.25f, need - d);
+                        if (d > 1e-3f) { sx += px / d * out; sz += pz / d * out; } else { sx += out; }
+                        if (g_logPedFrames && g_carFrame % 15 == 0)
+                            Log("figure sep: f=%u %08x inside a street object (r %.2f), out by %.3f", g_carFrame, static_cast<unsigned>(sprite.object), f.radius, out);
+                    }
+                }
                 // FIX-FIGURE-9 (pm7-fp-own-head-and-shoulder-fill-left-third-of-view): in first person the eye is a
                 // body too. GTA2 lets a passer-by come within about 0.30 block of him, and drawn there he is a
                 // head and a shirt cut by the frame's edge filling a third of the picture (fig9_ar3 f36, fig9_fw2
