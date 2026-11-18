@@ -1899,6 +1899,11 @@ void VehicleFxDraw(IDirect3DDevice9* device, const gta2::Vec3& eye, uint32_t fra
         const D3DTEXTUREFILTERTYPE back = g_smooth ? D3DTEXF_LINEAR : D3DTEXF_POINT;
         device->SetSamplerState(0, D3DSAMP_MAGFILTER, back);
         device->SetSamplerState(0, D3DSAMP_MINFILTER, back);
+    } else if (remix && g_puffLevelsOn) {
+        // QA5090-SLABS (5090 QA r2/r3: black square slabs by every car for ~1 s after the first switch to 3D): the
+        // Remix puff textures are made one a frame (32 for the soft puffs), and until the last one was made the
+        // puffs fell through to the plain renderer's quads below, which the path tracer draws as opaque black
+        // cards. Under Remix a puff waits for its textures instead.
     } else {
         for (const PuffQuad& q : g_puffQuads) Quad(q.c, q.a, q.b, q.colour);
         Flush(device, g_puffTex);
