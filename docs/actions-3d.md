@@ -2510,7 +2510,7 @@ Still short: the remaining screen zig-zags of the driven car are camera, not car
 by walls with the long 063 truck in a narrow street (eye jumps of 0.4-0.7 block a frame, mr_14_drv f3885-3894), (b) the
 rig re-framing when the probe swaps the car model mid-drive (a probe artefact). Neither is the body moving.
 
-### FIX-FP-ARMS-2 (18 Nov 2026): one hand mesh for every pose, curl in-betweens, armed hands, skin material
+## FIX-FP-ARMS-2 (18 Nov 2026): one hand mesh for every pose, curl in-betweens, armed hands, skin material
 
 - Models: `tools/gen_fp_arms.py` now bakes ONE relaxed hand (8000 triangles, forearm muscles: brachioradialis,
   flexor and extensor masses thinning to a tapered wrist; extensor tendons on the back of the hand; knuckle heads that
