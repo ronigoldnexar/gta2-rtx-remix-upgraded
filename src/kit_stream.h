@@ -28,12 +28,18 @@ public:
     // vstart: in its page, or (page -1) in the resident's own buffer. groups: one draw per material (a chunk's
     // groups of one material are laid out together and drawn as one range); lit: the emissive sub-ranges, each with
     // its switch-on bucket in flags (the renderer's night pass)
-    struct Group { int tile; uint32_t flags; int page; uint32_t vstart, vcount; };
+    struct Group { int tile; uint32_t flags; int page; uint32_t vstart, vcount; uint32_t pieceFirst = 0, pieceCount = 0; };
+    // MOTION-QA-8: a group's vertices in runs of kPieceVertices (its triangles in the kit's own order, so a run is a
+    // small part of one building: an awning's slab, a sign box, a sill) with their box, kept on the CPU so the renderer
+    // can leave out the runs right in front of the eye (Renderer::SetKitNearCut) without clip planes (RTX Remix).
+    struct Piece { uint32_t vstart, vcount; float bb[6]; };
+    static constexpr uint32_t kPieceVertices = 96;
     struct Resident {
         int entry = -1;
         std::vector<Group> groups;
         std::vector<Group> lit;
         std::vector<Group> allocs;               // what it holds in the pages (freed when it goes)
+        std::vector<Piece> pieces;               // MOTION-QA-8, see Piece
         IDirect3DVertexBuffer9* vb = nullptr;    // OwnBuffers: its own buffer, written once, never locked again
         float alpha = 0.0f;
         bool dying = false;

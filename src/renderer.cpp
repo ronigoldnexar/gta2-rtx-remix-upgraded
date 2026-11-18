@@ -1819,6 +1819,38 @@ void Renderer::DrawKitStream(const Camera& camera) {
     // loop made ~7 calls a draw, ~7 000 a frame); the fading chunks after, as before
     kitDraws_.clear();
     kitFading_.clear();
+    // MOTION-QA-8 (5090 QA r1-r3: the cockpit under a shop awning, the frame its underside; MOTION-QA-7's clip plane is
+    // not available under RTX Remix): the kit's pieces (runs of a few dozen triangles with their box, KitStream::Piece)
+    // whose box reaches into a ball just in front of the eye (from 0.12 behind it to kitNearCut_ ahead) are left out of
+    // the draws, on the CPU, under either device; the map's wall behind them stays. Only chunks whose box reaches the
+    // ball are looked at piece by piece.
+    const bool nearCut = kitNearCut_ > 0.0f;
+    float cutC[3] = {0.0f, 0.0f, 0.0f}, cutR = 0.0f;
+    if (nearCut) {
+        const float cyw = camera.Yaw(), cpt = camera.Pitch();
+        const float fx = std::sin(cyw) * std::cos(cpt), fy = std::sin(cpt), fz = std::cos(cyw) * std::cos(cpt);   // Camera::Forward
+        cutC[0] = eye.x + fx * 0.5f * kitNearCut_; cutC[1] = eye.y + fy * 0.5f * kitNearCut_; cutC[2] = eye.z + fz * 0.5f * kitNearCut_;
+        cutR = 0.5f * kitNearCut_ + 0.12f;
+    }
+    auto boxInBall = [&](const float* bb) {
+        const float dx = (std::max)({0.0f, bb[0] - cutC[0], cutC[0] - bb[3]}), dy = (std::max)({0.0f, bb[1] - cutC[1], cutC[1] - bb[4]}),
+                    dz = (std::max)({0.0f, bb[2] - cutC[2], cutC[2] - bb[5]});
+        return dx * dx + dy * dy + dz * dz < cutR * cutR;
+    };
+    kitCutPieces_ = 0;
+    // a group's draws: whole, or (near the eye) the runs of its pieces outside the ball
+    auto groupRanges = [&](const KitStream::Resident& r, const KitStream::Group& g, bool chunkNear, auto&& emit) {
+        if (!chunkNear || !g.pieceCount || g.pieceFirst + g.pieceCount > r.pieces.size()) { emit(g.vstart, g.vcount); return; }
+        uint32_t runStart = 0, runCount = 0;
+        for (uint32_t i = g.pieceFirst; i < g.pieceFirst + g.pieceCount; ++i) {
+            const KitStream::Piece& pc = r.pieces[i];
+            if (pc.vstart < g.vstart || pc.vstart >= g.vstart + g.vcount) continue;   // (a lit sub-range: only its own pieces)
+            if (boxInBall(pc.bb)) { if (runCount) emit(runStart, runCount); runCount = 0; ++kitCutPieces_; continue; }
+            if (!runCount) runStart = pc.vstart;
+            runCount += pc.vcount;
+        }
+        if (runCount) emit(runStart, runCount);
+    };
     for (const KitStream::Resident& r : kitStream_.Residents()) {
         if (const float* bb = kitStream_.Bounds(r.entry)) {   // shadow casters: the solid groups (no grates)
             for (const KitStream::Group& g : r.groups) {
@@ -1834,13 +1866,17 @@ void Renderer::DrawKitStream(const Camera& camera) {
             const float dx = (std::max)({0.0f, bb[0] - eye.x, eye.x - bb[3]}), dz = (std::max)({0.0f, bb[2] - eye.z, eye.z - bb[5]});
             nearDetail = dx * dx + dz * dz < kitStream_.DetailRadius * kitStream_.DetailRadius;
         }
+        const float* cbb = kitStream_.Bounds(r.entry);
+        const bool chunkNear = nearCut && cbb && boxInBall(cbb);
         for (const KitStream::Group& g : r.groups) {
             if ((g.flags & 32) && !nearDetail) continue;
             IDirect3DTexture9* tex = g.tile >= 0 && g.tile < static_cast<int>(textures_.size()) ? BoundTileTexture(g.tile) : nullptr;
             IDirect3DVertexBuffer9* vb = kitStream_.BufferOf(r, g);
             if (!tex || !vb) continue;
-            const KitDrawRec d{tex, g.flags & 7u, vb, g.vstart, g.vcount, a};
-            (a < 0.999f ? kitFading_ : kitDraws_).push_back(d);
+            groupRanges(r, g, chunkNear, [&](uint32_t vs, uint32_t vc) {
+                const KitDrawRec d{tex, g.flags & 7u, vb, vs, vc, a};
+                (a < 0.999f ? kitFading_ : kitDraws_).push_back(d);
+            });
         }
     }
     std::sort(kitDraws_.begin(), kitDraws_.end(), [](const KitDrawRec& x, const KitDrawRec& y) {
@@ -1874,25 +1910,6 @@ void Renderer::DrawKitStream(const Camera& camera) {
             device_->DrawPrimitive(D3DPT_TRIANGLELIST, d.vstart, d.vcount / 3);
         }
     };
-    // MOTION-QA-7 (5090 QA r1-r3, mr_30_aw/mr_32_aw: a car stopped under a shop awning, the cockpit frame its underside):
-    // the kit's pieces in front of the eye closer than kitNearCut_ are clipped away (they are not in the camera's
-    // collision mesh, so no clearance test keeps the eye out of them); the wall behind them is the map's and stays.
-    DWORD clipWas = 0;
-    const bool nearCut = kitNearCut_ > 0.0f && !remixDevice_;
-    if (nearCut) {
-        const float cyw = camera.Yaw(), cpt = camera.Pitch();
-        const Vec3 f{std::sin(cyw) * std::cos(cpt), std::sin(cpt), std::cos(cyw) * std::cos(cpt)};   // Camera::Forward
-        const float fl = std::sqrt(f.x * f.x + f.y * f.y + f.z * f.z);
-        if (fl > 1e-4f) {
-            const float nx = f.x / fl, ny = f.y / fl, nz = f.z / fl;
-            const float px = eye.x + nx * kitNearCut_, py = eye.y + ny * kitNearCut_, pz = eye.z + nz * kitNearCut_;
-            const float plane[4] = {nx, ny, nz, -(nx * px + ny * py + nz * pz)};
-            device_->GetRenderState(D3DRS_CLIPPLANEENABLE, &clipWas);
-            device_->SetClipPlane(1, plane);
-            device_->SetRenderState(D3DRS_CLIPPLANEENABLE, clipWas | D3DCLIPPLANE1);
-        }
-    }
-    struct ClipRestore { IDirect3DDevice9* d; bool on; DWORD was; ~ClipRestore() { if (on) d->SetRenderState(D3DRS_CLIPPLANEENABLE, was); } } clipRestore{device_, nearCut, clipWas};
     device_->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
     device_->SetRenderState(D3DRS_ZWRITEENABLE, TRUE);
     device_->SetTextureStageState(0, D3DTSS_ALPHAOP, aop);
@@ -1946,7 +1963,8 @@ void Renderer::DrawKitStream(const Camera& camera) {
                 device_->SetRenderState(D3DRS_CULLMODE, (g.flags & 2) ? D3DCULL_NONE : cullMode_);
                 IDirect3DVertexBuffer9* src = kitStream_.BufferOf(r, g);
                 if (src != boundVb) { device_->SetStreamSource(0, src, 0, sizeof(Vertex)); boundVb = src; }
-                device_->DrawPrimitive(D3DPT_TRIANGLELIST, g.vstart, g.vcount / 3);
+                const float* cbb = kitStream_.Bounds(r.entry);
+                groupRanges(r, g, nearCut && cbb && boxInBall(cbb), [&](uint32_t vs, uint32_t vc) { device_->DrawPrimitive(D3DPT_TRIANGLELIST, vs, vc / 3); });
             }
         }
         device_->SetRenderState(D3DRS_SRCBLEND, sb);

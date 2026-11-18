@@ -187,7 +187,7 @@ bool KitStream::Create(IDirect3DDevice9* device, int ei, Resident* r) {
             for (const Group& q : r->allocs) Free(q.page, q.vstart, q.vcount);
             r->allocs.clear();
             if (r->vb) { r->vb->Release(); r->vb = nullptr; }
-            r->groups.clear(); r->lit.clear();
+            r->groups.clear(); r->lit.clear(); r->pieces.clear();
             return false;
         }
         const uint8_t* vp = p + 36;
@@ -202,13 +202,29 @@ bool KitStream::Create(IDirect3DDevice9* device, int ei, Resident* r) {
             o.u = ub + Half(Rd<uint16_t>(vp + 10));
             o.v = vb + Half(Rd<uint16_t>(vp + 12));
         }
+        // MOTION-QA-8: the pieces (runs of kPieceVertices with their box), from the vertices just written
+        const uint32_t pieceFirst = static_cast<uint32_t>(r->pieces.size());
+        for (uint32_t q0 = 0; q0 < v; q0 += kPieceVertices) {
+            const uint32_t n = (std::min)(kPieceVertices, v - q0);
+            Piece pc{place[k].second + q0, n, {1e9f, 1e9f, 1e9f, -1e9f, -1e9f, -1e9f}};
+            for (uint32_t q = q0; q < q0 + n; ++q) {   // from the packed data (the locked buffer is write-only)
+                const uint8_t* pv = p + 36 + static_cast<size_t>(q) * 14;
+                const float x = ox + Rd<int16_t>(pv) / 1024.0f, y = oy + Rd<int16_t>(pv + 2) / 1024.0f, z = oz + Rd<int16_t>(pv + 4) / 1024.0f;
+                pc.bb[0] = (std::min)(pc.bb[0], x); pc.bb[1] = (std::min)(pc.bb[1], y); pc.bb[2] = (std::min)(pc.bb[2], z);
+                pc.bb[3] = (std::max)(pc.bb[3], x); pc.bb[4] = (std::max)(pc.bb[4], y); pc.bb[5] = (std::max)(pc.bb[5], z);
+            }
+            r->pieces.push_back(pc);
+        }
+        const uint32_t pieceCount = static_cast<uint32_t>(r->pieces.size()) - pieceFirst;
         target->Unlock();
         // draws: a material's consecutive ranges merge into one (main pass); emissive ranges also go to the night list
-        const Group g{src[k].tile, src[k].flags, place[k].first, place[k].second, v};
+        Group g{src[k].tile, src[k].flags, place[k].first, place[k].second, v};
+        g.pieceFirst = pieceFirst; g.pieceCount = pieceCount;
         if (!r->groups.empty()) {
             Group& last = r->groups.back();
             if (last.tile == g.tile && (last.flags & ~0x1F00u) == (g.flags & ~0x1F00u) && last.page == g.page && last.vstart + last.vcount == g.vstart) {
                 last.vcount += v;
+                last.pieceCount += pieceCount;   // MOTION-QA-8: the pieces follow on in the same order
             } else {
                 r->groups.push_back(g);
             }

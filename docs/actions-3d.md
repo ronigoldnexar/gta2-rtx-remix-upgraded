@@ -2630,3 +2630,23 @@ rig re-framing when the probe swaps the car model mid-drive (a probe artefact). 
   `tyres:` probe, 1100+ frames a run). Not reproduced on the plain renderer; no change made.
 - Checks: car 000 drive, wheels within 0.0011 block of the road (mr_37_t0); classic `spawn_classic` 0 changed tiles
   (mr_vreg7); no faults.
+
+## MOTION-QA-8 (18 Nov 2026): the kit near cut without clip planes (works under RTX Remix)
+
+- MOTION-QA-7's clip plane is skipped under the Remix device, where the owner plays. The cut is now done on the CPU: as
+  the kit streams in, each material group's vertices are kept as pieces of 96 vertices (32 triangles in the kit's own
+  order: a small part of one building, an awning slab, a sign box, a sill) with their box (`KitStream::Piece`, a few
+  hundred bytes a chunk); in `DrawKitStream` the pieces of chunks near the eye whose box reaches into a ball from 0.12
+  behind the eye to the cut distance ahead (0.45 at the wheel in first person, 0.20 on foot, 0.30 for the chase lens) are
+  left out and the rest of the group is drawn as the runs between them (the lit-sign pass the same). No clip plane, no
+  device state: the same draws go to the plain device and to the Remix bridge. Under Remix the cut runs become draws of
+  their own (sub-ranges of the chunk's own vertex buffer, which Remix keeps once written): a few extra small meshes while
+  a car stands at a facade, none while driving clear of one. The map's own wall behind stays.
+- Verified on the plain renderer at the QA's awning spot with the truck body (mr_39_aw): 11 pieces left out, the
+  windscreen shows the wall and its windows (MOTION-QA-7's frames with the cut off: the awning's underside over the top
+  half); third person behind the truck there (mr_39_aw3): the awning drawn whole, 2-6 pieces cut at the lens. First person
+  on foot: punches 6/6 (mr_39_fp), 1 piece cut at times. Truck 063 drive: 2 zig-zag frames (mr_40_t63). Classic
+  `spawn_classic` 0 changed tiles (mr_vreg8). `kit near cut:` log lines count the pieces. `GTA2DX9_KIT_NEAR_CUT=0`: off.
+- Not done: the kit in the third-person camera's wall avoidance (the lens is kept 0.13 off the map's walls for the kit's
+  skin; an awning reaching further out is cut at the lens rather than avoided). The church stairs: parked until the QA
+  can capture the van's pose.
