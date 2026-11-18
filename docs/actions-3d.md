@@ -2434,3 +2434,40 @@ wall (the hang's travel limit; front wheels, out of the chase view); the punched
 - Also swept, clean: driving up and down the wil road ramp and over its kerbs in third and first person (mr_6_ramp3/1,
   van 068: shell tyres within -0.005..+0.001 of the road, 0 screen zig-zag runs), a third-person jack with drive-off and
   exit (0 zig-zag runs, 0 camera-yaw reversals), death in first person (fixfp_wasted: WASTED, fade, hospital).
+
+## FIX-FP-ARMS (18 Nov 2026): first-person bare arms and hands (owner: "the first-person fists look ridiculous")
+
+- Seen (fparms_base, HEAD 315c1fce, `keys_fig14_fist.sh`): at rest nothing; on a punch two thin tube forearms from the
+  bottom corners ending in blob/mitten fists with 4 px skin blocks, swung about in front of the eye.
+- Models (`tools/gen_fp_arms.py` + `tools/fp_arms_bake.py`, in `assets/models`): one surface per arm from wrist to
+  elbow, built as a signed distance field on an anatomical skeleton (metacarpals and three phalanges per finger, the
+  thumb's three bones, knuckle heads, thenar/hypothenar pads, the ulna's head, an elliptical forearm swelling to the
+  muscle belly), the bones blended smoothly into the palm but never into each other (so the fingers stay fingers),
+  meshed at 0.9 mm and coloured per vertex (nails with lunula and free edge, joint creases on both sides, redder
+  knuckles and tips, lighter palm, faint veins, a cavity term from the field), then decimated to ~5200 triangles and
+  baked into a 1024 px texture with a fine skin grain. Poses: `relax` (fingers loosely curled, a slight wrist droop)
+  and `fist` (fingers tucked, the thumb across the index and middle fingers). `fp_uparm_right`: the upper arm, elbow
+  and the short sleeve with a rolled hem (node `sleeve`, tinted to the player's shirt as before; it is the bare arms'
+  sleeve source now).
+- Code (`live_geometry.cpp` DrawBareArms, called from DrawViewModel for weapon 0): each arm is placed per state, the
+  wrist's place, the forearm's direction and its roll, blended in real time; the upper arm runs from the elbow toward a
+  shoulder under and beside the eye; the left arm is the right reflected. States: the relaxed carry (hands low in the
+  bottom corners, backs of the hands toward the eye, swinging opposed with the stride); the guard (fists at the bottom
+  third, knuckle row and back of the hand toward the eye, the left 3.5 cm ahead); the punch (0.45 s cross / 0.40 s jab:
+  driven to the middle of the view in 28 % of the time along a slight upward arc, turning palm-down, a 4 % snap
+  overshoot, the shoulder following through 12 cm, then back to the guard). Punches alternate left and right; a new
+  punch starts at the game's punch frames (115-122 of the hidden player sprite) and again whenever they restart, with
+  a one-frame gap ignored and at least 0.45 s between punches (one rising edge used to cover three taps). The guard
+  holds 1.2 s after the last punch, then the arms ease back to the carry (FIX-FP-HANDS' timing).
+- Switches: `GTA2DX9_FP_ARMS=0` the old fists (FIX-FIGURE-14 / FIX-FP-HANDS path, unchanged);
+  `GTA2DX9_FP_ARMS_TUNE="guay=-0.19,punz=0.66,..."` overrides the placement numbers (names in `kBareArmsNames`,
+  metres in eye space x right, y up, z ahead). Log: `view model: punch left|right (sprite frame N)`,
+  `view model: bare arm R|L guard g reach r wrist .. elbow ..`.
+- Verified (plain renderer, 30 fps bursts, wil 198.5,178.5): fparms_r10 (12:00 light, `gamerun/keys_fp_arms.sh`: rest,
+  walk, four punches, relax): relaxed hands at the bottom edge at rest and swinging opposed while walking; guard with
+  knuckles, fingers, thumb and wrist readable; five alternating punches jab/cross/jab/cross/jab with the sleeve
+  (player's shirt colour) coming into view on the throw; fparms_r5 (night): the same lit by the night ambient.
+  Classic: first person only (DrawViewModel returns outside it); vreg stage run below.
+- Not done: Remix (path-traced) frames of the new arms; the armed view models (`fp_arm_*` with guns) still use the
+  old tube arms; no finger animation between poses (the relax/fist swap happens while the hand rises into the guard);
+  no hit reaction or camera kick on a connecting punch.

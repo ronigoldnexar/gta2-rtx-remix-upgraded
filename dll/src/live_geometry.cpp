@@ -9296,6 +9296,208 @@ int OwnThrowSprite(int base, unsigned num, uintptr_t object, const float* at, fl
 }   // FIX-FIGURE-15: the frame the player's ammunition word last dropped (the flamethrower spends one a frame)
 uint32_t g_ownLensFrame = 0;   // FIX-FIGURE-10 pfl23: the frame his own figure was last left out of the picture (see DrawViewModel)
 uint32_t vmLastBob_ = 0;   // FIX-FIGURE-7: the frame the view model's bob last ran (a gap resets it)
+// FIX-FP-ARMS (owner, 18 Nov: "the first-person fists look ridiculous"): the bare hands as two whole arms, each a
+// forearm with a modelled hand (tools/gen_fp_arms.py: knuckles, fingers, thumb, nails, creases, a baked skin texture;
+// poses "relax" and "fist") and an upper arm in the player's short sleeve, placed per state (the wrist's place, the
+// forearm's direction and roll) and blended in real time, the upper arm from the elbow toward a shoulder beside and
+// under the eye. The old fists were a rigid fist on a tube swung about in front of the eye. States: the relaxed carry
+// (hands low at the bottom corners, fingers loosely curled, swinging opposed with the stride), the guard (fists up
+// either side of the view, the left a little ahead), the punch (the fist driven to the middle of the view along a
+// slight upward arc, the forearm turning palm-down, a small overshoot, the shoulder following through, then back to
+// the guard; alternating left jab and right cross). GTA2DX9_FP_ARMS=0: the old fists.
+// GTA2DX9_FP_ARMS_TUNE="name=value,...": the numbers below (development).
+namespace {
+struct BareArmsIn {
+    float guardK = 0.0f;        // 0 relaxed carry .. 1 guard
+    float stride = 0.0f;        // -1..1 the walk's stride phase (the right arm forward at +1)
+    float walkAmp = 0.0f;       // 0..1 how much he walks
+    float bobDown = 0.0f, bobSide = 0.0f, sway = 0.0f;   // blocks, the view model's bob and turn sway
+    float drop = 0.0f;          // 0..1 the holster dip / knockdown
+    float breath = 0.0f;        // blocks
+    float punchR = -1.0f, punchL = -1.0f;   // seconds since the right / left punch began (< 0 none)
+};
+
+struct BareArmsTune {
+    float v[40];
+};
+enum BareArmsKey {
+    kBaG, kBaShX, kBaShY, kBaShZ, kBaFore,
+    kBaRelX, kBaRelY, kBaRelZ, kBaRelRoll, kBaRelDx, kBaRelDy,
+    kBaGuaX, kBaGuaY, kBaGuaZ, kBaGuaRoll, kBaGuaDx, kBaGuaDy, kBaLeadZ, kBaLeadY,
+    kBaPunX, kBaPunY, kBaPunZ, kBaPunRoll, kBaPunDx, kBaPunDy,
+    kBaPunDur, kBaJabDur, kBaSwing, kBaFollow, kBaCount
+};
+const char* const kBareArmsNames[kBaCount] = {
+    "g", "shx", "shy", "shz", "fore",
+    "relx", "rely", "relz", "relroll", "reldx", "reldy",
+    "guax", "guay", "guaz", "guaroll", "guadx", "guady", "leadz", "leady",
+    "punx", "puny", "punz", "punroll", "pundx", "pundy",
+    "pundur", "jabdur", "swing", "follow"};
+// Eye space, metres (x right, y up, z ahead), for the right arm: the wrist's place, the forearm's direction (dx, dy, 1:
+// from the elbow to the wrist) and its roll (0: the back of the hand up, + turns it out) in each state.
+const float kBareArmsDefaults[kBaCount] = {
+    1.35f, 0.20f, -0.30f, -0.10f, 0.265f,
+    0.22f, -0.31f, 0.42f, 0.80f, -0.20f, -0.05f,
+    0.12f, -0.19f, 0.33f, -0.35f, -0.45f, 0.25f, 0.035f, 0.012f,
+    0.02f, -0.10f, 0.66f, 0.0f, -0.25f, 0.12f,
+    0.45f, 0.40f, 0.030f, 0.12f};
+
+const BareArmsTune& BareArmsParams() {
+    static BareArmsTune t = [] {
+        BareArmsTune r{};
+        for (int i = 0; i < kBaCount; ++i) r.v[i] = kBareArmsDefaults[i];
+        char buf[1024] = {};
+        if (GetEnvironmentVariableA("GTA2DX9_FP_ARMS_TUNE", buf, sizeof buf)) {
+            char* s = buf;
+            while (*s) {
+                char* e = std::strchr(s, ',');
+                if (e) *e = 0;
+                char* eq = std::strchr(s, '=');
+                if (eq) {
+                    *eq = 0;
+                    for (int i = 0; i < kBaCount; ++i)
+                        if (!std::strcmp(s, kBareArmsNames[i])) { r.v[i] = static_cast<float>(atof(eq + 1)); Log("view model: bare arms tune %s=%.3f", s, r.v[i]); }
+                }
+                if (!e) break;
+                s = e + 1;
+            }
+        }
+        return r;
+    }();
+    return t;
+}
+
+struct BaV3 { float x, y, z; };
+inline BaV3 operator+(BaV3 a, BaV3 b) { return {a.x + b.x, a.y + b.y, a.z + b.z}; }
+inline BaV3 operator-(BaV3 a, BaV3 b) { return {a.x - b.x, a.y - b.y, a.z - b.z}; }
+inline BaV3 operator*(BaV3 a, float k) { return {a.x * k, a.y * k, a.z * k}; }
+inline float BaDot(BaV3 a, BaV3 b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+inline BaV3 BaCross(BaV3 a, BaV3 b) { return {a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x}; }
+inline BaV3 BaUnit(BaV3 a) { const float l = std::sqrt(BaDot(a, a)); return l > 1e-6f ? a * (1.0f / l) : BaV3{0.0f, 0.0f, 1.0f}; }
+inline BaV3 BaLerp(BaV3 a, BaV3 b, float t) { return a + (b - a) * t; }
+inline float BaSmooth(float u) { u = (std::max)(0.0f, (std::min)(1.0f, u)); return u * u * (3.0f - 2.0f * u); }
+
+// The punch's reach 0..1 (with a little overshoot) and its follow-through over its time u = t / duration.
+float PunchReach(float u) {
+    if (u < 0.0f || u >= 1.0f) return 0.0f;
+    if (u < 0.28f) { const float x = u / 0.28f; return 1.0f - (1.0f - x) * (1.0f - x) * (1.0f - x); }   // driven out
+    if (u < 0.40f) return 1.0f + 0.04f * std::sin((u - 0.28f) / 0.12f * 3.14159265f);                  // the snap
+    return 1.0f - BaSmooth((u - 0.40f) / 0.60f);                                                         // back to the guard
+}
+
+// One arm in the eye's space (x right, y up, z ahead; metres), as a right arm; `mirror` reflects it to the left.
+struct ArmPose { BaV3 wrist, elbow, shoulder, back; };
+
+ArmPose SolveArm(const BareArmsTune& P, float guardK, float reach, float swing, float follow, float lead, float pullBack) {
+    const float* v = P.v;
+    const float relaxK = 1.0f - guardK, gk = BaSmooth(guardK), rk = (std::min)(1.0f, reach);
+    BaV3 rel{v[kBaRelX], v[kBaRelY] - 0.25f * std::fabs(swing) * v[kBaSwing], v[kBaRelZ] + swing * v[kBaSwing]};
+    BaV3 gua{v[kBaGuaX], v[kBaGuaY] + lead * v[kBaLeadY], v[kBaGuaZ] + lead * v[kBaLeadZ] - 0.03f * pullBack + 0.25f * swing * v[kBaSwing]};
+    const BaV3 pun{v[kBaPunX], v[kBaPunY], v[kBaPunZ]};
+    BaV3 w = BaLerp(BaLerp(rel, gua, gk), pun, (std::min)(1.05f, reach));
+    w.y += 0.035f * std::sin(3.14159265f * rk);   // the throw's arc: a little up through the middle
+    const BaV3 dRel{v[kBaRelDx], v[kBaRelDy], 1.0f}, dGua{v[kBaGuaDx], v[kBaGuaDy], 1.0f}, dPun{v[kBaPunDx], v[kBaPunDy], 1.0f};
+    const BaV3 z = BaUnit(BaLerp(BaLerp(BaUnit(dRel), BaUnit(dGua), gk), BaUnit(dPun), rk));
+    float roll = v[kBaRelRoll] * relaxK + v[kBaGuaRoll] * guardK;
+    roll += (v[kBaPunRoll] - roll) * rk;
+    ArmPose r;
+    r.wrist = w;
+    r.elbow = w - z * v[kBaFore];
+    // the shoulder follows the punch through (the body turns into it); the upper arm points at it from the elbow
+    r.shoulder = BaV3{v[kBaShX] - 0.04f * follow, v[kBaShY] + 0.02f * follow, v[kBaShZ] + v[kBaFollow] * follow};
+    // the back of the hand: the view's up turned about the forearm by the roll
+    BaV3 u{0.0f, 1.0f, 0.0f};
+    u = BaUnit(u - z * BaDot(u, z));
+    const BaV3 side = BaCross(u, z);
+    r.back = BaUnit(u * std::cos(roll) + side * std::sin(roll));
+    return r;
+}
+}  // namespace
+
+// The upper arm's model when the bare arms are on and their models loaded (the sleeves' tint reads it), else null.
+static const Model* BareArmsUpper() {
+    static const bool on = [] { char b[4] = {}; return !(GetEnvironmentVariableA("GTA2DX9_FP_ARMS", b, sizeof b) && b[0] == '0'); }();
+    static const Model* relaxM = ModelByName("fp_bare_relax_right");
+    static const Model* fistM = ModelByName("fp_bare_fist_right");
+    static const Model* upperM = ModelByName("fp_uparm_right");
+    return on && relaxM && fistM && upperM ? upperM : nullptr;
+}
+
+// Draws both arms; false when the models are missing (the caller then draws the old fists).
+static bool DrawBareArms(IDirect3DDevice9* device, const gta2::Vec3& eye, const gta2::Vec3& fwd, const float* right, const float* up,
+                         const BareArmsIn& in) {
+    static const bool on = [] { char b[4] = {}; return !(GetEnvironmentVariableA("GTA2DX9_FP_ARMS", b, sizeof b) && b[0] == '0'); }();
+    if (!on) return false;
+    static const Model* relaxM = ModelByName("fp_bare_relax_right");
+    static const Model* fistM = ModelByName("fp_bare_fist_right");
+    static const Model* upperM = ModelByName("fp_uparm_right");
+    if (!relaxM || !fistM || !upperM) {
+        static bool warned = false;
+        if (!warned) { warned = true; Log("view model: bare arms models missing (fp_bare_relax_right %d, fp_bare_fist_right %d, fp_uparm_right %d): the old fists",
+                                          relaxM ? 1 : 0, fistM ? 1 : 0, upperM ? 1 : 0); }
+        return false;
+    }
+    const BareArmsTune& P = BareArmsParams();
+    const float G = P.v[kBaG], B = 1.0f / 4.8f;   // the view-model scale about the eye; blocks a metre
+    const float* fz = &fwd.x;
+    auto toWorld = [&](BaV3 p) {   // eye space (metres) -> world (blocks)
+        BaV3 o;
+        for (int c = 0; c < 3; ++c) (&o.x)[c] = (&eye.x)[c] + (right[c] * p.x + up[c] * p.y + fz[c] * p.z) * G * B;
+        return o;
+    };
+    auto dirWorld = [&](BaV3 p) {
+        BaV3 o;
+        for (int c = 0; c < 3; ++c) (&o.x)[c] = right[c] * p.x + up[c] * p.y + fz[c] * p.z;
+        return o;
+    };
+    const float swingR = in.stride * in.walkAmp;
+    for (int side = 0; side < 2; ++side) {
+        const bool left = side == 1;
+        const float t = left ? in.punchL : in.punchR;
+        const float dur = left ? P.v[kBaJabDur] : P.v[kBaPunDur];
+        const float u = t >= 0.0f ? t / dur : -1.0f;
+        const float reach = PunchReach(u);
+        const float follow = reach > 0.0f ? (std::min)(1.0f, reach) : 0.0f;
+        const float otherT = left ? in.punchR : in.punchL;
+        const float otherReach = PunchReach(otherT >= 0.0f ? otherT / (left ? P.v[kBaPunDur] : P.v[kBaJabDur]) : -1.0f);
+        const float guardK = (std::max)(in.guardK, reach > 0.0f ? 1.0f : 0.0f);
+        ArmPose a = SolveArm(P, guardK, reach, left ? -swingR : swingR, follow, left ? 1.0f : 0.0f, (std::min)(1.0f, otherReach));
+        // the bob, the sway, the breath and the holster dip move the whole arm (the shoulder with it)
+        const float bob = in.bobDown / (G * B), bs = (in.bobSide + in.sway) / (G * B);
+        const float dropM = 0.40f * in.drop + in.breath / (G * B) * (1.0f - guardK * 0.5f);
+        const BaV3 shift{bs * (left ? 1.0f : 1.0f), -bob - dropM, 0.0f};
+        a.wrist = a.wrist + shift; a.elbow = a.elbow + shift; a.shoulder = a.shoulder + shift;
+        const float mx = left ? -1.0f : 1.0f;
+        auto mir = [&](BaV3 p) { return BaV3{p.x * mx, p.y, p.z}; };
+        // the forearm and hand: model +z along the forearm, +y the back of the hand, x = y cross z
+        const BaV3 z = BaUnit(a.wrist - a.elbow);
+        const BaV3 y = a.back;
+        const BaV3 x = BaCross(y, z);
+        const Model* hand = (guardK > 0.5f || reach > 0.0f) ? fistM : relaxM;
+        gta2::Mat4 m;
+        const BaV3 X = dirWorld(mir(x)), Y = dirWorld(mir(y)), Z = dirWorld(mir(z)), W = toWorld(mir(a.wrist));
+        for (int c = 0; c < 3; ++c) { m.m[0][c] = (&X.x)[c] * G; m.m[1][c] = (&Y.x)[c] * G; m.m[2][c] = (&Z.x)[c] * G; m.m[3][c] = (&W.x)[c]; }
+        m.m[0][3] = m.m[1][3] = m.m[2][3] = 0.0f; m.m[3][3] = 1.0f;
+        ModelDraw(device, *hand, m, nullptr, 0.0f);
+        // the upper arm: model +z from the elbow up to the shoulder, -y the point of the elbow
+        const BaV3 zu = BaUnit(a.shoulder - a.elbow);
+        BaV3 bend = BaUnit((BaUnit(a.shoulder - a.elbow) + z * -1.0f) * -1.0f);   // away from the inside of the bend
+        bend = BaUnit(bend - zu * BaDot(bend, zu));
+        const BaV3 yu = bend * -1.0f;
+        const BaV3 xu = BaCross(yu, zu);
+        const BaV3 Xu = dirWorld(mir(xu)), Yu = dirWorld(mir(yu)), Zu = dirWorld(mir(zu)), E = toWorld(mir(a.elbow));
+        for (int c = 0; c < 3; ++c) { m.m[0][c] = (&Xu.x)[c] * G; m.m[1][c] = (&Yu.x)[c] * G; m.m[2][c] = (&Zu.x)[c] * G; m.m[3][c] = (&E.x)[c]; }
+        ModelDraw(device, *upperM, m, nullptr, 0.0f);
+        static int logged = 0;
+        if (logged < 6 && (reach > 0.5f || logged < 2)) {
+            ++logged;
+            Log("view model: bare arm %s guard %.2f reach %.2f wrist %.2f,%.2f,%.2f elbow %.2f,%.2f,%.2f (m, eye space)", left ? "L" : "R", guardK, reach,
+                a.wrist.x * mx, a.wrist.y, a.wrist.z, a.elbow.x * mx, a.elbow.y, a.elbow.z);
+        }
+    }
+    return true;
+}
+
 void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     // FIX-FIGURE-10 pfl23: on the move into his eyes (first person chosen, the camera still on its way)
     // his figure leaves the picture (under the frame's bottom edge, behind the eye, or cut at the lens
@@ -9622,11 +9824,25 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     // throw the right fist out and back, the left on alternate punches.
     float jab = 0.0f;
     static int jabSide = 0;
+    static DWORD baPunchAt[2] = {0, 0};   // FIX-FP-ARMS: when the right (0) / left (1) punch began
     if (fists && g_playerObject) {
         static bool wasPunching = false;
         const unsigned pf = *reinterpret_cast<const uint16_t*>(static_cast<const uint8_t*>(g_playerObject) + game::kSpriteObjectNumber) % 158u;
         const bool punching = pf >= 115 && pf <= 122;
-        if (punching && !wasPunching) jabSide ^= 1;
+        // FIX-FP-ARMS: a new punch at the start of the game's punch frames, and again whenever they start over (held or
+        // tapped again the game runs them back to back with no other frame between, so one rising edge was all three).
+        // A one-frame gap in the punch frames (116, another frame, 117) is the same punch.
+        static unsigned lastPf = 0;
+        static DWORD lastPunchSeen = 0;
+        static DWORD lastPunchStart = 0;
+        if (punching && ((!wasPunching && vmNow - lastPunchSeen > 150u) || pf < lastPf) && vmNow - lastPunchStart > 450u) {
+            lastPunchStart = vmNow; jabSide ^= 1; baPunchAt[jabSide] = vmNow ? vmNow : 1;
+            static int punchLogs = 0;
+            if (punchLogs < 40) { ++punchLogs; Log("view model: punch %s (sprite frame %u)", jabSide ? "left" : "right", pf); }
+        }
+        if (g_logJoints && punching && pf != lastPf) Log("view model: punch frame %u", pf);
+        if (punching) { lastPf = pf; lastPunchSeen = vmNow; }
+        else if (vmNow - lastPunchSeen > 150u) lastPf = 0;
         wasPunching = punching;
         if (punching) jab = std::sin(static_cast<float>(pf - 115) / 7.0f * 3.14159265f);
     }
@@ -9998,7 +10214,8 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     {
         const IdentityRecord& hero = IdentityForPlayer();
         float mean[3];
-        const Model* anyArm = armR ? armR : armL;
+        const Model* bareUpper = fists ? BareArmsUpper() : nullptr;   // FIX-FP-ARMS: the bare arms' sleeves
+        const Model* anyArm = bareUpper ? bareUpper : armR ? armR : armL;
         if (anyArm && hero.model && ModelNodeTextureMean(device, *anyArm, "sleeve", mean)) {
             float k[3];
             for (int c = 0; c < 3; ++c) k[c] = hero.shownTop[c] / (std::max)(mean[c], 8.0f);
@@ -10008,7 +10225,20 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
                                               hero.shownTop[0], hero.shownTop[1], hero.shownTop[2], hero.fingerprint); }
         }
     }
-    if (armR) ModelDraw(device, *armR, handAt(0.0f, 0.0f, 0.0f, false), nullptr, 0.0f);
+    bool bareDrawn = false;
+    if (fists) {
+        BareArmsIn bi;
+        bi.guardK = relaxOn ? guardK : 1.0f;
+        bi.stride = strideSwing; bi.walkAmp = 1.0f;
+        bi.bobDown = bobDown; bi.bobSide = bobSide; bi.sway = swaySide;
+        bi.drop = drop; bi.breath = breath;
+        for (int s2 = 0; s2 < 2; ++s2) {
+            const float tp = baPunchAt[s2] ? static_cast<float>(vmNow - baPunchAt[s2]) / 1000.0f : -1.0f;
+            (s2 == 0 ? bi.punchR : bi.punchL) = (tp >= 0.0f && tp < 2.0f) ? tp : -1.0f;
+        }
+        bareDrawn = DrawBareArms(device, eye, f, right, up, bi);
+    }
+    if (armR && !bareDrawn) ModelDraw(device, *armR, handAt(0.0f, 0.0f, 0.0f, false), nullptr, 0.0f);
     if (armR && IdentityProbeOn())   // IDENTITY-SYSTEM parity probe: the sleeves on screen
         IdentityProbeModel(device, "sleeve", nullptr, IdentityForPlayer(), *armR, handAt(0.0f, 0.0f, 0.0f, false).m, 2);
     if (armL) {
@@ -10037,7 +10267,7 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
         for (int c = 0; c < 3; ++c) { lhOff[c] += (want[c] - lhOff[c]) * a; lm.m[3][c] += lhOff[c]; }
         ModelDraw(device, *armL, lm, nullptr, 0.0f);
     }
-    if (weapon == kWpnDual || fists) {
+    if (weapon == kWpnDual || (fists && !bareDrawn)) {
         gta2::Mat4 other = place;
         // FIX-FIGURE-14: the left fist's stride swing is the right's opposite (back as the right goes forward).
         const float swingL = -2.0f * swingR, liftL = 0.25f * ((std::max)(0.0f, -swingR) - (std::max)(0.0f, swingR));
