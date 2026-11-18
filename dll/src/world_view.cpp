@@ -4199,6 +4199,16 @@ void WorldView::RenderFrame() {
                 kitShow = v;
             }
             renderer_.SetKitPresentation(worldUploaded_ ? g_presentExtras : 0.0f, kitShow != 0);
+            {   // MOTION-QA-7: the kit's pieces right in front of the eye left out (renderer.h SetKitNearCut): at the wheel in
+                // first person 0.45 block (the cab under a shop awning), on foot 0.20, the chase lens 0.30 (a lens in an
+                // awning or a sign box). GTA2DX9_KIT_NEAR_CUT=0: off.
+                static const bool cutOff = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_KIT_NEAR_CUT", b, sizeof b) && b[0] == '0'; }();
+                const ViewMode vm = CurrentViewMode();
+                float cut = 0.0f;
+                if (!cutOff && vm == ViewMode::FirstPerson) cut = g_viewPlayer.valid && g_viewPlayer.inVehicle ? 0.45f : 0.20f;
+                else if (!cutOff && vm == ViewMode::ThirdPerson) cut = 0.30f;
+                renderer_.SetKitNearCut(cut);
+            }
             if (renderer_.KitStreaming()) {
                 // DISTRICTS round 5: the kit's lit signs follow the street lights' staggered switch-on (time_of_day.h),
                 // 32 buckets of their own; dark while the day/night cycle is off (the fixed noon sun)

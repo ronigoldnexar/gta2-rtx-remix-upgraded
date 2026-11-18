@@ -172,6 +172,9 @@ public:
     // DISTRICTS round 5: how lit each of the kit's 32 sign switch-on buckets is now, 0..1 (the DLL's staggered
     // street-light clock, time_of_day.h); emissive kit groups get their "_lit" material added at that share
     void SetKitSignLights(const float* share32) { for (int k = 0; k < 32; ++k) kitSign_[k] = share32[k]; }
+    // MOTION-QA-7: the facade kit (awnings, sign boxes, canopies: not in the camera's collision mesh) left out closer
+    // than `ahead` blocks in front of the eye (a clip plane across the view, kit draws only); 0 = off.
+    void SetKitNearCut(float ahead) { kitNearCut_ = ahead; }
     void SetKitPresentation(float alpha, bool visible) {
         kitAlpha_ = alpha < 0.0f ? 0.0f : (alpha > 1.0f ? 1.0f : alpha); kitVisible_ = visible;
         post_.SetKitShadow(visible && streetView_ ? kitAlpha_ : 0.0f);
@@ -347,6 +350,7 @@ public:
 private:
     float photoMix_ = 0.0f;
     float kitAlpha_ = 1.0f;             // see SetKitPresentation
+    float kitNearCut_ = 0.0f;           // MOTION-QA-7, see SetKitNearCut
     KitStream kitStream_;
     std::vector<PostFx::StreamCaster> kitCasters_;
     // round 6: the frame's kit draws (DrawKitStream), kept to reuse their storage

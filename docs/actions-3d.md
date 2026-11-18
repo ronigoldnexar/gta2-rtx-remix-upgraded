@@ -2611,3 +2611,22 @@ rig re-framing when the probe swaps the car model mid-drive (a probe artefact). 
   driving at +-0.035 block (mr_31_t0: 351 frames off the road, was 0) and was taken out.
 - Checks on this build: car 000 drive 3 zig-zag frames (mr_33_t0), wheels 0 frames off the road; far-side entry third and
   first seated (mr_34_p49); get-ups clean (mr_34_gu); classic `spawn_classic` 0 changed tiles (mr_vreg6). No faults.
+
+## MOTION-QA-7 (18 Nov 2026): the facade kit cut in front of the eye (the cockpit under the shop awning); the church stairs
+
+- *The cockpit under the shop awning* (5090 QA r1-r3, MAJOR in first person): the awning is a piece of the district
+  facade kit, streamed in chunks the camera's collision mesh (eyecol, the map's blocks) does not hold. The kit's draws now
+  carry a clip plane across the view: kit pieces closer than 0.45 block in front of the eye are left out at the wheel in
+  first person, 0.20 on foot in first person and 0.30 in front of the chase lens (renderer.h `SetKitNearCut`, set per
+  frame by world_view.cpp; not under the Remix device, which the lattice clip also skips); the map's own wall behind them
+  stays. Verified at the QA's spot with the truck body (`force_own_car_model=63`, nosed into the HOTEL DINER front at
+  175.5,179.4): with the cut the windscreen shows the wall and its windows (mr_35_aw); with `GTA2DX9_KIT_NEAR_CUT=0` the
+  awning's underside fills the top half of the frame (mr_35_aw0). Third person behind the truck there: the awning drawn,
+  the lens clear of it. Punch gate in first person on this build 5/6 and 4/6 (cut off), 6/6 on the shared stage: the
+  usual crowd variance, the cut touches no game logic. `GTA2DX9_KIT_NEAR_CUT=0`: off.
+- *The van on the church stairs*: the QA's scenario replayed (tools/scen.txt 'rain': F9 to the parked van, Return, Up
+  3 s, Up+Left 0.9 s, Up 3 s; also 2.8 s and 3.2 s before the turn: mr_35_rr, mr_36_rr, mr_36_rr3, mr_36_rr4): the van
+  passes the steps' foot on the pavement each time and no tyre stands over 0.028 block above the road (the shell van's
+  `tyres:` probe, 1100+ frames a run). Not reproduced on the plain renderer; no change made.
+- Checks: car 000 drive, wheels within 0.0011 block of the road (mr_37_t0); classic `spawn_classic` 0 changed tiles
+  (mr_vreg7); no faults.

@@ -1874,6 +1874,25 @@ void Renderer::DrawKitStream(const Camera& camera) {
             device_->DrawPrimitive(D3DPT_TRIANGLELIST, d.vstart, d.vcount / 3);
         }
     };
+    // MOTION-QA-7 (5090 QA r1-r3, mr_30_aw/mr_32_aw: a car stopped under a shop awning, the cockpit frame its underside):
+    // the kit's pieces in front of the eye closer than kitNearCut_ are clipped away (they are not in the camera's
+    // collision mesh, so no clearance test keeps the eye out of them); the wall behind them is the map's and stays.
+    DWORD clipWas = 0;
+    const bool nearCut = kitNearCut_ > 0.0f && !remixDevice_;
+    if (nearCut) {
+        const float cyw = camera.Yaw(), cpt = camera.Pitch();
+        const Vec3 f{std::sin(cyw) * std::cos(cpt), std::sin(cpt), std::cos(cyw) * std::cos(cpt)};   // Camera::Forward
+        const float fl = std::sqrt(f.x * f.x + f.y * f.y + f.z * f.z);
+        if (fl > 1e-4f) {
+            const float nx = f.x / fl, ny = f.y / fl, nz = f.z / fl;
+            const float px = eye.x + nx * kitNearCut_, py = eye.y + ny * kitNearCut_, pz = eye.z + nz * kitNearCut_;
+            const float plane[4] = {nx, ny, nz, -(nx * px + ny * py + nz * pz)};
+            device_->GetRenderState(D3DRS_CLIPPLANEENABLE, &clipWas);
+            device_->SetClipPlane(1, plane);
+            device_->SetRenderState(D3DRS_CLIPPLANEENABLE, clipWas | D3DCLIPPLANE1);
+        }
+    }
+    struct ClipRestore { IDirect3DDevice9* d; bool on; DWORD was; ~ClipRestore() { if (on) d->SetRenderState(D3DRS_CLIPPLANEENABLE, was); } } clipRestore{device_, nearCut, clipWas};
     device_->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
     device_->SetRenderState(D3DRS_ZWRITEENABLE, TRUE);
     device_->SetTextureStageState(0, D3DTSS_ALPHAOP, aop);
