@@ -833,6 +833,7 @@ private:
         const void* guModel = nullptr;
         const void* guInfo = nullptr;
         float guRate = 1.0f, guOX = 0.0f, guOZ = 0.0f, guPinX = 0.0f, guPinZ = 0.0f;
+        float catchV = 0.0f;   // MOTION-QA-3: the walk-off's closing speed (blocks/s), built up from rest
         bool guOff = false, guPinned = false;
         const void* guFromClip = nullptr;
         float guFromT = 0.0f, guFromK = 0.0f;   // FIX-GETUP: the per-frame trace runs until this frame (GTA2DX9_LOG_GETUP)

@@ -2548,6 +2548,21 @@ bool GetUpOn() {
 // kGuCatchUp: the walk-off closes on the game's spot at most this fast (blocks/s) on top of the game's own pace (the
 // legs run it); the full knock-down's kKdCatchUp (2.5) let a man the game runs off at 1.9 blocks/s glide at 4.4.
 constexpr float kGuRate = 1.5f, kGuKdRate = 1.3f, kGuFallAgain = 0.25f, kGuCatchUp = 0.9f;
+// MOTION-QA-3 (owner: the punched / car-knocked man's catch-up should read naturally): the walk-off after a get-up
+// started at its full closing speed in the first frame (kd: 2.5 blocks/s on top of the game's pace, so the player's
+// figure stood up and broke into a sprint for 0.4 s to cover 0.9 block). Now the closing speed starts from rest and
+// builds at 3 blocks/s^2, is a walk's 1.1 blocks/s while the gap is under 2 blocks (the full rate only past that), and
+// eases off over the last quarter block; the legs follow the drawn pace, so a short gap is walked. Returns the step
+// taken off (ox, oz) this frame. GTA2DX9_CATCHUP_OLD=1: as before.
+bool CatchUpOld() { static int o = -1; if (o < 0) { char b[4] = {}; o = GetEnvironmentVariableA("GTA2DX9_CATCHUP_OLD", b, sizeof b) && b[0] == '1' ? 1 : 0; } return o == 1; }
+void CatchUpStep(float* ox, float* oz, float* v, float cap, float dt) {
+    const float l = std::sqrt(*ox * *ox + *oz * *oz);
+    if (l < 1e-5f) { *ox = *oz = 0.0f; *v = 0.0f; return; }
+    const float want = (std::min)(l < 2.0f ? 1.1f : cap, l / 0.25f + 0.15f);
+    *v = *v < want ? (std::min)(want, *v + 3.0f * dt) : want;
+    const float step = (std::min)(l, *v * dt);
+    *ox -= *ox / l * step; *oz -= *oz / l * step;
+}
 bool Kd3PinGetUp() {
     static int on = -1;
     if (on < 0) { char v[8] = {}; on = (GetEnvironmentVariableA("GTA2DX9_KD_PIN_GETUP", v, sizeof v) && v[0] == '0') ? 0 : 1; }
@@ -12235,6 +12250,15 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                                 (sprite.pedState == 8 && sprite.pedSub >= 0x18 && sprite.pedSub <= 0x1A);
             if (carHit || cause == game::kDamageExplosion) {
                 track.lieClip = carHit ? 2 : 3;
+                // MOTION-QA-3 (mr_12_kd1, the player struck again on his hands and knees): the new fall started from the
+                // lying clip's first frame, standing, so for one frame he popped upright (pelvis 0.08 -> 0.23, head 0.35
+                // block) and the ragdoll was seeded from that. The fall (and the ragdoll's seed) now starts from the
+                // rising pose he is in, blended over kGuFallAgain as the punched man's down-again does.
+                if (track.guClip && track.guInfo && !CatchUpOld()) {
+                    const ModelGetUpInfo* gi = static_cast<const ModelGetUpInfo*>(track.guInfo);
+                    const float t = (std::max)(0.0f, gi->length - track.actionTime);
+                    track.guFromClip = track.guClip; track.guFromT = std::floor(t * 30.0f) / 30.0f; track.guFromK = 1.0f; track.guClip = nullptr;
+                }
                 track.actionReverse = false; track.actionTime = 0.0f; track.kdRising = false;
                 track.kdSecs = 0.0f; track.kdSettledAt = -1.0f; track.kdGameUp = false; track.kdRolled = false; track.kdRolls = 0; track.kdRollAt = -1.0f;
                 Log("knockdown: %p knocked down again while getting up", reinterpret_cast<const void*>(sprite.object));
@@ -12350,6 +12374,14 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 const ModelGetUpInfo* gi = nullptr;
                 const ModelAnimation* gc = ModelGetUpClip(*gm, kLie[lc], front, &gi);
                 if (gc && gi) {
+                    // MOTION-QA-3 (mr_13_kd1, a jacked driver): the game stood him up 0.4 s into the lying clip, his pelvis
+                    // still 0.20 block up, and the get-up's first frame (the clip's last, on the road) dropped it to 0.016
+                    // in one frame (head 0.34). A fall cut short now lands into the get-up: from the pose he is in,
+                    // blended over kGuFallAgain s (the down-again blend run the other way).
+                    const ModelAnimation* lyingA = gm->Animation(kLie[lc]);
+                    if (!track.kd && lyingA && track.actionTime < lyingA->length - 0.05f && !CatchUpOld()) {
+                        track.guFromClip = lyingA; track.guFromT = std::floor(track.actionTime * 30.0f) / 30.0f; track.guFromK = 1.0f;
+                    }
                     static const float rate = [] { char b[16] = {}; return GetEnvironmentVariableA("GTA2DX9_GETUP_RATE", b, sizeof b) ? static_cast<float>(atof(b)) : 0.0f; }();
                     track.guClip = gc; track.guModel = gm; track.guInfo = gi;
                     track.guRate = rate > 0.05f ? rate : (track.kd ? kGuKdRate : kGuRate);
@@ -12473,7 +12505,11 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             const ModelGetUpInfo* gi = static_cast<const ModelGetUpInfo*>(track.guInfo);
             const float t = gi->length - track.actionTime;
             if (t >= gi->turnFrom && !gi->pelvisX.empty()) {
-                const float tx = gameMoving ? fx : -fx, tz = gameMoving ? fz : -fz;
+                float tx = gameMoving ? fx : -fx, tz = gameMoving ? fz : -fz;
+                // MOTION-QA-3: he rises turning toward where he is going: the game's spot when it is more than 0.3 block
+                // off (he walks that way next), else the game's facing.
+                const float gox = track.kd ? track.kdOX : track.guOX, goz = track.kd ? track.kdOZ : track.guOZ;
+                if (!CatchUpOld() && gox * gox + goz * goz > 0.3f * 0.3f) { tx = -gox; tz = -goz; }
                 float diff = std::atan2(tx, tz) - track.heading;
                 while (diff > kPi) diff -= 2.0f * kPi;
                 while (diff < -kPi) diff += 2.0f * kPi;
@@ -12878,7 +12914,22 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     constexpr float kEyeRoom = 0.40f;
                     const float ex = selfX + sx - g_viewEye.x, ez = selfZ + sz - g_viewEye.z;
                     const float ed = std::sqrt(ex * ex + ez * ez);
-                    if (ed < kEyeRoom && ed > 1e-4f) {
+                    // MOTION-QA-3 (mr_1_fp: a woman 0.10 from the eye drawn out to 0.40 straight into the man 0.30 behind
+                    // her, who stood at 0.40 and was not moved: the two figures 0.046 apart, one through the other): the
+                    // ring out to kEyeOuter is drawn out as a whole, each by its distance (0 -> 0.40, 0.80 -> 0.80, in
+                    // between in proportion), so people one behind the other stay one behind the other.
+                    // GTA2DX9_FP_EYE_RING_OLD=1: only those inside 0.40, out to 0.40 (as before).
+                    static const bool ringOld = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_FP_EYE_RING_OLD", b, sizeof b) && b[0] == '1'; }();
+                    constexpr float kEyeOuter = 0.80f;
+                    const bool ringVictim = FpPunchVictimLive(sprite.object);   // the punched man keeps FIX-FIGURE-18's framing
+                    if (!ringOld && !ringVictim && ed < kEyeOuter && ed > 1e-4f) {
+                        const float want = kEyeRoom + ed * (kEyeOuter - kEyeRoom) / kEyeOuter;
+                        sx += ex / ed * (want - ed); sz += ez / ed * (want - ed);
+                        eyePush = true;
+                        if (g_logPedFrames && g_carFrame % 10 == 0)
+                            Log("figure sep: f=%u %08x %.2f from the first-person eye, drawn out to %.2f", g_carFrame,
+                                static_cast<unsigned>(sprite.object), ed, want);
+                    } else if ((ringOld || ringVictim) && ed < kEyeRoom && ed > 1e-4f) {
                         sx += ex / ed * (kEyeRoom - ed); sz += ez / ed * (kEyeRoom - ed);
                         eyePush = true;
                         if (g_logPedFrames && g_carFrame % 10 == 0)
@@ -13050,7 +13101,13 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
             if (!track.kdRisePinned) { track.kdRisePinned = true; track.kdPinX = baseX + track.kdOX; track.kdPinZ = baseZ + track.kdOZ; }
             track.kdOX = track.kdPinX - baseX; track.kdOZ = track.kdPinZ - baseZ;
         }
-        if (track.kd && track.action != 4) {
+        if (track.kd && track.action != 4 && !CatchUpOld()) {
+            CatchUpStep(&track.kdOX, &track.kdOZ, &track.catchV, kKdCatchUp, dt);
+            if (track.kdOX * track.kdOX + track.kdOZ * track.kdOZ < 1e-5f) {
+                track.kdOX = track.kdOZ = 0.0f; track.kd = false; track.kdRising = false; track.catchV = 0.0f;
+                if (ownPed || g_logPedFrames) Log("knockdown: %p back on his feet, walking", reinterpret_cast<const void*>(sprite.object));
+            }
+        } else if (track.kd && track.action != 4) {
             const float k = 1.0f - std::exp(-dt / kKdWalkOff);
             float sx = track.kdOX * k, sz = track.kdOZ * k;
             const float step = std::sqrt(sx * sx + sz * sz), most = kKdCatchUp * dt;
@@ -13067,15 +13124,19 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
         if (track.guOff) {
             const float baseX = track.dx + track.staggerX + track.sepX, baseZ = track.dz + track.staggerZ + track.sepZ;
             if (track.action == 4) {   // rising, or down again while rising: held where he is
+                track.catchV = 0.0f;
                 if (!track.guPinned) { track.guPinned = true; track.guPinX = baseX + track.guOX; track.guPinZ = baseZ + track.guOZ; }
                 track.guOX = track.guPinX - baseX; track.guOZ = track.guPinZ - baseZ;
             } else {
                 track.guPinned = false;   // MOTION-QA-1: a fall during the walk-off pins where he is then, not where he rose
+                if (!CatchUpOld()) CatchUpStep(&track.guOX, &track.guOZ, &track.catchV, kGuCatchUp, dt);
+                else {
                 const float k = 1.0f - std::exp(-dt / kKdWalkOff);
                 float sx = track.guOX * k, sz = track.guOZ * k;
                 const float step = std::sqrt(sx * sx + sz * sz), most = kGuCatchUp * dt;
                 if (step > most) { sx *= most / step; sz *= most / step; }
                 track.guOX -= sx; track.guOZ -= sz;
+                }
                 if (track.guOX * track.guOX + track.guOZ * track.guOZ < 1e-5f || frames >= 10) { track.guOX = track.guOZ = 0.0f; track.guOff = false; track.guPinned = false; }
             }
         }
@@ -14590,12 +14651,13 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                                 for (int c = 0; c < 3; ++c) j[k][c] = q[0] * world.m[0][c] + q[1] * world.m[1][c] + q[2] * world.m[2][c] + world.m[3][c];
                             }
                             Log("getup: f=%u o=%04x st=%d sub=0x%x pf=%u corpse=%d act=%d rev=%d kd=%d rise=%d lie=%d t=%.3f aw=%.2f clip=%s rag=%d hd=%.3f "
-                                "org %.3f,%.3f,%.3f pel %.3f,%.3f,%.3f head %.3f,%.3f,%.3f lf %.3f rf %.3f g %.3f,%.3f gu %d%d %.3f,%.3f dx %.3f,%.3f",
+                                "org %.3f,%.3f,%.3f pel %.3f,%.3f,%.3f head %.3f,%.3f,%.3f lf %.3f rf %.3f g %.3f,%.3f gu %d%d %.3f,%.3f dx %.3f,%.3f road %.3f",
                                 g_carFrame, static_cast<unsigned>((sprite.object >> 2) & 0xFFFF), sprite.pedState, sprite.pedSub, sprite.pedFrame % 158u,
                                 sprite.corpse ? 1 : 0, track.action, track.actionReverse ? 1 : 0, track.kd ? 1 : 0, track.kdRising ? 1 : 0, track.lieClip,
                                 track.actionTime, actW, actionClip ? actionClip->name.c_str() : (locoA ? locoA->name.c_str() : "-"), ragdoll ? 1 : 0,
                                 track.heading, world.m[3][0], world.m[3][1], world.m[3][2], j[0][0], j[0][1] - cy, j[0][2], j[1][0], j[1][1] - cy, j[1][2],
-                                j[2][1] - cy, j[3][1] - cy, gx, gz, track.guOff ? 1 : 0, track.guPinned ? 1 : 0, track.guOX, track.guOZ, track.dx, track.dz);
+                                j[2][1] - cy, j[3][1] - cy, gx, gz, track.guOff ? 1 : 0, track.guPinned ? 1 : 0, track.guOX, track.guOZ, track.dx, track.dz,
+                                [&] { float r = 0.0f; return VehicleFxGroundAt(j[0][0], j[0][2], cy + 0.75f, &r) ? r - cy : 9.0f; }());   // MOTION-QA-3: the road under the pelvis against cy
                         }
                     }
                 }

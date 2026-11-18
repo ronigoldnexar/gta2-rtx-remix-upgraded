@@ -4242,16 +4242,18 @@ std::vector<GuKey> GuFromFront() {
         {0.85f, {{kGuRoot, 'r', -85}, {"Bip01 Spine1", 'r', 5}, {"Bip01 Head", 'r', 20},
                  {"Bip01 R UpperArm", 'r', 85}, {"Bip01 L UpperArm", 'r', 85},
                  {"Bip01 R Thigh", 'r', 85}, {"Bip01 L Thigh", 'r', 85}, {"Bip01 R Calf", 'r', -90}, {"Bip01 L Calf", 'r', -90}}, 3},
-        // kneeling up on the left knee, the right foot planted ahead, the right hand on that knee
+        // kneeling up on the left knee, the right foot planted a short step ahead (MOTION-QA-3: was 105/20 degrees of
+        // thigh, a long stride that ended the rise in a wide lunge), the right hand pressing on that knee
         {1.25f, {{kGuRoot, 'r', -25}, {"Bip01 Head", 'r', 10},
-                 {"Bip01 R Thigh", 'r', 105}, {"Bip01 R Calf", 'r', -85}, {"Bip01 R Foot", 'r', 5},
-                 {"Bip01 L Thigh", 'r', 20}, {"Bip01 L Calf", 'r', -85},
-                 {"Bip01 R UpperArm", 'r', 70}, {"Bip01 R Forearm", 'r', 30}, {"Bip01 L UpperArm", 'r', 25}, {"Bip01 L Forearm", 'r', 10}}, 4},
-        // rising off the right foot, the left knee off the road, pushing on its toes
-        {1.65f, {{kGuRoot, 'r', -15}, {"Bip01 Head", 'r', 5},
-                 {"Bip01 R Thigh", 'r', 60}, {"Bip01 R Calf", 'r', -60}, {"Bip01 R Foot", 'r', 15},
-                 {"Bip01 L Thigh", 'r', -10}, {"Bip01 L Calf", 'r', -25}, {"Bip01 L Foot", 'r', -20},
-                 {"Bip01 R UpperArm", 'r', 35}, {"Bip01 R Forearm", 'r', 20}, {"Bip01 L UpperArm", 'r', 5}, {"Bip01 L Forearm", 'r', 10}}, 4},
+                 {"Bip01 R Thigh", 'r', 90}, {"Bip01 R Calf", 'r', -95}, {"Bip01 R Foot", 'r', 10},
+                 {"Bip01 L Thigh", 'r', 5}, {"Bip01 L Calf", 'r', -90}, {"Bip01 L Foot", 'r', -25},
+                 {"Bip01 R UpperArm", 'r', 60}, {"Bip01 R Forearm", 'r', 25}, {"Bip01 L UpperArm", 'r', 20}, {"Bip01 L Forearm", 'r', 10}}, 4},
+        // rising off the right foot, the left foot brought in under the hips as the knee leaves the road (was a
+        // split stance, the left leg trailing 10 degrees behind: the wide lunge)
+        {1.65f, {{kGuRoot, 'r', -12}, {"Bip01 Head", 'r', 5},
+                 {"Bip01 R Thigh", 'r', 40}, {"Bip01 R Calf", 'r', -45}, {"Bip01 R Foot", 'r', 10},
+                 {"Bip01 L Thigh", 'r', 25}, {"Bip01 L Calf", 'r', -40}, {"Bip01 L Foot", 'r', 5},
+                 {"Bip01 R UpperArm", 'r', 25}, {"Bip01 R Forearm", 'r', 15}, {"Bip01 L UpperArm", 'r', 5}, {"Bip01 L Forearm", 'r', 10}}, 4},
     };
 }
 constexpr float kGuFrontLen = 2.0f;
