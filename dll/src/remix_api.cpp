@@ -267,6 +267,10 @@ int g_diInitial = 16, g_diSpatial = 3, g_diDisocclusion = 8;
 // respawn) no longer tears the cache down and re-creates it; 1 = the runtime's own (re-made on every cut). [camera]
 // remix_nrc_reset_on_cut, GTA2DX9_NRC_RESET_ON_CUT.
 int g_nrcResetOnCut = 0;
+// QA5090-TDR-2: rtx.uniqueObjectDistance pushed once when the runtime comes up ([camera] remix_cut_distance, tiles,
+// GTA2DX9_REMIX_CUT_DISTANCE; 0 = rtx.conf's own). It is both the instance-match radius and the camera-cut distance.
+int g_cutDistance = 4;
+bool g_cutDistancePushed = false;
 std::vector<std::pair<std::string, std::string>> g_extraConfig;
 
 void ApplyLightSampling() {
@@ -292,6 +296,13 @@ void ApplyLightSampling() {
     // camera cut logged 'NRC SDK: Loading the default network config data' + 'Context successfully initialized', the
     // neural radiance cache torn down and re-made while the frames before it were still on the GPU. With the scene
     // bounds kept the cut resets the history only (tdr/e2: 33 cuts, 1 context, the one at start).
+    if (g_cutDistance > 0) {
+        char text[16];
+        snprintf(text, sizeof(text), "%d", g_cutDistance);
+        g_cutDistancePushed = RemixSetConfig("rtx.uniqueObjectDistance", text);
+        Log("remix: rtx.uniqueObjectDistance = %s %s (QA5090-TDR-2: the camera-cut distance; remix_cut_distance=0: rtx.conf's)", text,
+            g_cutDistancePushed ? "set" : "refused");
+    }
     if (!g_nrcResetOnCut) {
         const bool ok = RemixSetConfig("rtx.neuralRadianceCache.resetSceneBoundsOnCameraCut", "False");
         Log("remix: rtx.neuralRadianceCache.resetSceneBoundsOnCameraCut = False %s (QA5090-TDR-2; remix_nrc_reset_on_cut=1: the runtime's own)",
@@ -311,6 +322,9 @@ void RemixLoadConfigSection(const char* iniPath) {
         char b[8] = {};
         g_nrcResetOnCut = GetEnvironmentVariableA("GTA2DX9_NRC_RESET_ON_CUT", b, sizeof b) ? (atoi(b) != 0 ? 1 : 0)
                                                                                          : (GetPrivateProfileIntA("camera", "remix_nrc_reset_on_cut", 0, iniPath) != 0 ? 1 : 0);
+        g_cutDistance = GetEnvironmentVariableA("GTA2DX9_REMIX_CUT_DISTANCE", b, sizeof b) ? atoi(b)
+                                                                                        : static_cast<int>(GetPrivateProfileIntA("camera", "remix_cut_distance", 4, iniPath));
+        if (g_cutDistance < 0) g_cutDistance = 0;
     }
     static char buffer[16384];
     const DWORD n = GetPrivateProfileSectionA("remix_config", buffer, sizeof(buffer), iniPath);
@@ -341,6 +355,8 @@ void RemixSetLightSampling(int initialSamples, int spatialSamples, int disocclus
     g_diDisocclusion = disocclusionSamples;
     if (g_available) ApplyLightSampling();
 }
+
+float RemixCutDistancePushed() { return g_cutDistancePushed ? static_cast<float>(g_cutDistance) : 0.0f; }
 
 bool RemixSetConfig(const char* key, const char* value) {
     if (!g_available || !g_interface.SetConfigVariable || !key || !value) return false;

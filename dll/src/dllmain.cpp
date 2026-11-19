@@ -252,7 +252,7 @@ void LoadConfig() {
             char b[32] = {};
             GetPrivateProfileStringA("camera", "remix_cut_guard", "0.9", b, sizeof b, ini);
             const float g = static_cast<float>(atof(b));
-            vm.remixCutGuard = g > 0.0f ? (std::min)(8.0f, (std::max)(0.2f, g)) : 0.0f;
+            vm.remixCutGuard = g > 0.0f ? (std::min)(0.98f, (std::max)(0.2f, g)) : 0.0f;
         }
         vm.tunnelPivot = GetPrivateProfileIntA("camera", "tunnel_pivot", 1, ini) != 0;   // FIX-CAMERA-18
         vm.trainTrail = GetPrivateProfileIntA("camera", "train_trail", 1, ini) != 0;   // FIX-CAMERA-19

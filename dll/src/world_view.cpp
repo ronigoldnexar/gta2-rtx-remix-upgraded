@@ -2954,6 +2954,29 @@ bool RespawnCutOn() {
 
 // QA5090-TDR-2: the frame a cut is meant on (the respawn and level-start cuts below), and the guard in force.
 namespace { int g_cutMeantFrame = -10; }
+// The runtime's cut distance in force: what [camera] remix_cut_distance pushed at start (remix_api.cpp), else the last
+// rtx.uniqueObjectDistance in the game folder's rtx.conf (1 in ours; the runtime's default 300 when the file has none).
+static float RemixCutDistance() {
+    const float pushed = RemixCutDistancePushed();
+    if (pushed > 0.0f) return pushed;
+    static float d = -1.0f;
+    if (d < 0.0f) {
+        d = 300.0f;
+        if (FILE* f = fopen("rtx.conf", "rb")) {
+            char line[512];
+            while (fgets(line, sizeof line, f)) {
+                const char* p = line;
+                while (*p == ' ' || *p == '\t') ++p;
+                if (strncmp(p, "rtx.uniqueObjectDistance", 24) != 0) continue;
+                const char* eq = strchr(p, '=');
+                if (eq && atof(eq + 1) > 0.0) d = static_cast<float>(atof(eq + 1));
+            }
+            fclose(f);
+        }
+        Log("view: Remix cut distance %.2f tiles (rtx.conf rtx.uniqueObjectDistance)", d);
+    }
+    return d;
+}
 static float RemixCutGuard() {
     static float env = -2.0f;
     if (env < -1.0f) { char b[16] = {}; env = GetEnvironmentVariableA("GTA2DX9_REMIX_CUT_GUARD", b, sizeof b) ? static_cast<float>(atof(b)) : -1.0f; }
@@ -3538,8 +3561,9 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
     // 'NRC ... Context successfully initialized'). The classic <-> street move goes 0.6-3.4 tiles a frame (more at a low
     // frame rate): a cut on every frame of it, the cache re-made 5-20 frames running. Reproduced on the 5090 (V loop at
     // night, run tdr/base1): 95 presses, 86 Remix cuts, then 15 cuts in 15 consecutive frames and the device lost
-    // (Aftermath: Error_DMA_PageFault inside the frame's InjectRTX). Under Remix the lens now moves at most
-    // [camera] remix_cut_guard tiles a frame (0.9, under the runtime's 1.0) unless the jump is meant: the player himself
+    // (Aftermath: Error_DMA_PageFault inside the frame's InjectRTX). The runtime's cut distance is set to [camera]
+    // remix_cut_distance (4 tiles, pushed once at start, remix_api.cpp; a smooth move's fastest frame is ~3.6 tiles), and
+    // under Remix the lens moves at most remix_cut_guard (0.9) of it a frame unless the jump is meant: the player himself
     // moved more than 3 tiles (a warp, a respawn, a level load) or the respawn / level-start cut above. It travels at that
     // pace and catches the solved pose up; a lens left more than 40 tiles behind, or for 3 s, takes one cut instead.
     // remix_cut_guard=0 or GTA2DX9_REMIX_CUT_GUARD=0: as before (A/B); off under plain Direct3D.
@@ -3549,7 +3573,9 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
         static int prevFrameG = -5;
         static float prevPX = 0.0f, prevPZ = 0.0f, lagFor = 0.0f;
         static long held = 0, letGo = 0;
-        const float guard = renderer_.IsRemixDevice() ? RemixCutGuard() : 0.0f;
+        const float guardFrac = renderer_.IsRemixDevice() ? RemixCutGuard() : 0.0f;
+        const float distNow = RemixCutDistance();
+        const float guard = guardFrac * (std::min)(distNow, 1000.0f);
         bool meant = frameCount_ - g_cutMeantFrame <= 1;
         if (locatedValid_ && havePlayerG && std::hypot(locatedX_ - prevPX, locatedZ_ - prevPZ) > 3.0f) meant = true;
         if (guard > 0.0f && haveG && prevFrameG + 1 == frameCount_ && !meant) {
@@ -3558,7 +3584,7 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
             const float len = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
             if (len > guard) {
                 lagFor += dt;
-                if (len > 40.0f || lagFor > 3.0f) {
+                if (len > (std::max)(40.0f, guard * 4.0f) || lagFor > 3.0f) {
                     ++letGo;
                     lagFor = 0.0f;
                     Log("view: Remix cut guard: the lens is %.1f tiles from its pose (%s, t=%.2f): one cut (%ld so far)", len,
