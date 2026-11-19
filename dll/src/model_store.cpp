@@ -2065,9 +2065,10 @@ IDirect3DTexture9* BakedTint(IDirect3DDevice9* device, const std::string& file, 
 // FIX-FP-ARMS-4 (RTX 6000 Remix, 19 Nov: the machine gun's body near black): under Remix the albedo is the texture, nothing
 // else (the fixed-function lights and the texture factor are not read), and the weapons' gunmetal / rubber / blued steel
 // textures are 24..45 of 255 (tools/gen_weapons.py BLUED, RUBBER, STEEL: made for a lit fixed-function pipeline), so lit by a
-// path-traced scene they come out black. ModelSetGunLift(f) draws the "weapon_*" textures with a floor (each channel
-// c -> c + 0.75 * max(0, f - c): at f = 85, 24 -> 69, 45 -> 75; wood, olive and the light ones barely or not at all), a baked
-// copy per texture, so Remix sees an ordinary textured draw. 0: off. Cached by texture and floor.
+// path-traced scene they come out black. ModelSetGunLift(t) scales the colour of the near-black, near-neutral texels of the
+// "weapon_*" textures (luminance < 55 and saturation < 0.42, fading in over 10 / 0.12 below those) up to luminance t (24 -> t),
+// keeping hue and the texture's relative variation; wood, olive, teal, orange and the light textures come out as they were.
+// A baked copy per texture, so Remix sees an ordinary textured draw. 0: off. Cached by texture and t.
 float g_gunLift = 0.0f;
 bool g_gripSwap = false;
 const std::string kGripRubber = "weapon_pistol_2.tga";
@@ -2087,8 +2088,7 @@ IDirect3DTexture9* BakedLift(IDirect3DDevice9* device, const std::string& file, 
     if (src && SUCCEEDED(src->GetLevelDesc(0, &desc)) && desc.Format == D3DFMT_A8R8G8B8 &&
         SUCCEEDED(device->CreateTexture(desc.Width, desc.Height, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &out, nullptr))) {
         D3DLOCKED_RECT a, b;
-        uint8_t lut[256];
-        for (int v = 0; v < 256; ++v) lut[v] = static_cast<uint8_t>((std::min)(255.0f, v + 0.75f * (std::max)(0.0f, key.g / 64.0f - v) + 0.5f));
+        const float target = key.g / 64.0f;
         if (LockTexels(src, &a)) {
             if (SUCCEEDED(out->LockRect(0, &b, nullptr, 0))) {
                 for (UINT y = 0; y < desc.Height; ++y) {
@@ -2096,7 +2096,17 @@ IDirect3DTexture9* BakedLift(IDirect3DDevice9* device, const std::string& file, 
                     uint32_t* w = reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(b.pBits) + y * b.Pitch);
                     for (UINT x = 0; x < desc.Width; ++x) {
                         const uint32_t c = r[x];
-                        w[x] = (c & 0xFF000000u) | (static_cast<uint32_t>(lut[(c >> 16) & 255]) << 16) | (static_cast<uint32_t>(lut[(c >> 8) & 255]) << 8) | lut[c & 255];
+                        float rgb[3] = {static_cast<float>((c >> 16) & 255), static_cast<float>((c >> 8) & 255), static_cast<float>(c & 255)};
+                        const float lum = 0.2126f * rgb[0] + 0.7152f * rgb[1] + 0.0722f * rgb[2];
+                        const float mx = (std::max)(rgb[0], (std::max)(rgb[1], rgb[2])), mn = (std::min)(rgb[0], (std::min)(rgb[1], rgb[2]));
+                        const float sat = mx > 0.0f ? (mx - mn) / mx : 0.0f;
+                        // only the near-black, near-neutral texels (gunmetal, rubber, blued steel); wood, olive, teal, orange untouched
+                        const float wl = (std::max)(0.0f, (std::min)(1.0f, (55.0f - lum) / 10.0f));
+                        const float ws = (std::max)(0.0f, (std::min)(1.0f, (0.42f - sat) / 0.12f));
+                        const float wgt = wl * ws;
+                        const float f = wgt > 0.0f ? 1.0f + wgt * ((target - lum) / (std::max)(lum, 6.0f)) : 1.0f;
+                        auto ch = [&](float v) { return static_cast<uint32_t>((std::min)(255.0f, (std::max)(0.0f, v * f + 0.5f))); };
+                        w[x] = (c & 0xFF000000u) | (ch(rgb[0]) << 16) | (ch(rgb[1]) << 8) | ch(rgb[2]);
                     }
                 }
                 out->UnlockRect(0);
@@ -2105,7 +2115,7 @@ IDirect3DTexture9* BakedLift(IDirect3DDevice9* device, const std::string& file, 
         } else { out->Release(); out = nullptr; }
     }
     s_lift[key] = BakeEntry{out, GetTickCount64()};
-    Log("models: gun lift baked: %s floor %.0f -> %s", file.c_str(), key.g / 64.0f, out ? "ok" : "failed");
+    Log("models: gun lift baked: %s target %.0f -> %s", file.c_str(), key.g / 64.0f, out ? "ok" : "failed");
     return out;
 }
 

@@ -10344,11 +10344,11 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     device->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
     device->SetFVF(kWorldFvf);
     // FIX-FP-ARMS-4 (RTX 6000 Remix check, 19 Nov: the machine gun's body near black): under Remix the albedo is the texture
-    // alone and the gunmetal textures are 24..45 of 255 (made for fixed-function lights), so the gun's dark texels are lifted to
-    // a floor (ModelSetGunLift, model_store.cpp). GTA2DX9_FP_GUN_LIFT=<floor 0..255> (default 85), 0: the textures as they are (A/B).
+    // alone and the gunmetal textures are 24..45 of 255 (made for fixed-function lights), so the gun's near-black neutral texels are lifted
+    // to a luminance (hue and detail kept; ModelSetGunLift, model_store.cpp). GTA2DX9_FP_GUN_LIFT=<lum 0..255> (default 62), 0: the textures as they are (A/B).
     static const float gunLift = [] {
         char v[16] = {};
-        if (!GetEnvironmentVariableA("GTA2DX9_FP_GUN_LIFT", v, sizeof v)) return 85.0f;
+        if (!GetEnvironmentVariableA("GTA2DX9_FP_GUN_LIFT", v, sizeof v)) return 62.0f;
         const float g = static_cast<float>(atof(v));
         return g > 0.0f ? g : 0.0f;
     }();
