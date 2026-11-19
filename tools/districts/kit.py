@@ -257,8 +257,10 @@ def box(mesh, wl, mat, h0, h1, y0, y1, d0, d1, faces="tblrf"):
 
 
 def art_box(mesh, wl, h0, h1, y0, y1, d0, d1, faces="tblrf"):
-    """the tile art of a region stood out of the wall: the front shows the region's own texels, the top,
-    bottom and sides its edge rows and columns drawn back to the wall (a painted sill becomes a stone sill)"""
+    """the tile art of a region stood out of the wall: the front shows the region's own texels, the top and
+    bottom its edge rows drawn back to the wall (a painted sill becomes a stone sill); the sides the band of columns
+    beside the edge, stepped across the depth at the front's texel density (the front corner shows the edge column,
+    so the art turns the corner; one column at every depth read as horizontal streaks on a deep pier: 5090 QA r50)"""
     ee = DEPS * max(0.0, d1 - SKIN)    # the end caps only
     P, key, e = wl.w, (wl.tile, 2), 0.004
     if "f" in faces:
@@ -273,9 +275,10 @@ def art_box(mesh, wl, h0, h1, y0, y1, d0, d1, faces="tblrf"):
     for hh, s_, tag in ((h0, -1, "l"), (h1, 1, "r")):
         if tag in faces:
             hu = hh + (e if s_ < 0 else -e)
+            hw = hu - s_ * (d1 - d0)       # at the wall: the column the depth's width in from the edge (inward)
             hh = hh + s_ * ee
             mesh.poly(key, [P(hh, y0, d0), P(hh, y0, d1), P(hh, y1, d1), P(hh, y1, d0)],
-                      [wl.uv(hu, y0), wl.uv(hu, y0), wl.uv(hu, y1), wl.uv(hu, y1)], (wl.ha[0] * s_, 0.0, wl.ha[2] * s_))
+                      [wl.uv(hw, y0), wl.uv(hu, y0), wl.uv(hu, y1), wl.uv(hw, y1)], (wl.ha[0] * s_, 0.0, wl.ha[2] * s_))
 
 
 
@@ -448,7 +451,8 @@ class Builder:
         for hh, s_, tag in ((h0, -1, "l"), (h1, 1, "r")):
             if tag in faces:
                 hc = hh + s_ * ee
-                self.mesh.poly(key, [P(hc, y0, d0), P(hc, y0, d1), P(hc, y1, d1), P(hc, y1, d0)], [U(hh, 0), U(hh, 0), U(hh, 1), U(hh, 1)],
+                hw = hh - s_ * (d1 - d0)    # at the wall: inward by the depth, as art_box's sides
+                self.mesh.poly(key, [P(hc, y0, d0), P(hc, y0, d1), P(hc, y1, d1), P(hc, y1, d0)], [U(hw, 0), U(hh, 0), U(hh, 1), U(hw, 1)],
                                (wl.ha[0] * s_, 0.0, wl.ha[2] * s_))
 
     def openings(self, tile):
@@ -707,8 +711,9 @@ class Builder:
             if kind == "straight" and (x + ax * s, y + ay * s, side, level) not in walls:
                 hh = 0.0 if end == 0 else 1.0
                 hu = hh + (0.02 if end == 0 else -0.02)
+                hw = hu - s * SKIN            # at the box face: inward by the skin's depth (art_box's sides)
                 self.mesh.poly((wl.tile, 2), [wl.w(hh, level, 0), wl.w(hh, level, SKIN), wl.w(hh, level + 1, SKIN), wl.w(hh, level + 1, 0)],
-                               [wl.uv(hu, level), wl.uv(hu, level), wl.uv(hu, level + 1), wl.uv(hu, level + 1)], (wl.ha[0] * s, 0.0, wl.ha[2] * s))
+                               [wl.uv(hw, level), wl.uv(hu, level), wl.uv(hu, level + 1), wl.uv(hw, level + 1)], (wl.ha[0] * s, 0.0, wl.ha[2] * s))
         if (x, y, side, level + 1) not in walls and level + 1 < roof:
             yt = level + 1 - (0.0 if side in "NS" else 0.002)    # the corner's two caps a hair apart (qa.py coplanar)
             self.mesh.poly((wl.tile, 2), [wl.w(-el, yt, 0), wl.w(1 + er, yt, 0), wl.w(1 + er, yt, SKIN), wl.w(-el, yt, SKIN)],
@@ -784,8 +789,9 @@ class Builder:
         self.mesh.poly(key, [wl.w(h0, y0, d1), wl.w(h1, y0, d1), wl.w(h1, y1, d1), wl.w(h0, y1, d1)],
                        [wl.uv(h0, y0), wl.uv(h1, y0), wl.uv(h1, y1), wl.uv(h0, y1)], wl.n)
         for hh, s in ((h0, -1), (h1, 1)):
+            hw = hh - s * (d1 - d0)
             self.mesh.poly(key, [wl.w(hh, y0, d0), wl.w(hh, y0, d1), wl.w(hh, y1, d1), wl.w(hh, y1, d0)],
-                           [wl.uv(hh, y0), wl.uv(hh, y0), wl.uv(hh, y1), wl.uv(hh, y1)], (wl.ha[0] * s, 0.0, wl.ha[2] * s))
+                           [wl.uv(hw, y0), wl.uv(hh, y0), wl.uv(hh, y1), wl.uv(hw, y1)], (wl.ha[0] * s, 0.0, wl.ha[2] * s))
 
     def awning_colour(self, wl, h0, h1, y0, y1):
         r = self.region(wl, h0, h1, y0, y1)

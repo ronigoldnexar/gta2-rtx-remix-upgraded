@@ -611,3 +611,23 @@ bil bil wil ste wil bil wil ste, shows all of them.)
 | plain, fixed DLL (`dkl3_plain_*`) | 18 level changes (kit streams bil bil wil ste wil bil wil ste per process) | 0 |
 | plain, the 5090's faulting DLL (`dkl3_old_*`) | 18 | 0 (the stale read is intermittent: not reproduced) |
 | RTX Remix, L4, fixed DLL (`dkl3_remix_*`) | 18 | 0 |
+
+## 15. Side faces stepped across the depth (19 Nov, 5090 QA r50 wall smear)
+The 5090 QA (r50 rain_stairs 03_rain_V, map_route_b 03_fp_route_a) and the plain renderer at the church steps
+(r11_st4_day) showed horizontal streaks on the walls beside the eye in first person. MOTION-QA-15 traced them to the
+kit's own UVs: the side faces of everything stood out of the wall drew one texel column at every depth, so a deep piece
+seen along the street showed that column stretched across it. Fixed in `kit.py`:
+- `art_box` (piers, corner piers, bays, hoods), `caps` (the skin's free end at a corner, SKIN = 0.15 deep: the deepest
+  and the worst), `band` (cornice courses) and `rib`: the side face's u now steps across the depth at the front's
+  texel density. The front corner keeps the edge column (the art turns the corner without a seam); at the wall it is the
+  column the depth's width in from the edge (inward, so it stays on the tile). v (the height) is unchanged.
+- Nothing else moves: the kits of the three levels (both levels of detail) were built before and after and compared
+  vertex by vertex (`districts_work/kituv/tools/kitcmp.py`): groups, indices, positions and normals identical, the
+  owners sidecars identical, the front, top and bottom faces' UVs identical; only the back (wall) edge of side quads
+  changed (wil/ste/bil LOD0: 488 946 / 451 884 / 200 504 side quads; LOD1 38 952 / 35 684 / 28 875), the u step / depth
+  at the front density 1.000 (75 quads clamped at a tile edge). Styles, materials and kit textures byte-identical.
+- Stream sizes (the packed streams deflate a little less): wil 45 806 223 -> 47 181 653, ste 33 047 097 -> 34 268 312,
+  bil 17 050 060 -> 17 666 965 bytes; the ship kit 92 -> 95 MB.
+- Plain renderer, first person on foot beside the corners, day (`gamerun/kituv_shots.py`, runs kituv_before2_day /
+  kituv_after_day; pairs in `out/kituv_pairs`): the church steps (191.4,178.5 looking W; 196.3,177.45), Yakuza turf
+  (88.45,220.7) and Avalon (163.3,61.55): the streaked corner blocks and plinths now show their stone courses.
