@@ -4621,6 +4621,7 @@ inline float Clamp01Signed(float v, float lim) { return v > lim ? lim : (v < -li
 // and lowered until its highest tyre just touches. `sink` keeps that much of the body's own lean as tyres pressing into
 // the road (never lifting off it). False (nothing changed) when fewer than three corners find a road, or when the game
 // has the car in the air (a jump), which keeps the game's height.
+bool g_groundForceLevel = false;   // MOTION-QA-9: set around the driven body's grounding, see GroundOnTyres
 int g_groundOnTyres = 1;   // [devtools] ground_on_tyres=0: the bodies on the sprite plane as before (A/B)
 int g_bodyLiftOn = [] { char v[8] = {}; return GetEnvironmentVariableA("GTA2DX9_BODY_LIFT", v, sizeof v) && v[0] == '0' ? 0 : 1; }();   // MOTION-QA-2: GTA2DX9_BODY_LIFT=0 off (A/B)
 bool GroundOnTyres(gta2::Mat4* m, const TyreContacts& tc, float sink, float before[4], float after[4]) {
@@ -4648,7 +4649,17 @@ bool GroundOnTyres(gta2::Mat4* m, const TyreContacts& tc, float sink, float befo
         if (before) before[c] = ok[c] ? h[c] : 0.0f;
         if (ok[c]) lo = (std::min)(lo, h[c]);
     }
-    if (lo > 0.15f) return false;   // airborne: the game's own height
+    // airborne: the game's own height. MOTION-QA-9 (5090 QA r41, /mnt/gta2/qa5090/stairs.txt: the van on the 'Jesus Saves'
+    // steps' foot, the game's placement lifting it 0.25-0.60 block over the road with +7 / -2 degrees of pitch and -3..-5 of
+    // roll while its own height stayed level 2.00): a lift the game's height does not have (the driven car at a whole level,
+    // g_groundForceLevel) is not a jump, the body is stood on the road under its tyres; a real jump (a fractional height)
+    // keeps the game's. GTA2DX9_STAIRS_LIFT_OLD=1: as before.
+    static const bool liftOld = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_STAIRS_LIFT_OLD", b, sizeof b) && b[0] == '1'; }();
+    if (lo > 0.15f && !(g_groundForceLevel && !liftOld && lo < 0.9f)) return false;
+    if (lo > 0.15f) {
+        static int liftLogs = 0;
+        if (liftLogs < 40) { ++liftLogs; Log("car bodies: the game lifts the driven car %.3f over the road at a whole level: drawn on its tyres", lo); }
+    }
     // The plane a + b x + c z that takes every tyre to the road (least squares over the corners found).
     double S[3][3] = {}, R[3] = {};
     for (int c = 0; c < 4; ++c) {
@@ -5566,7 +5577,9 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             if (g_groundOnTyres && !cpuCut && !WreckModelNumber(modelNumber) && CurrentViewMode() != ViewMode::Classic) {
                 const float ex = carToWorld.m[3][0] - eye.x, ez = carToWorld.m[3][2] - eye.z;
                 if (ex * ex + ez * ez < 40.0f * 40.0f || use.driven)
+                    g_groundForceLevel = use.driven && PlayerCarOnLevel();
                     grounded = GroundOnTyres(&carToWorld, TyreContactsFor(*model, fit), 0.0f, nullptr, nullptr);
+                    g_groundForceLevel = false;
             }
             // VEHICLE-FEEL: the sprung body and the turning wheels (see vehicle_fx.h).
             const float roofH = model->Height() * sy;

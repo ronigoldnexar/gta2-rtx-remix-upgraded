@@ -1791,6 +1791,36 @@ void Renderer::UpdatePoleFades(const Camera& camera) {
 
 // DISTRICTS streaming: update the resident chunks for the eye and draw them (street views only); a chunk fading in or
 // out, or the whole kit during the camera move (kitAlpha_), is blended with the texture factor's alpha, no depth write.
+int Renderer::KitBoxesNear(float x, float y, float z, float radius, std::vector<float>* out) const {
+    out->clear();
+    if (!kitStream_.Loaded() || !streetView_ || !kitVisible_ || kitAlpha_ < 0.5f) return 0;
+    auto dist2 = [&](const float* bb) {
+        const float dx = (std::max)({0.0f, bb[0] - x, x - bb[3]}), dy = (std::max)({0.0f, bb[1] - y, y - bb[4]}),
+                    dz = (std::max)({0.0f, bb[2] - z, z - bb[5]});
+        return dx * dx + dy * dy + dz * dz;
+    };
+    for (const KitStream::Resident& r : kitStream_.Residents()) {
+        if (r.alpha < 0.5f || r.dying) continue;
+        const float* cbb = kitStream_.Bounds(r.entry);
+        if (!cbb || dist2(cbb) > radius * radius) continue;
+        for (const KitStream::Group& g : r.groups) {
+            if (g.flags & 1) continue;   // grates and other alpha-tested, see-through pieces: not walls
+            if (g.pieceFirst + g.pieceCount > r.pieces.size()) continue;
+            for (uint32_t i = g.pieceFirst; i < g.pieceFirst + g.pieceCount; ++i) {
+                const KitStream::Piece& pc = r.pieces[i];
+                if (dist2(pc.bb) > radius * radius) continue;
+                // only what stands out into the street over head height (awnings, sign boxes, canopies): a box at least
+                // 0.18 deep both ways across the ground, its underside 0.3 over the ground he stands on, at most 2 blocks
+                // long (a facade's skin, a sill or a plinth along its wall is not one; the wall's clearance covers them)
+                const float ex = pc.bb[3] - pc.bb[0], ez = pc.bb[5] - pc.bb[2];
+                if ((std::min)(ex, ez) < 0.18f || (std::max)(ex, ez) > 2.0f || pc.bb[1] < y + 0.3f) continue;
+                out->insert(out->end(), pc.bb, pc.bb + 6);
+            }
+        }
+    }
+    return static_cast<int>(out->size() / 6);
+}
+
 void Renderer::DrawKitStream(const Camera& camera) {
     if (!kitStream_.Loaded() || !device_) return;
     static LARGE_INTEGER f0 = {}, freq = {};

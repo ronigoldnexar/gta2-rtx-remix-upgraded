@@ -694,4 +694,9 @@ ViewLook& LookOffsets();
 void CarScrapeSmooth(const void* car, float dt, float* px, float* pz, float* yaw);
 bool CarScrapeOffset(const void* car, float* dx, float* dz, float* dyaw);
 
+// MOTION-QA-9: the game's own height of the car he drives is a whole level (it is not in the air: a jump off a ramp or a
+// blast has a fractional height). car_bodies.cpp grounds the drawn body on its tyres over the 'Jesus Saves' steps then.
+void SetPlayerCarLevel(bool inVehicle, float z);
+bool PlayerCarOnLevel();
+
 }  // namespace gta2dx9

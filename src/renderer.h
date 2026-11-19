@@ -355,6 +355,10 @@ private:
     int kitCutPieces_ = 0;              // MOTION-QA-8: kit pieces left out this frame (KitCutPieces)
 public:
     int KitCutPieces() const { return kitCutPieces_; }
+    // MOTION-QA-9: the boxes (lo x y z, hi x y z) of the resident kit's solid pieces (no grates) within `radius` of
+    // (x, y, z) that stand out into the street over head height (y: his ground), for the chase camera collision
+    // (eye_collision.h SetKitBoxes). Returns the count.
+    int KitBoxesNear(float x, float y, float z, float radius, std::vector<float>* out) const;
 private:
     KitStream kitStream_;
     std::vector<PostFx::StreamCaster> kitCasters_;
