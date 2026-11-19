@@ -2953,7 +2953,7 @@ bool RespawnCutOn() {
 }  // namespace
 
 // QA5090-TDR-2: the frame a cut is meant on (the respawn and level-start cuts below), and the guard in force.
-namespace { int g_cutMeantFrame = -10; }
+namespace { int g_cutMeantFrame = -10; float g_moveTBefore = -1.0f; }
 // The runtime's cut distance in force: what [camera] remix_cut_distance pushed at start (remix_api.cpp), else the last
 // rtx.uniqueObjectDistance in the game folder's rtx.conf (1 in ours; the runtime's default 300 when the file has none).
 static float RemixCutDistance() {
@@ -3042,6 +3042,7 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
             transitionToClassic_ = mode == ViewMode::Classic;
             transitionFromClassic_ = lastViewMode_ == ViewMode::Classic;
             transitionFromFirst_ = lastViewMode_ == ViewMode::FirstPerson;
+            transitionInCar_ = g_viewPlayer.valid && g_viewPlayer.inVehicle;
             transitionPlayerKnown_ = locatedValid_;
             transitionPlayerX0_ = locatedX_; transitionPlayerZ0_ = locatedZ_;
             transitionTarget0_ = target.position;
@@ -3068,6 +3069,7 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
     g_seatMove = false;
     if (transitionT_ < 1.0f) {
         if (dt > 0.25f) dt = 1.0f / 30.0f;
+        g_moveTBefore = transitionT_;
         transitionT_ = (std::min)(1.0f, transitionT_ + dt / (std::max)(transitionSeconds_, 0.05f));
         // Smoothstep: the camera starts and arrives gently.
         const float t = transitionT_;
@@ -3155,7 +3157,21 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
             // lens, below the picture for 0.45 s (run cam7b_p4 vfpc_0); 1.6 back and 2.2 up still put it under the
             // picture's bottom edge for 8 frames (cam7b_p5)
             const float ud = (std::min)(1.0f, (std::max)(0.0f, (e - 0.25f) / 0.75f));
-            const float back = 2.2f * pop * std::sqrt(pop) * (1.0f - ud * ud * (3.0f - 2.0f * ud));
+            float back = 2.2f * pop * std::sqrt(pop) * (1.0f - ud * ud * (3.0f - 2.0f * ud));
+            // MOTION-QA-16 (5090 QA r52 vswitch_foot: first person -> classic on foot at the spawn, 6 near-black frames
+            // and a pop in both cycles): the 2.2 back is for the car's rear; on foot it took the rising eye 2 blocks
+            // behind him and into the church's wall (eye 3.6 up, 1.3 back, inside the building). On foot there is no
+            // back (he is under the classic camera); at the wheel it stops 0.3 short of a surface on its way.
+            // GTA2DX9_MOVE_FP_BACK_OLD=1: as before.
+            static const bool backOld = [] { char b3[4] = {}; return GetEnvironmentVariableA("GTA2DX9_MOVE_FP_BACK_OLD", b3, sizeof b3) && b3[0] == '1'; }();
+            if (!backOld) {
+                if (!transitionInCar_) back = 0.0f;
+                else if (back > 1e-3f && eyecol::Ready()) {
+                    const gta2::Vec3 to{p.x - std::sin(from.yaw) * back, p.y, p.z - std::cos(from.yaw) * back};
+                    float th = 1.0f;
+                    if (eyecol::SegmentHit(p, to, &th)) back = (std::max)(0.0f, th * back - 0.3f);
+                }
+            }
             p.x -= std::sin(from.yaw) * back;
             p.z -= std::cos(from.yaw) * back;
         }
@@ -3573,9 +3589,12 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
         static int prevFrameG = -5;
         static float prevPX = 0.0f, prevPZ = 0.0f, lagFor = 0.0f;
         static long held = 0, letGo = 0;
+        // MOTION-QA-16: GTA2DX9_REMIX_CUT_GUARD_PLAIN=<tiles a frame> applies a guard of that pace under plain Direct3D
+        // too (a check of the view moves' paths at the guard's pace without Remix)
+        static const float guardPlain = [] { char b[16] = {}; return GetEnvironmentVariableA("GTA2DX9_REMIX_CUT_GUARD_PLAIN", b, sizeof b) ? static_cast<float>(atof(b)) : 0.0f; }();
         const float guardFrac = renderer_.IsRemixDevice() ? RemixCutGuard() : 0.0f;
         const float distNow = RemixCutDistance();
-        const float guard = guardFrac * (std::min)(distNow, 1000.0f);
+        const float guard = !renderer_.IsRemixDevice() && guardPlain > 0.0f ? guardPlain : guardFrac * (std::min)(distNow, 1000.0f);
         bool meant = frameCount_ - g_cutMeantFrame <= 1;
         if (locatedValid_ && havePlayerG && std::hypot(locatedX_ - prevPX, locatedZ_ - prevPZ) > 3.0f) meant = true;
         if (guard > 0.0f && haveG && prevFrameG + 1 == frameCount_ && !meant) {
@@ -3591,6 +3610,14 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
                         ViewModeName(mode), transitionT_, letGo);
                 } else {
                     p = prevG + d * (guard / len);
+                    // MOTION-QA-16 (5090 QA r52: under the guard the view moves took 2.0-2.4 s with the lens on straight
+                    // chords toward a pose the move had already left behind, cutting the path's corners): during a
+                    // view move the move's own progress is held back by the same share, so the next frame's pose is
+                    // the next stretch of the path (out of the walls as the path is) and the lens stays on it.
+                    // GTA2DX9_MOVE_GUARD_PACE_OLD=1: as before.
+                    static const bool paceOld = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_MOVE_GUARD_PACE_OLD", b, sizeof b) && b[0] == '1'; }();
+                    if (!paceOld && transitionT_ < 1.0f && g_moveTBefore >= 0.0f && g_moveTBefore < transitionT_)
+                        transitionT_ = g_moveTBefore + (transitionT_ - g_moveTBefore) * (guard / len);
                     if (mode != ViewMode::Classic && eyecol::Ready()) eyecol::Push(&p, 0.12f);
                     camera_.SetPosition(p);
                     shown.position = p;
