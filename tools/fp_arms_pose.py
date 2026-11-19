@@ -249,6 +249,17 @@ ARMED = {
                             at=(0.0080, -0.0135, 0.0040), fore=(0.30, -0.40, -0.87), upper=(0.40, -0.50, -0.77)),
     "fp_arm_left": dict(pose="fore", mirror=True, hx=(0, 0, -1), hy=(0, -1, 0), c=(0.0, -0.030, 0.050),
                         at=(0.0, -0.0062, 0.0), fore=(0.35, -0.45, -0.82), upper=(0.40, -0.55, -0.73)),
+    # FIX-FP-ARMS-3 (RTX 6000 Remix check, 19 Nov): the pistol's own two-handed hold. With fp_arm_right / fp_arm_left_cup
+    # the right palm lay flat on the grip's right panel (the backstrap bare between the hands from the eye), the two
+    # hands covered only the grip's top half (its lower half ran out of the frame's bottom like a wooden post), and the
+    # left forearm came straight up from under the eye. Here: the hands x1.8 (s; the pistol is drawn x1.43 of life),
+    # the back of the right hand turned out and back (hy) so the backstrap sits in the web and the palm, both hands a
+    # little lower on the grip (at), and the forearms opened into a V (the left elbow out, fore/upper), so from the eye
+    # the arms come in from the two bottom corners. The machine guns etc. keep fp_arm_right (it shares their grip).
+    "fp_arm_right_pistol": dict(pose="grip", mirror=False, hx=(0, -1, -0.28), hy=(1, 0, -0.9), c=(0.0, -0.034, 0.060), s=1.8,
+                                at=(0.0, -0.0140, -0.0060), fore=(0.32, -0.30, -0.90), upper=(0.42, -0.55, -0.72)),
+    "fp_arm_left_cup_pistol": dict(pose="cup", mirror=True, hx=(0, -1, -0.28), hy=(1, 0, -0.35), c=(0.0, -0.034, 0.058), s=1.8,
+                                   at=(0.0080, -0.0160, 0.0030), fore=(0.78, -0.28, -0.56), upper=(0.80, -0.40, -0.45)),
 }
 
 
@@ -275,7 +286,7 @@ def build_armed(name, spec, p_rest, w, fore, dom, v8, idx, tex, uparm, out):
     pose = dict(G.POSES[spec["pose"]]); pose["Rw"] = Rw
     p_arm = pose_vertices(p_rest, w, fore, dom, G.POSES["relax"], pose)
     p_hand = p_arm @ Rw          # Rw^T p (row vectors)
-    k = SC * S / 1.30            # metres -> the renderer's hand units (drawn x1.30)
+    k = SC * spec.get("s", S) / 1.30   # metres -> the renderer's hand units (drawn x1.30); s: this hold's own scale
     c = np.array(spec["c"]); at = np.array(spec["at"])
     gun = (p_hand - c) @ R.T * k + at
     # the elbow (the arm's -z end) and the upper arm along `upper`
