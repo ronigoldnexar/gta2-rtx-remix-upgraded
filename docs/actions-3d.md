@@ -2650,3 +2650,32 @@ rig re-framing when the probe swaps the car model mid-drive (a probe artefact). 
 - Not done: the kit in the third-person camera's wall avoidance (the lens is kept 0.13 off the map's walls for the kit's
   skin; an awning reaching further out is cut at the lens rather than avoided). The church stairs: parked until the QA
   can capture the van's pose.
+
+## MOTION-QA-9 (19 Nov 2026): the chase camera sees awnings, a quicker rise for the punched man, the stairs lift
+
+- *The chase camera steers round the kit's awnings and signs*: each third-person frame world_view.cpp hands the camera's
+  collision (eye_collision.h `SetKitBoxes`) the boxes of the resident kit's solid pieces near him and the lens that stand
+  out into the street over head height (a box at least 0.18 deep both ways across the ground, its underside 0.3 over his
+  ground, at most 2 blocks long: awnings, sign boxes, canopies; a facade's skin, sills and plinths are left to the wall
+  clearance). `SegmentHit` and its variants, `Nearest` and `InsideSolid` count them as walls (a segment starting inside
+  a box ignores it), so the boom pulls in short of an awning or swings round it instead of the lens going in and the
+  kit near cut opening it. ~17 boxes by the HOTEL DINER front (`cam: kit boxes near him:` log). Same 000 drive with and
+  without (mr_42_t0 / mr_42_t0off): camera jerks 10 / 11, yaw reversals 0 / 6, zig-zag frames 3 / 3 (an unfiltered first
+  try, every kit piece near him, gave 91 jerks and 14 reversals: the facade skin's boxes pumped the boom).
+  `GTA2DX9_CAM_KIT_BOXES=0`: off.
+- *The punched man's gap*: his rise is 2.1x the clip (0.88 s, was 1.0) and he moves toward the game's spot from 78 % of
+  it (the back rise's 'rising' key: weight on his feet) at up to 1.8 blocks/s: the gap left after the rise 0.95-1.22
+  blocks (mr_41_gu), was 1.2-1.65.
+- *The van lifted over the 'Jesus Saves' steps* (5090 QA r41, /mnt/gta2/qa5090/stairs.txt: the placement 0.25-0.60
+  block over the road with +7 / -2 degrees of pitch while the game's own height stays level 2.00): `GroundOnTyres` took
+  any lift over 0.15 for a jump and kept it; for the driven car at a whole level (view_modes.cpp `PlayerCarOnLevel`: a
+  jump off a ramp or a blast has a fractional height) the body is now stood on the road under its tyres.
+  `GTA2DX9_STAIRS_LIFT_OLD=1`: as before. Not reproduced on the plain renderer in 6 drives of the spot (the QA's route
+  and a waypoint drive along the pavement into the turn at 192.8,178.7): the placement never rose over 0.042 here, so
+  the change is untested on the lift itself; the drives show no change to normal driving (posed tyres within 0.001).
+- Sweep on this build (day / night / rain, plain renderer, all views): punches 5/6 first, 6/6 third (sw1_fp_day); get-ups
+  in rain x6 incl. down-again (sw1_gu_rain); near and far entries third and first at night (sw2_entry_night); truck 063
+  at night 0 zig-zags, 0 yaw reversals (sw2_t63_night); full knock-down x3 in daylight (sw3_kd_day); a first-person jack
+  in rain (sw3_jackfp_rain); the ramp in first person at night (sw3_ramp1_night); classic `spawn_classic` 0 tiles
+  (mr_vreg9). No faults. Found: struck by a car again 6 frames into his rise (sw3_kd_day, f490-491), the new fall's
+  ragdoll starts 0.4 block aside of the rising pose (a one-frame jump; MOTION-QA-3 had made the vertical pop go) - open.

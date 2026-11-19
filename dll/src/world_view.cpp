@@ -4208,6 +4208,23 @@ void WorldView::RenderFrame() {
                 if (!cutOff && vm == ViewMode::FirstPerson) cut = g_viewPlayer.valid && g_viewPlayer.inVehicle ? 0.45f : 0.20f;
                 else if (!cutOff && vm == ViewMode::ThirdPerson) cut = 0.30f;
                 renderer_.SetKitNearCut(cut);
+                // MOTION-QA-9: in third person the chase camera's collision also sees the kit's solid pieces near him
+                // and the lens (eye_collision.h SetKitBoxes); none in the other views. GTA2DX9_CAM_KIT_BOXES=0: off.
+                static const bool kitBoxesOff = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_CAM_KIT_BOXES", b, sizeof b) && b[0] == '0'; }();
+                static std::vector<float> kitBoxes;
+                if (!kitBoxesOff && vm == ViewMode::ThirdPerson && g_viewPlayer.valid) {
+                    const float px = g_viewPlayer.x, pz = static_cast<float>(gta2::kMapHeight) - g_viewPlayer.y, py = g_viewPlayer.z;
+                    const gta2::Vec3 e = camera_.Position();
+                    const float cx = 0.5f * (px + e.x), cyy = 0.5f * (py + e.y), cz = 0.5f * (pz + e.z);
+                    const float rr = 0.5f * std::sqrt((px - e.x) * (px - e.x) + (py - e.y) * (py - e.y) + (pz - e.z) * (pz - e.z)) + 2.0f;
+                    renderer_.KitBoxesNear(cx, py, cz, (std::min)(rr, 5.0f), &kitBoxes);   // y: his ground
+                    (void)cyy;
+                    eyecol::SetKitBoxes(kitBoxes.data(), static_cast<int>(kitBoxes.size() / 6));
+                    static uint32_t boxLogF = 0;
+                    if (!kitBoxes.empty() && (++boxLogF % 60u) == 1) Log("cam: kit boxes near him: %d (awnings, signs, canopies over head height)", static_cast<int>(kitBoxes.size() / 6));
+                } else {
+                    eyecol::SetKitBoxes(nullptr, 0);
+                }
                 static uint32_t cutLogF = 0;
                 if (renderer_.KitCutPieces() > 0 && (++cutLogF % 30u) == 1) Log("kit near cut: %d piece(s) in front of the eye left out (%.2f)", renderer_.KitCutPieces(), cut);
             }

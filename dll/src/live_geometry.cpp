@@ -12432,7 +12432,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     }
                     static const float rate = [] { char b[16] = {}; return GetEnvironmentVariableA("GTA2DX9_GETUP_RATE", b, sizeof b) ? static_cast<float>(atof(b)) : 0.0f; }();
                     track.guClip = gc; track.guModel = gm; track.guInfo = gi;
-                    track.guRate = rate > 0.05f ? rate : (track.kd ? kGuKdRate : (CatchUpOld() ? kGuRate : 1.8f));   // MOTION-QA-5
+                    track.guRate = rate > 0.05f ? rate : (track.kd ? kGuKdRate : (CatchUpOld() ? kGuRate : 2.1f));   // MOTION-QA-5 (1.8), MOTION-QA-9 (2.1: 0.88 s)
                     track.actionTime = track.kdRiseLen = gi->length;
                     const float mx = track.kdMirror ? -1.0f : 1.0f, S = track.kdScaleS;
                     const float pmx = mx * gi->endX, pmz = gi->endZ, ch = std::cos(track.heading), sh = std::sin(track.heading);
@@ -13199,9 +13199,11 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 if (!CatchUpOld() && track.actionReverse && track.guClip && track.guInfo) {
                     const ModelGetUpInfo* gi = static_cast<const ModelGetUpInfo*>(track.guInfo);
                     const float done = gi->length > 0.0f ? 1.0f - track.actionTime / gi->length : 1.0f;
-                    if (done > 0.85f) {
+                    // MOTION-QA-9: from 78 % (the back rise's 'rising' key: torso up, thighs at 65 degrees, the weight on
+                    // the feet; the front rise's rise off the planted foot) at up to 1.8 blocks/s
+                    if (done > 0.78f) {
                         const float ox = baseX - track.guPinX, oz = baseZ - track.guPinZ, l = std::sqrt(ox * ox + oz * oz);
-                        const float v = 1.4f * (std::min)(1.0f, (done - 0.85f) / 0.1f);
+                        const float v = 1.8f * (std::min)(1.0f, (done - 0.78f) / 0.12f);
                         if (l > 1e-4f) { const float st = (std::min)(l, v * dt); track.guPinX += ox / l * st; track.guPinZ += oz / l * st; }
                     }
                 }

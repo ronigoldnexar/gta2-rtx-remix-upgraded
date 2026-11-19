@@ -217,6 +217,13 @@ void CarScrapeSmooth(const void* car, float dt, float* px, float* pz, float* yaw
     if (yaw) *yaw = WrapAngle(gy + g_oy);
     if ((g_frames % 900) == 0) { Log("car scrape smooth: %u scrape steps seen, %u frames smoothed in the last 900", g_seen, g_on); g_seen = g_on = 0; }
 }
+// MOTION-QA-9: whether the car he drives is at a whole level in the game's own height (not in the air)
+namespace { bool g_carLevelKnown = false, g_carOnLevel = false; }
+void SetPlayerCarLevel(bool inVehicle, float z) {
+    g_carLevelKnown = inVehicle;
+    g_carOnLevel = inVehicle && std::fabs(z - std::floor(z + 0.5f)) < 0.02f;
+}
+bool PlayerCarOnLevel() { return g_carLevelKnown && g_carOnLevel; }
 bool CarScrapeOffset(const void* car, float* dx, float* dz, float* dyaw) {
     using namespace scrapesmooth;
     if (!car || car != g_car) return false;
@@ -2982,6 +2989,7 @@ bool ViewCameraSolver::Update(const PlayerState& player, const ViewQueries& quer
         seenX = px; seenZ = pz; seenCar = player.inVehicle; seenAge = 0.0f;
     }
     const float py = player.z;
+    SetPlayerCarLevel(player.inVehicle, py);   // MOTION-QA-9 (car_bodies.cpp: the stairs lift)
     // FIX-KNOCKDOWN (kd_t3 #4): knocked down, the subject is his body where it lies (up to 0.9 block off the
     // game's spot), not the spot: the chase camera framed a truck while he lay at the edge behind a post.
     if (!player.inVehicle && CurrentViewMode() != ViewMode::Classic) {

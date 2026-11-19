@@ -362,6 +362,38 @@ float Push(Vec3* p, float radius0) {
 
 namespace { bool g_wallsOnly = false, g_solidOnly = false; float g_nearSoftSkip = 0.0f; }
 
+// MOTION-QA-9: the facade kit's solid pieces near the chase camera as boxes (SetKitBoxes).
+namespace { std::vector<float> g_kitBoxes; }
+void SetKitBoxes(const float* boxes, int count) {
+    if (!boxes || count <= 0) { g_kitBoxes.clear(); return; }
+    g_kitBoxes.assign(boxes, boxes + static_cast<size_t>(count) * 6);
+}
+int KitBoxCount() { return static_cast<int>(g_kitBoxes.size() / 6); }
+namespace {
+// where the segment a + t d (0..1) enters the box, from outside it; false when it misses it or starts inside
+bool SegBox(const Vec3& a, const Vec3& d, const float* bb, float* tOut) {
+    const float o[3] = {a.x, a.y, a.z}, v[3] = {d.x, d.y, d.z};
+    bool inside = true;
+    for (int i = 0; i < 3; ++i) if (o[i] < bb[i] || o[i] > bb[i + 3]) inside = false;
+    if (inside) return false;
+    float t0 = 0.0f, t1 = 1.0f;
+    for (int i = 0; i < 3; ++i) {
+        if (std::fabs(v[i]) < 1e-9f) { if (o[i] < bb[i] || o[i] > bb[i + 3]) return false; continue; }
+        float ta = (bb[i] - o[i]) / v[i], tb = (bb[i + 3] - o[i]) / v[i];
+        if (ta > tb) std::swap(ta, tb);
+        t0 = (std::max)(t0, ta); t1 = (std::min)(t1, tb);
+        if (t0 > t1) return false;
+    }
+    *tOut = t0;
+    return true;
+}
+float BoxDistance(const Vec3& p, const float* bb) {
+    const float dx = (std::max)({0.0f, bb[0] - p.x, p.x - bb[3]}), dy = (std::max)({0.0f, bb[1] - p.y, p.y - bb[4]}),
+                dz = (std::max)({0.0f, bb[2] - p.z, p.z - bb[5]});
+    return std::sqrt(dx * dx + dy * dy + dz * dz);
+}
+}  // namespace
+
 void SetNearSoftSkip(float distance) { g_nearSoftSkip = (std::max)(0.0f, distance); }
 float NearSoftSkip() { return g_nearSoftSkip; }
 
@@ -384,6 +416,12 @@ bool SegmentHit(const Vec3& a, const Vec3& b, float* tOut) {
             best = tt;
         }
     });
+    {   // MOTION-QA-9: the kit's boxes are walls to every variant
+        for (size_t k = 0; k + 6 <= g_kitBoxes.size(); k += 6) {
+            float tt;
+            if (SegBox(a, d, &g_kitBoxes[k], &tt) && tt < best) best = tt;
+        }
+    }
     if (best > 1.0f) return false;
     *tOut = best;
     return true;
@@ -446,6 +484,7 @@ float Nearest(const Vec3& p, float maxR) {
         const Vec3 q = ClosestOnTri(p, g_pos[t.v[0]], g_pos[t.v[1]], g_pos[t.v[2]]);
         best = (std::min)(best, Len(Sub(p, q)));
     });
+    for (size_t k = 0; k + 6 <= g_kitBoxes.size(); k += 6) best = (std::min)(best, BoxDistance(p, &g_kitBoxes[k]));   // MOTION-QA-9
     return best;
 }
 
@@ -520,6 +559,7 @@ int FirstSide(const Vec3& o, const Vec3& d, float maxT, Vec3* normal) {
 
 bool InsideSolid(const Vec3& p) {
     if (!g_ready) return false;
+    for (size_t k = 0; k + 6 <= g_kitBoxes.size(); k += 6) if (BoxDistance(p, &g_kitBoxes[k]) <= 0.0f) return true;   // MOTION-QA-9: in a kit piece
     // Inside a block: straight up is the back of its roof (a lid facing up, seen from under
     // it), and every one of eight ways out sideways leaves through the back of a face, none
     // through a front. An open courtyard (nothing above), a porch or an arcade (a way out to

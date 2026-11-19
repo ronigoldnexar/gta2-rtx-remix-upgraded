@@ -47,6 +47,13 @@ float Push(gta2::Vec3* p, float radius);
 // street camera at 0.12-0.24 from a wall sat inside it (sills, cornices and canopies across the lens). 0 = none.
 void SetWallClearance(float extra);
 
+// MOTION-QA-9: the facade kit's solid pieces near the chase camera (awnings, sign boxes, canopies: streamed meshes the
+// grid above does not hold), as axis-aligned boxes (lo x y z, hi x y z) set each third-person frame by world_view.cpp
+// (none in the other views): SegmentHit and its variants, Nearest and InsideSolid count them as walls, so the chase
+// boom pulls in short of an awning or swings round it. A segment starting inside a box ignores that box.
+void SetKitBoxes(const float* boxes, int count);
+int KitBoxCount();
+
 // Push against the railings' sheets only (WorldMesh::railingPanels): a wider berth for the
 // chase camera than the general surfaces get, the bars' spear tops being thick near the lens.
 float PushPanels(gta2::Vec3* p, float radius);
