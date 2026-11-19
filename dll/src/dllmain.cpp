@@ -248,6 +248,12 @@ void LoadConfig() {
         vm.chasePedFade = GetPrivateProfileIntA("camera", "chase_ped_fade", 1, ini) != 0;   // FIX-CAMERA-18
         vm.pedPresenceFade = GetPrivateProfileIntA("camera", "ped_presence_fade", 1, ini) != 0;   // FIX-PED-POP
         vm.levelStartCut = GetPrivateProfileIntA("camera", "level_start_cut", 1, ini) != 0;   // FIX-CAMERA-18
+        {   // QA5090-TDR-2: [camera] remix_cut_guard (tiles a frame; 0 = off)
+            char b[32] = {};
+            GetPrivateProfileStringA("camera", "remix_cut_guard", "0.9", b, sizeof b, ini);
+            const float g = static_cast<float>(atof(b));
+            vm.remixCutGuard = g > 0.0f ? (std::min)(8.0f, (std::max)(0.2f, g)) : 0.0f;
+        }
         vm.tunnelPivot = GetPrivateProfileIntA("camera", "tunnel_pivot", 1, ini) != 0;   // FIX-CAMERA-18
         vm.trainTrail = GetPrivateProfileIntA("camera", "train_trail", 1, ini) != 0;   // FIX-CAMERA-19
         vm.cutDissolve = GetPrivateProfileIntA("camera", "cut_dissolve", 30, ini);   // FIX-CAMERA-19
