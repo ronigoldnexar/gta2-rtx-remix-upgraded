@@ -4,6 +4,8 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
+#include <io.h>
+
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
@@ -125,6 +127,11 @@ void CloseLog() {
         g_log = nullptr;
     }
     LeaveCriticalSection(&g_fileLock);
+}
+
+void* LogOsHandle() {
+    if (!g_log) return INVALID_HANDLE_VALUE;
+    return reinterpret_cast<void*>(_get_osfhandle(_fileno(g_log)));
 }
 
 void LogFlush() {

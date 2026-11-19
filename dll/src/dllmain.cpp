@@ -58,6 +58,8 @@
 #include "model_store.h"
 #include "car_coat.h"
 #include "compat.h"
+#include "crash_safe.h"
+#include "heap_check.h"
 #include <csignal>
 #include <exception>
 #include <typeinfo>
@@ -755,6 +757,7 @@ void SpawnQuitKiller() {
 //    frame for 1.5 s it stops that thread for a moment, copies its registers and the return
 //    addresses on its stack, lets it go and logs them.
 volatile DWORD g_beat = 0;          // tick count at the last gbh_BeginScene
+volatile LONG g_frameCount = 0;     // gbh_BeginScene calls since the DLL loaded (FIX-HANG-1: arms the stall watchdog)
 volatile LONG g_shuttingDown = 0;
 DWORD g_gameThread = 0;
 
@@ -1076,6 +1079,14 @@ DWORD WINAPI StallSampler(LPVOID) {
             dumped = false;
             samples = 0;
         }
+        // FIX-HANG-1: while the game is healthy, remember where the Remix server process is (ServerBusy needs it later).
+        {
+            static DWORD lastServerScan = 0;
+            if (beat && now - beat < 1000 && now - lastServerScan > 10000) {
+                lastServerScan = now;
+                gta2dx9::crash::RefreshServerPid();
+            }
+        }
         if (!beat || now - beat < 1500) continue;
         if (!stallBeat) ++stalls;
         stallBeat = beat;
@@ -1175,11 +1186,20 @@ DWORD WINAPI StallSampler(LPVOID) {
     return 0;
 }
 
+// FIX-HANG-1: GTA2 runs no frame by design while it is paused for a focus loss or minimised (plain reads, no allocation:
+// the stall watchdog thread calls this).
+bool StallByDesign() {
+    const HWND window = g_world.GameHwnd();
+    return g_shuttingDown || game::FocusPausedFlag() || GameMinimisedFlag() == 2 || g_world.GameParked() || (window && IsIconic(window));
+}
+
 void StartStallSampler(DWORD gameThread) {
     static bool started = false;
     if (started || !gameThread) return;
     started = true;
     g_gameThread = gameThread;
+    gta2dx9::crash::SetGameThread(gameThread, &g_beat);
+    gta2dx9::crash::StartWatchdog(StallByDesign, &g_frameCount, 450);   // FIX-HANG-1: hang_kill_ms (6 s) ends a stuck game with a report
     if (HANDLE thread = CreateThread(nullptr, 0, StallSampler, nullptr, 0, nullptr)) CloseHandle(thread);
 }
 
@@ -1240,35 +1260,34 @@ void LogProcessState(const char* why) {
     gta2dx9::LogFlush();
 }
 
+// FIX-HANG-1: these three end the process, and must not hang doing it: no Log(), no std::string, no CRT heap
+// (crash_safe.cpp writes the report from static buffers and ends the process).
 std::terminate_handler g_previousTerminate = nullptr;
 void OnTerminate() {
-    char what[300];
-    DescribeCurrentException(what, sizeof(what));
-    char line[400];
-    _snprintf_s(line, sizeof(line), _TRUNCATE, "std::terminate (uncaught C++ exception: %s); the process ends now", what);
-    LogProcessState(line);
-    if (g_previousTerminate) g_previousTerminate();
-    abort();
+    static char why[200];
+    const char* type = "?";
+#ifndef _MSC_VER
+    if (const std::type_info* t = abi::__cxa_current_exception_type()) type = t->name();
+#endif
+    strncpy_s(why, sizeof(why), "std::terminate (uncaught C++ exception of type ", _TRUNCATE);
+    strncat_s(why, sizeof(why), type, _TRUNCATE);
+    strncat_s(why, sizeof(why), ")", _TRUNCATE);
+    gta2dx9::crash::FatalException(why, nullptr);
 }
 
 void OnAbortSignal(int) {
-    LogProcessState("abort() (SIGABRT); the process ends now");
+    gta2dx9::crash::FatalException("abort() (SIGABRT)", nullptr);
 }
 
 LPTOP_LEVEL_EXCEPTION_FILTER g_previousFilter = nullptr;
 LONG WINAPI OnUnhandledException(EXCEPTION_POINTERS* info) {
-    char line[200];
-    _snprintf_s(line, sizeof(line), _TRUNCATE, "unhandled exception %08lX at %p",
-                info && info->ExceptionRecord ? info->ExceptionRecord->ExceptionCode : 0ul,
-                info && info->ExceptionRecord ? info->ExceptionRecord->ExceptionAddress : nullptr);
-    LogProcessState(line);
-    return g_previousFilter ? g_previousFilter(info) : EXCEPTION_CONTINUE_SEARCH;
+    gta2dx9::crash::FatalException("unhandled exception", info);
+    return EXCEPTION_CONTINUE_SEARCH;   // not reached
 }
 
 #ifdef _MSC_VER
 void __cdecl OnPureCall() {
-    LogProcessState("pure virtual call; the process ends now");
-    abort();
+    gta2dx9::crash::FatalException("pure virtual call", nullptr);
 }
 #endif
 
@@ -1752,6 +1771,7 @@ __declspec(dllexport) int __stdcall gbh_Init(int param) {
     }
     HookWindowClose(window);
     StartStallSampler(windowThread ? windowThread : GetCurrentThreadId());
+    gta2dx9::StartHeapCheck();   // FIX-HANG-1: [devtools] heap_check_ms
     {
         // FIX-STABILITY-1: [devtools] simulate_focus_loss (see FocusLossTestThread).
         static bool started = false;
@@ -1794,6 +1814,7 @@ __declspec(dllexport) void __stdcall gbh_DrawTile(unsigned flags, void* texture,
 
 __declspec(dllexport) void __stdcall gbh_BeginScene() {
     g_beat = GetTickCount();
+    InterlockedIncrement(&g_frameCount);
     gta2dx9::StallDumpTestFrame();   // [devtools] stall_dump_test (thread_watch.cpp), off by default
     gta2dx9::FrameLogMarkBeginScene();
     if (Proxying() && g_p_gbh_BeginScene) { Backend<void(__stdcall*)()>(g_p_gbh_BeginScene)(); return; }
@@ -2328,11 +2349,13 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
         gta2dx9::OpenLog();
         gta2dx9::MemStatsInit();   // FIX-PERF-4: the memory counters at std::terminate (before InstallLastWords, which chains to it)
         Log("gta2dx9.dll attached to pid %lu, loaded at %p", GetCurrentProcessId(), static_cast<void*>(module));
+        gta2dx9::crash::Init();   // FIX-HANG-1: the fatal log, the stall limit, the handles the last words need
         InstallLastWords();   // FIX-STABILITY-1: terminate / abort / unhandled exceptions log first
         CheckOriginalBlitStores(module);
         // Before any plugin can look for the original renderer's device.
         gta2dx9::PluginD3D6Init(module);
     } else if (reason == DLL_PROCESS_DETACH) {
+        gta2dx9::crash::Shutdown();
         gta2dx9::CloseLog();
     }
     return TRUE;

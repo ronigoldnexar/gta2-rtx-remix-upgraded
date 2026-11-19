@@ -1,5 +1,6 @@
 #include "thread_watch.h"
 #include "compat.h"
+#include "crash_safe.h"
 #include "frame_log.h"
 #include "log.h"
 #include <cstdio>
@@ -31,8 +32,24 @@ namespace gta2dx9 {
 namespace seh {
 
 namespace {
-thread_local Frame* t_top = nullptr;
+// FIX-HANG-1: the innermost guarded region of a thread lives in a TlsAlloc slot, not a thread_local. GCC's emulated
+// thread_local takes a lock and mallocs on a thread's first access, and this handler runs for every exception of
+// every thread (a C++ throw, OutputDebugString, SetThreadName, a heap fault): inside a heap routine that is a
+// deadlock waiting for a bad day. TlsGetValue neither allocates nor locks; a thread that never set the slot reads null.
+volatile LONG g_tlsSlot = -1;   // TLS_OUT_OF_INDEXES is -1 as a DWORD
 bool g_installed = false;
+
+DWORD TlsSlot() {
+    LONG s = g_tlsSlot;
+    if (s == -1) {
+        const DWORD fresh = TlsAlloc();
+        if (fresh == TLS_OUT_OF_INDEXES) return TLS_OUT_OF_INDEXES;
+        s = InterlockedCompareExchange(&g_tlsSlot, static_cast<LONG>(fresh), -1);
+        if (s != -1) TlsFree(fresh);   // another thread won
+        else s = static_cast<LONG>(fresh);
+    }
+    return static_cast<DWORD>(s);
+}
 
 // Runs before any frame-based handler. If the faulting thread is inside a
 // guarded region, the thread's context is set back to what gta2_seh_mark saw,
@@ -40,57 +57,24 @@ bool g_installed = false;
 // and the GTA2_EXCEPT block runs. A fault inside a region that has already
 // fired falls through to whatever would have caught it without us, as it
 // would on MSVC.
-// For a fault nobody guards against: where it was, relative to this DLL, once.
+// For a fault nobody guards against: where it was, once (crash_safe.cpp: no allocation, no lock).
 HMODULE g_self = nullptr;
-LONG g_faultsLogged = 0;
 
 LONG CALLBACK Handler(EXCEPTION_POINTERS* info) {
-    Frame* frame = t_top;
-    if (!frame || frame->fired) {
-        const DWORD code = info->ExceptionRecord->ExceptionCode;
-        if ((code == EXCEPTION_ACCESS_VIOLATION || code == EXCEPTION_ILLEGAL_INSTRUCTION) &&
-            InterlockedIncrement(&g_faultsLogged) <= 3) {
-            const uintptr_t at = reinterpret_cast<uintptr_t>(info->ExceptionRecord->ExceptionAddress);
-            const uintptr_t base = reinterpret_cast<uintptr_t>(g_self);
-            HMODULE module = nullptr;
-            GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                               reinterpret_cast<LPCSTR>(at), &module);
-            char name[MAX_PATH] = "?";
-            if (module) GetModuleFileNameA(module, name, MAX_PATH);
-            Log("FAULT: code %08lX at %08X (%s+0x%X; gta2dx9.dll is at %08X), reading %08X", code,
-                static_cast<unsigned>(at), name,
-                static_cast<unsigned>(at - reinterpret_cast<uintptr_t>(module)), static_cast<unsigned>(base),
-                static_cast<unsigned>(info->ExceptionRecord->NumberParameters > 1
-                                          ? info->ExceptionRecord->ExceptionInformation[1] : 0));
-            // Where it came from: the registers, and every word on the stack
-            // that points into this DLL (offsets for nm --numeric-sort).
-            const CONTEXT* c = info->ContextRecord;
-            Log("FAULT: eax %08X ebx %08X ecx %08X edx %08X esi %08X edi %08X ebp %08X esp %08X", c->Eax, c->Ebx,
-                c->Ecx, c->Edx, c->Esi, c->Edi, c->Ebp, c->Esp);
-            if (base) {
-                const IMAGE_DOS_HEADER* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
-                const IMAGE_NT_HEADERS* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(base + dos->e_lfanew);
-                const uintptr_t end = base + nt->OptionalHeader.SizeOfImage;
-                MEMORY_BASIC_INFORMATION mbi;
-                uintptr_t top = c->Esp + 0x10000;
-                if (VirtualQuery(reinterpret_cast<void*>(c->Esp), &mbi, sizeof(mbi)))
-                    top = reinterpret_cast<uintptr_t>(mbi.BaseAddress) + mbi.RegionSize;
-                char line[640];
-                int n = snprintf(line, sizeof(line), "FAULT: stack words inside gta2dx9.dll:");
-                int count = 0;
-                for (uintptr_t p = c->Esp & ~static_cast<uintptr_t>(3); p + 4 <= top && count < 40; p += 4) {
-                    const uintptr_t v = *reinterpret_cast<const uintptr_t*>(p);
-                    if (v < base || v >= end) continue;
-                    n += snprintf(line + n, sizeof(line) - n, " +0x%X", static_cast<unsigned>(v - base));
-                    ++count;
-                    if (n > 580) break;
-                }
-                Log("%s", line);
-            }
-        }
+    const DWORD code = info->ExceptionRecord->ExceptionCode;
+    // The heap manager's DbgPrint ("HEAP[gta2.exe]: Heap block at ... modified at ...") arrives as one of these.
+    if (code == 0x40010006 || code == 0x4001000A) {
+        gta2dx9::crash::NoteDebugString(info);
         return EXCEPTION_CONTINUE_SEARCH;
     }
-    const DWORD code = info->ExceptionRecord->ExceptionCode;
+    const DWORD slot = g_tlsSlot == -1 ? TLS_OUT_OF_INDEXES : static_cast<DWORD>(g_tlsSlot);
+    const DWORD lastError = GetLastError();   // TlsGetValue clears it; a handler must leave it as it was
+    Frame* frame = slot == TLS_OUT_OF_INDEXES ? nullptr : static_cast<Frame*>(TlsGetValue(slot));
+    SetLastError(lastError);
+    if (!frame || frame->fired) {
+        if (code == EXCEPTION_ACCESS_VIOLATION || code == EXCEPTION_ILLEGAL_INSTRUCTION) gta2dx9::crash::LogUnguardedFault(info);
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
     if (code != EXCEPTION_ACCESS_VIOLATION && code != EXCEPTION_IN_PAGE_ERROR &&
         code != EXCEPTION_DATATYPE_MISALIGNMENT && code != EXCEPTION_ILLEGAL_INSTRUCTION &&
         code != EXCEPTION_PRIV_INSTRUCTION && code != EXCEPTION_INT_DIVIDE_BY_ZERO) {
@@ -113,13 +97,22 @@ LONG CALLBACK Handler(EXCEPTION_POINTERS* info) {
 }
 }  // namespace
 
-Frame*& Top() { return t_top; }
+Frame* Top() {
+    const DWORD slot = g_tlsSlot == -1 ? TLS_OUT_OF_INDEXES : static_cast<DWORD>(g_tlsSlot);
+    return slot == TLS_OUT_OF_INDEXES ? nullptr : static_cast<Frame*>(TlsGetValue(slot));
+}
+
+void SetTop(Frame* frame) {
+    const DWORD slot = TlsSlot();
+    if (slot != TLS_OUT_OF_INDEXES) TlsSetValue(slot, frame);
+}
 
 void Install() {
     if (g_installed) return;
     g_installed = true;
     GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
                        reinterpret_cast<LPCSTR>(&Install), &g_self);
+    TlsSlot();   // allocate the slot now, on a thread that may allocate
     AddVectoredExceptionHandler(1, Handler);
 }
 

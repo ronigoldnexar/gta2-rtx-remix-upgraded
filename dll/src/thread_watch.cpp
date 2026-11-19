@@ -187,6 +187,8 @@ DWORD WINAPI StallDumpTestThread(LPVOID) {
 
 }  // namespace
 
+const char* ThreadNameOf(uint32_t tid) { return NameOf(tid); }
+
 void NameThisThread(const char* name, bool shortLived) {
     if (shortLived) {
         const LONG i = (InterlockedIncrement(&g_ringCount) - 1) % kRing;
@@ -392,6 +394,18 @@ void GuardedFaultsReport() {
     reported = total;
 }
 
+DWORD WINAPI FatalTestThread(LPVOID) {
+    NameThisThread("fatal test");
+    *reinterpret_cast<volatile int*>(0x10) = 1;
+    return 0;
+}
+DWORD WINAPI HeapLockTestThread(LPVOID) {
+    NameThisThread("heap lock test");
+    HeapLock(GetProcessHeap());
+    Sleep(INFINITE);
+    return 0;
+}
+
 void StallDumpTestPoll() {
     static DWORD last = 0;
     static int lastValue = 0;
@@ -407,6 +421,23 @@ void StallDumpTestPoll() {
         if (HANDLE h = CreateThread(nullptr, 0, StallDumpTestThread, nullptr, 0, nullptr)) CloseHandle(h);
     }
     lastValue = value;
+    // FIX-HANG-1 tests of the last words (one shot each, off by default): fatal_test=1 faults on a thread of its own
+    // (an access violation nothing guards: the report and the end of the process); heap_lock_test=1 takes the process
+    // heap's lock on a thread that never lets go, which is what the QA r52 hang looked like from the game thread (it waits
+    // on its next allocation): the stall watchdog must end the game with a HANG report after hang_kill_ms.
+    static bool firedFatal = false, firedHeap = false;
+    if (!firedFatal && GetPrivateProfileIntA("devtools", "fatal_test", 0, ini) == 1) {
+        firedFatal = true;
+        Log("fatal_test: a thread writes through a null pointer now");
+        LogFlush();
+        CreateThread(nullptr, 0, FatalTestThread, nullptr, 0, nullptr);
+    }
+    if (!firedHeap && GetPrivateProfileIntA("devtools", "heap_lock_test", 0, ini) == 1) {
+        firedHeap = true;
+        Log("heap_lock_test: a thread takes the process heap lock and keeps it; the game thread stalls on its next allocation");
+        LogFlush();
+        CreateThread(nullptr, 0, HeapLockTestThread, nullptr, 0, nullptr);
+    }
 }
 
 }  // namespace gta2dx9

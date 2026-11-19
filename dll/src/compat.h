@@ -51,7 +51,11 @@ struct Frame {
     Frame* prev;
     bool fired;
 };
-Frame*& Top();
+// The innermost guarded region of the calling thread, from a TlsAlloc slot: the vectored handler reads it
+// for every exception in every thread, so it must not allocate, which a thread_local (GCC's emulated TLS:
+// a malloc and a lock on a thread's first access) does.
+Frame* Top();
+void SetTop(Frame* frame);
 void Install();
 
 struct Scope {
@@ -60,9 +64,9 @@ struct Scope {
     Scope() {
         frame.prev = Top();
         frame.fired = false;
-        Top() = &frame;
+        SetTop(&frame);
     }
-    ~Scope() { Top() = frame.prev; }
+    ~Scope() { SetTop(frame.prev); }
     bool Once() {
         if (done) return false;
         done = true;

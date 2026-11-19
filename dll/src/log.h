@@ -9,6 +9,9 @@ void Log(const char* format, ...);
 // Writes every line logged so far to the file now (a writer thread does it every
 // 15 ms otherwise; see log.cpp).
 void LogFlush();
+// The OS handle of the log file (for crash_safe.cpp: WriteFile on it needs no CRT, no heap and no lock of ours), or
+// INVALID_HANDLE_VALUE (-1) when the log is not open.
+void* LogOsHandle();
 
 // What Log() cost the threads that called it since the last take.
 struct LogCost {

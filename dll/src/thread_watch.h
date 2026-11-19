@@ -9,6 +9,8 @@ namespace gta2dx9 {
 // Cheap, no allocation; 32 long-lived names (later ones are ignored) and a ring of 32 for
 // threads that live for one job (shortLived).
 void NameThisThread(const char* name, bool shortLived = false);
+// The name a thread was given, or null. No allocation, no lock (crash_safe.cpp calls it from a handler).
+const char* ThreadNameOf(uint32_t tid);
 
 // Called by the GTA2_TRY vectored handler (compat.cpp) when it swallows a fault: kept in a
 // small ring (no allocation, no lock) and written out by the next stall dump. A fault taken
