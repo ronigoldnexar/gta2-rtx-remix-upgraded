@@ -2952,6 +2952,38 @@ bool RespawnCutOn() {
 }
 }  // namespace
 
+// QA5090-TDR-2: the frame a cut is meant on (the respawn and level-start cuts below), and the guard in force.
+namespace { int g_cutMeantFrame = -10; }
+// The runtime's cut distance in force: what [camera] remix_cut_distance pushed at start (remix_api.cpp), else the last
+// rtx.uniqueObjectDistance in the game folder's rtx.conf (1 in ours; the runtime's default 300 when the file has none).
+static float RemixCutDistance() {
+    const float pushed = RemixCutDistancePushed();
+    if (pushed > 0.0f) return pushed;
+    static float d = -1.0f;
+    if (d < 0.0f) {
+        d = 300.0f;
+        if (FILE* f = fopen("rtx.conf", "rb")) {
+            char line[512];
+            while (fgets(line, sizeof line, f)) {
+                const char* p = line;
+                while (*p == ' ' || *p == '\t') ++p;
+                if (strncmp(p, "rtx.uniqueObjectDistance", 24) != 0) continue;
+                const char* eq = strchr(p, '=');
+                if (eq && atof(eq + 1) > 0.0) d = static_cast<float>(atof(eq + 1));
+            }
+            fclose(f);
+        }
+        Log("view: Remix cut distance %.2f tiles (rtx.conf rtx.uniqueObjectDistance)", d);
+    }
+    return d;
+}
+static float RemixCutGuard() {
+    static float env = -2.0f;
+    if (env < -1.0f) { char b[16] = {}; env = GetEnvironmentVariableA("GTA2DX9_REMIX_CUT_GUARD", b, sizeof b) ? static_cast<float>(atof(b)) : -1.0f; }
+    const float v = env >= 0.0f ? env : ViewModes().remixCutGuard;
+    return v > 0.0f ? (std::max)(0.2f, v) : 0.0f;
+}
+
 static bool LevelStartCutOn() {
     static int env = -2;
     if (env < -1) { char b[8] = {}; env = GetEnvironmentVariableA("GTA2DX9_LEVEL_START_CUT", b, sizeof b) ? atoi(b) : -1; }
@@ -2975,6 +3007,7 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
     // GTA2DX9_RESPAWN_CUT=0 restores the descent (A/B).
     if (mode != lastViewMode_ && mode != ViewMode::Classic && lostFallback_ && RespawnCutOn()) {
         Log("view: found again after the classic fallback: cut to %s at its solved pose (no move)", ViewModeName(mode));
+        g_cutMeantFrame = frameCount_;
         transitionT_ = 1.0f;
         moveCatch_ = 0.0f;
         dissolveActive_ = false;
@@ -2991,6 +3024,7 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
     if (levelStartCut_ && (mode == ViewMode::Classic || frameCount_ - levelStartFrame_ > 300 || !LevelStartCutOn())) levelStartCut_ = false;
     if (mode != lastViewMode_ && mode != ViewMode::Classic && levelStartCut_) {
         Log("view: the level's first street frame: cut to %s at its solved pose (no move from the classic camera)", ViewModeName(mode));
+        g_cutMeantFrame = frameCount_;
         transitionT_ = 1.0f;
         moveCatch_ = 0.0f;
         dissolveActive_ = false;
@@ -3519,6 +3553,64 @@ void WorldView::ApplyTransition(float dt, ViewMode mode) {
             clearMin = 99.0f; clearClock = 0.0f; netMax = 0.0f; clearFrames = netFrames = 0;
             propMin = carMin = pedMin = 9.0f; insideFrames = 0;
         }
+    }
+    // QA5090-TDR-2 (5090 r50 soak: the GPU lost 0.35 s into a V from classic to third person on foot, 139th switch;
+    // nvlddmkm 13 'SM Warp Exception: MMU Fault' on every SM, as on 14 Nov). Remix takes any frame whose camera moved
+    // more than rtx.uniqueObjectDistance (1 tile in our rtx.conf) for a camera cut, and on each one it re-creates the
+    // neural radiance cache and re-enables the opacity micromaps (remix-dxvk.log: 'Camera cut detected on frame N',
+    // 'NRC ... Context successfully initialized'). The classic <-> street move goes 0.6-3.4 tiles a frame (more at a low
+    // frame rate): a cut on every frame of it, the cache re-made 5-20 frames running. Reproduced on the 5090 (V loop at
+    // night, run tdr/base1): 95 presses, 86 Remix cuts, then 15 cuts in 15 consecutive frames and the device lost
+    // (Aftermath: Error_DMA_PageFault inside the frame's InjectRTX). The runtime's cut distance is set to [camera]
+    // remix_cut_distance (4 tiles, pushed once at start, remix_api.cpp; a smooth move's fastest frame is ~3.6 tiles), and
+    // under Remix the lens moves at most remix_cut_guard (0.9) of it a frame unless the jump is meant: the player himself
+    // moved more than 3 tiles (a warp, a respawn, a level load) or the respawn / level-start cut above. It travels at that
+    // pace and catches the solved pose up; a lens left more than 40 tiles behind, or for 3 s, takes one cut instead.
+    // remix_cut_guard=0 or GTA2DX9_REMIX_CUT_GUARD=0: as before (A/B); off under plain Direct3D.
+    {
+        static bool haveG = false, havePlayerG = false;
+        static gta2::Vec3 prevG{};
+        static int prevFrameG = -5;
+        static float prevPX = 0.0f, prevPZ = 0.0f, lagFor = 0.0f;
+        static long held = 0, letGo = 0;
+        const float guardFrac = renderer_.IsRemixDevice() ? RemixCutGuard() : 0.0f;
+        const float distNow = RemixCutDistance();
+        const float guard = guardFrac * (std::min)(distNow, 1000.0f);
+        bool meant = frameCount_ - g_cutMeantFrame <= 1;
+        if (locatedValid_ && havePlayerG && std::hypot(locatedX_ - prevPX, locatedZ_ - prevPZ) > 3.0f) meant = true;
+        if (guard > 0.0f && haveG && prevFrameG + 1 == frameCount_ && !meant) {
+            gta2::Vec3 p = camera_.Position();
+            const gta2::Vec3 d = p - prevG;
+            const float len = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+            if (len > guard) {
+                lagFor += dt;
+                if (len > (std::max)(40.0f, guard * 4.0f) || lagFor > 3.0f) {
+                    ++letGo;
+                    lagFor = 0.0f;
+                    Log("view: Remix cut guard: the lens is %.1f tiles from its pose (%s, t=%.2f): one cut (%ld so far)", len,
+                        ViewModeName(mode), transitionT_, letGo);
+                } else {
+                    p = prevG + d * (guard / len);
+                    if (mode != ViewMode::Classic && eyecol::Ready()) eyecol::Push(&p, 0.12f);
+                    camera_.SetPosition(p);
+                    shown.position = p;
+                    ++held;
+                    if (held <= 200 || (held % 500) == 0)
+                        Log("view: Remix cut guard: the lens wanted %.2f tiles in one frame (%s, t=%.2f), moved %.2f (%ld so far)", len,
+                            ViewModeName(mode), transitionT_, guard, held);
+                }
+            } else {
+                lagFor = 0.0f;
+            }
+        } else {
+            lagFor = 0.0f;
+        }
+        haveG = true;
+        prevG = camera_.Position();
+        prevFrameG = frameCount_;
+        havePlayerG = locatedValid_;
+        prevPX = locatedX_;
+        prevPZ = locatedZ_;
     }
     // FIX-CAMERA-17 (owner10nov-B10): the turn budget. In third person on foot the picture never turns more than
     // [camera] turn_budget degrees (yaw, and pitch, each; at 30 fps, scaled by the frame time) from the frame shown
