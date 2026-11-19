@@ -2535,6 +2535,33 @@ rig re-framing when the probe swaps the car model mid-drive (a probe artefact). 
   device" at boot, so the guest agent could not install keys).
 
 
+## FIX-FP-ARMS-3 (19 Nov 2026): the bare arms and the pistol hold checked under RTX Remix (RTX PRO 6000)
+
+First-person under Remix on the 6000 (`demo6k4.sh` rig, stage 4e9b67c2, `gamerun/keys_fp_remix.sh` +
+`fp_remix_probe.py`: fists idle / walk / four punches, then the pistol idle / walk / three shots; 12:00 and 22:00,
+clock paused). Runs `fpr_day0`, `fpr_night0`, `fpr_night1` (before), `fpr_day_a3`, `fpr_night_a3` (after).
+
+- *Skin and material*: by day and at night the bare arms read as skin under path tracing: lit from the sky and the
+  street lamps with soft shading, not waxy, black or glowing (the skin material's D3D material/specular is not used by
+  Remix; the albedo and the baked occlusion carry it). Proportions, guard, jab and cross as on the plain renderer.
+- *At night the guard and the punching arm vanished under Remix* (fpr_night0/1, reproducible; the plain renderer at
+  22:00 and Remix by day were fine): the fists showed for a frame or two as a punch began, then the road showed
+  through them, the returning arm a handless skin stub. The view model now sets its own alpha blending (off), colour
+  mask (all) and stage-0 alpha (the texture's) before its draws and restores them after; that brings the night guard
+  and punches back (fpr_night_a3), and `GTA2DX9_FP_VM_STATES=0` brings the fault back (fpr_night_ab1). The inherited
+  values (logged: `view model: inherited states: ...`) were already those, day and night, so it is the explicit sets
+  before the draws the runtime needs, not a wrong inherited value; the exact mechanism in dxvk-remix is not known.
+- *The pistol hold* (Remix and plain alike): the right palm lay flat on the grip's right panel, so from the eye the
+  backstrap showed bare between the hands, the two hands covered only the grip's top half (its lower half ran out of
+  the frame's bottom like a wooden post) and the left forearm came straight up from under the eye. The pistol now has
+  its own holds `fp_arm_right_pistol` / `fp_arm_left_cup_pistol` (tools/fp_arms_pose.py ARMED; per-hold scale `s`):
+  hands x1.8, the back of the right hand turned out and back so the backstrap sits in the web and palm, both a little
+  lower on the grip, the forearms opened into a V from the two bottom corners. The machine guns etc. keep
+  `fp_arm_right` (shared grip). `GTA2DX9_FP_PISTOL_HOLD=0`: the old pair.
+- Still open: the relaxed carry shows only the fingers at the bottom edge (by design, FIX-FP-HANDS); a little walnut
+  shows between the fingers of the new hold close up; dual pistols keep the one-handed `fp_arm_right`.
+
+
 ## MOTION-QA-4 (18 Nov 2026): the chase camera along walls, hands flat in the get-ups
 
 - *The chase camera pulled in and out at walls* (mr_16_t63: truck 063 in narrow streets, one model a drive): the boom came
