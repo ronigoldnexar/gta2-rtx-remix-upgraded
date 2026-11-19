@@ -10129,8 +10129,15 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     // The support hand's place on each weapon (its model's units, the fore grip).
     float fore[3] = {0.0f, 0.0f, 0.0f};
     const char* leftName = nullptr;
+    // FIX-FP-ARMS-3 (RTX 6000 Remix check, 19 Nov): the pistol has its own two-handed hold (fp_arm_right_pistol,
+    // fp_arm_left_cup_pistol: tools/fp_arms_pose.py): the backstrap in the right palm, the grip inside the two hands, the
+    // forearms in a V from the bottom corners. GTA2DX9_FP_PISTOL_HOLD=0: the shared grip hand and the old cup (A/B).
+    static const bool pistolHold = [] { char v[4] = {}; return !(GetEnvironmentVariableA("GTA2DX9_FP_PISTOL_HOLD", v, sizeof v) && v[0] == '0'); }();
+    static const Model* pistolRightM = pistolHold ? ModelByName("fp_arm_right_pistol") : nullptr;
+    static const Model* pistolCupM = pistolHold ? ModelByName("fp_arm_left_cup_pistol") : nullptr;
+    const bool pistolPair = weapon == kWpnPistol && !fists && pistolRightM && pistolCupM;
     switch (weapon) {
-        case kWpnPistol: leftName = "fp_arm_left_cup"; break;
+        case kWpnPistol: leftName = pistolPair ? "fp_arm_left_cup_pistol" : "fp_arm_left_cup"; break;
         case kWpnMg: leftName = "fp_arm_left"; fore[1] = 0.004f; fore[2] = 0.052f; break;   // FIX-FIGURE-8: the S-Uzi's handguard
         case kWpnSilencedMg: leftName = "fp_arm_left"; fore[1] = 0.010f; fore[2] = 0.045f; break;
         case kWpnShotgun: leftName = "fp_arm_left"; fore[1] = 0.004f; fore[2] = 0.080f; break;
@@ -10144,7 +10151,7 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     // FIX-FIGURE-7 (pf2feel): bare hands are the closed fist (fp_fist_right, thumb over the fingers),
     // not the pistol-grip hand with no gun (its trigger finger and thumb read as a pointing hand).
     const Model* fistModel = fist2 ? ModelByName("fp_fist2_right") : fists ? ModelByName("fp_fist_right") : nullptr;
-    const Model* armR = fistModel ? fistModel : ModelByName("fp_arm_right");
+    const Model* armR = fistModel ? fistModel : pistolPair ? pistolRightM : ModelByName("fp_arm_right");
     // FIX-FIGURE-16 (FIGURE-15's short-of-AAA list): after the release the throwing hand is open (fp_hand_open_right, the
     // fingers out ahead), not the grip hand closed on nothing, through the empty follow-through until the new bottle rises.
     // GTA2DX9_FP_OPEN_HAND=0: the grip hand as before.
@@ -10180,6 +10187,44 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     device->SetRenderState(D3DRS_ZFUNC, D3DCMP_LESSEQUAL);
     device->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
     device->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+    // FIX-FP-ARMS-3 (RTX 6000 Remix, 19 Nov, fpr_night0/1): at night under Remix the guard fists and the punching arm
+    // were drawn for a frame or two at the start of each punch and then vanished (the road through them; the plain
+    // renderer and the day were fine). Setting the view model's own blend, colour mask and stage-0 alpha before its
+    // draws (opaque, all channels, the texture's alpha; restored after) brings them back (A/B: fpr_night_a3 /
+    // fpr_night_ab1). The values logged as inherited were already these (alpha op 2, arg1 texture, no blend), so it is
+    // the explicit state set before the draws that the Remix runtime needs here, not a wrong value: why exactly is not
+    // known. GTA2DX9_FP_VM_STATES=0: no sets, as before.
+    static const bool vmStatesOn = [] { char v[4] = {}; return !(GetEnvironmentVariableA("GTA2DX9_FP_VM_STATES", v, sizeof v) && v[0] == '0'); }();
+    DWORD vmBlend = FALSE, vmColorWrite = 0xF, vmAlphaOp = D3DTOP_SELECTARG1, vmAlphaArg1 = D3DTA_TEXTURE, vmSep = FALSE;
+    {
+        device->GetRenderState(D3DRS_ALPHABLENDENABLE, &vmBlend);
+        device->GetRenderState(D3DRS_SEPARATEALPHABLENDENABLE, &vmSep);
+        device->GetRenderState(D3DRS_COLORWRITEENABLE, &vmColorWrite);
+        device->GetTextureStageState(0, D3DTSS_ALPHAOP, &vmAlphaOp);
+        device->GetTextureStageState(0, D3DTSS_ALPHAARG1, &vmAlphaArg1);
+        DWORD fog = FALSE, a2 = 0, stencil = FALSE, srgb = FALSE, ttf = 0;
+        device->GetRenderState(D3DRS_FOGENABLE, &fog);
+        device->GetRenderState(D3DRS_STENCILENABLE, &stencil);
+        device->GetRenderState(D3DRS_SRGBWRITEENABLE, &srgb);
+        device->GetTextureStageState(0, D3DTSS_ALPHAARG2, &a2);
+        device->GetTextureStageState(0, D3DTSS_TEXTURETRANSFORMFLAGS, &ttf);
+        static DWORD lastKey = 0xFFFFFFFFu;
+        static int vmStateLogs = 0;
+        const DWORD key = (vmBlend ? 1u : 0u) | (vmSep ? 2u : 0u) | ((vmColorWrite & 0xF) << 2) | ((vmAlphaOp & 0x1F) << 6) | ((vmAlphaArg1 & 0x3F) << 11) |
+                          ((a2 & 0x3F) << 17) | (fog ? 1u << 23 : 0u) | (stencil ? 1u << 24 : 0u) | ((ttf & 0x7) << 25) | (srgb ? 1u << 28 : 0u);
+        if (key != lastKey && vmStateLogs < 30) {
+            ++vmStateLogs; lastKey = key;
+            Log("view model: inherited states: blend %lu sep %lu colour mask 0x%lx alpha op %lu arg1 0x%lx arg2 0x%lx fog %lu stencil %lu ttf %lu srgb %lu (%s, FIX-FP-ARMS-3)",
+                vmBlend, vmSep, vmColorWrite, vmAlphaOp, vmAlphaArg1, a2, fog, stencil, ttf, srgb, vmStatesOn ? "pinned" : "kept");
+        }
+    }
+    if (vmStatesOn) {
+        device->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
+        device->SetRenderState(D3DRS_SEPARATEALPHABLENDENABLE, FALSE);
+        if (!vmWarmNow) device->SetRenderState(D3DRS_COLORWRITEENABLE, 0xF);
+        device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+        device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+    }
     // FIX-FIGURE-16 (qav19): mark the hands' and the gun's pixels (stencil bit 0x40): post_fx's night-light pass skips them.
     const bool vmStencil = gta2::ViewModelLightMaskOn();
     if (vmStencil) {
@@ -10355,7 +10400,7 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
     {
         static bool armsLogged = false;
-        if (!armsLogged) { armsLogged = true; Log("view model: hands %s/%s", armR ? (fistModel ? (fist2 ? "fp_fist2_right" : "fp_fist_right") : "fp_arm_right") : "missing", leftName ? (armL ? leftName : "missing") : "none"); }
+        if (!armsLogged) { armsLogged = true; Log("view model: hands %s/%s", armR ? (fistModel ? (fist2 ? "fp_fist2_right" : "fp_fist_right") : pistolPair ? "fp_arm_right_pistol" : "fp_arm_right") : "missing", leftName ? (armL ? leftName : "missing") : "none"); }
     }
     if (haveVp) device->SetViewport(&vp);
     if (vmStencil) {
@@ -10373,6 +10418,13 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     device->SetRenderState(D3DRS_ZFUNC, zFunc);
     device->SetRenderState(D3DRS_ALPHATESTENABLE, alphaTest);
     device->SetRenderState(D3DRS_CULLMODE, cull);
+    if (vmStatesOn) {   // FIX-FP-ARMS-3
+        device->SetRenderState(D3DRS_ALPHABLENDENABLE, vmBlend);
+        device->SetRenderState(D3DRS_SEPARATEALPHABLENDENABLE, vmSep);
+        if (!vmWarmNow) device->SetRenderState(D3DRS_COLORWRITEENABLE, vmColorWrite);
+        device->SetTextureStageState(0, D3DTSS_ALPHAOP, vmAlphaOp);
+        device->SetTextureStageState(0, D3DTSS_ALPHAARG1, vmAlphaArg1);
+    }
     device->SetTextureStageState(0, D3DTSS_COLOROP, colorOp);
     device->SetTextureStageState(0, D3DTSS_COLORARG1, colorArg1);
     device->SetTextureStageState(0, D3DTSS_COLORARG2, colorArg2);
