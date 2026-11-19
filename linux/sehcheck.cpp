@@ -48,3 +48,10 @@ int main() {
            nullCaught ? "yes" : "NO", wildCaught ? "yes" : "NO", fineRead ? "yes" : "NO", again ? "yes" : "NO");
     return (nullCaught && wildCaught && fineRead && again) ? 0 : 1;
 }
+
+// compat.cpp's vectored handler reports into crash_safe.cpp (QA5090-HANG). This test links compat.cpp alone,
+// so it gets no-op stand-ins; the real ones live in the DLL.
+namespace gta2dx9 { namespace crash {
+void LogUnguardedFault(EXCEPTION_POINTERS*) {}
+void NoteDebugString(EXCEPTION_POINTERS*) {}
+} }
