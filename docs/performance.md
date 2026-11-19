@@ -1139,6 +1139,11 @@ road).
 
 ## The Remix freeze at the level start, and the stall dump (10 Nov 2026, FIX-DEADLOCK-1)
 
+> **Resolved 19 Nov 2026 (FIX-HANG-1, `docs/hang-miles-suspend.md`).** The holder this section looks for is the Miles Sound
+> System: its service thread (`mss32.dll+0x1520`, listed in every one of these dumps) suspends the game thread about 200 times a
+> second and, when that lands inside a lock-protected routine (here Wine's futex bucket spin lock, on Windows the process heap's
+> lock), waits for the lock the suspended game thread still holds. Fixed in `dll/src/crash_safe.cpp`.
+
 Defect `remix-ste-start-game-thread-heap-deadlock-freeze`: in Remix sessions the game thread stops for good
 a few seconds into the level, and the stall sampler repeats one stack until the run ends.
 

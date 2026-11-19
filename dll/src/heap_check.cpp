@@ -7,6 +7,7 @@
 #include <cstring>
 
 #include "crash_safe.h"
+#include "heap_guard.h"
 #include "log.h"
 #include "thread_watch.h"
 
@@ -45,6 +46,7 @@ DWORD WINAPI HeapCheckThread(LPVOID) {
         ++passes;
         if (GetTickCount() - lastReport > 60000) {
             lastReport = GetTickCount();
+            BridgeGuardHeapReport();
             Log("heap check: %lu passes over %lu heaps, none failed so far (worst validation %lu ms)", static_cast<unsigned long>(passes),
                 static_cast<unsigned long>(n), static_cast<unsigned long>(worst));
         }

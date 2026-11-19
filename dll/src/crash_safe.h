@@ -1,18 +1,18 @@
-// FIX-HANG-1: last words that cannot hang.
+// FIX-HANG-1: last words that cannot hang, a stall watchdog, and the fix of the hang itself. See docs/hang-miles-suspend.md.
 //
-// The 5090 release blocker (QA r52, a game-thread freeze of 5.4 minutes with the process alive, and the same stack
-// in tdr/h2_rc_drizzle) was read at first as "the game thread is inside our exception handler, waiting on the CRT
-// heap". The stack words the sampler logs are not a call chain; the live part of it was the game thread inside
-// ntdll's RtlpAllocateHeap, in the free-list walk, with the other threads queued on the process heap's lock (see
-// docs/hang-heap.md). Two things follow:
-//   1. whatever the cause, a fatal fault and a stuck game thread must end the process with a log line, never a
-//      frozen window. Every function here runs with no CRT heap, no malloc, no stdio, no C++ runtime and no lock
-//      another thread could hold: static buffers, our own number formatting, WriteFile on handles opened up front.
-//   2. the vectored handler (compat.cpp) ran for every exception of every thread; it must not allocate either
-//      (GCC's emulated thread_local mallocs on a thread's first access).
-//
-// The report goes to gta2dx9_fatal.log beside the game (opened up front, appended) and to the end of gta2dx9.log
-// through the log's own OS handle.
+// The 5090 release blocker (QA r52: the game thread without a frame for 5.4 minutes, process alive; the same stack in
+// tdr/h2_rc_drizzle and in the old Wine freezes) was first read as "the game thread is inside our vectored handler waiting on
+// the CRT heap". The stack words that reading came from are stale ones. The cause is mss32.dll's (Miles Sound System) service
+// thread, which suspends the game thread about 200 times a second: when that lands inside the process heap the game thread keeps
+// the heap's lock while suspended and the Miles thread, which then allocates, waits for it for ever. This file:
+//   1. hooks NtSuspendThread/NtResumeThread: a Miles suspension of the game thread is made safe (not while the game thread owns
+//      a heap, loader or PEB lock) and a suspension that outlasts 400 ms is broken from the watchdog;
+//   2. a watchdog on a thread that never touches the process heap ends the process with a report when the game thread draws no
+//      frame for hang_kill_ms, for whatever reason;
+//   3. a fatal fault, std::terminate or abort ends the process with a report too. Everything that runs at such a time uses no
+//      CRT heap, no malloc, no stdio, no C++ runtime and no lock another thread could hold: static buffers, our own number
+//      formatting, WriteFile on handles opened up front, a minidump helper process created (suspended) at start-up.
+// The report goes to gta2dx9_fatal.log beside the game and to the end of gta2dx9.log through the log's own OS handle.
 #pragma once
 
 #define WIN32_LEAN_AND_MEAN
@@ -60,6 +60,10 @@ DWORD HangBusyKillMs();
 void RefreshServerPid();
 // True when the Remix server's CPU time advanced by at least 100 ms over 500 ms (sleeps 500 ms).
 bool ServerBusy();
+
+// One line for the log (Log(), so not from a handler): how often the Miles thread suspended the game thread, how many of those
+// suspensions were retried because the game thread held a heap/loader/PEB lock, how many gave up, how many the watchdog broke.
+void LogSuspendCounters();
 
 // DbgPrint text from the heap manager ("HEAP[gta2.exe]: Heap block at ... modified at ... past requested size of ...")
 // arrives as a DBG_PRINTEXCEPTION_C exception; the vectored handler hands it here (the first 60 are written).

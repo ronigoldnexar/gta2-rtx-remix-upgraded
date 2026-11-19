@@ -60,6 +60,7 @@
 #include "compat.h"
 #include "crash_safe.h"
 #include "heap_check.h"
+#include "heap_guard.h"
 #include <csignal>
 #include <exception>
 #include <typeinfo>
@@ -1057,6 +1058,14 @@ DWORD WINAPI StallSampler(LPVOID) {
         gta2dx9::GuardedFaultsReport();
         WatchGameWindowMinimised();   // FIX-STABILITY-2
         WatchGameFocusPause();        // FIX-FOCUS-HANG
+        {
+            static DWORD lastCounters = 0;
+            if (GetTickCount() - lastCounters > 60000) {   // FIX-HANG-1: once a minute
+                lastCounters = GetTickCount();
+                gta2dx9::crash::LogSuspendCounters();
+            }
+        }
+        gta2dx9::BridgeGuardHeapInstall();   // FIX-HANG-1: [devtools] bridge_guard_heap (a no-op until the bridge's d3d9.dll is loaded)
         const DWORD beat = g_beat;
         const DWORD now = GetTickCount();
         // FIX-STABILITY-1: minimised, the game thread is meant to be idle in its message loop; it is not
@@ -1200,6 +1209,13 @@ void StartStallSampler(DWORD gameThread) {
     g_gameThread = gameThread;
     gta2dx9::crash::SetGameThread(gameThread, &g_beat);
     gta2dx9::crash::StartWatchdog(StallByDesign, &g_frameCount, 450);   // FIX-HANG-1: hang_kill_ms (6 s) ends a stuck game with a report
+    {
+        // FIX-HANG-1 diagnostics: [devtools] stall_sampler=0 leaves the old sampler thread (which suspends the game thread to read
+        // its stack) out, to tell a hang it causes from one it merely logs. Also drops the window and focus watchdogs it runs.
+        char ini[MAX_PATH];
+        PathBesideGame("gta2dx9.ini", ini, sizeof(ini));
+        if (!GetPrivateProfileIntA("devtools", "stall_sampler", 1, ini)) { Log("stall sampler: OFF ([devtools] stall_sampler=0)"); return; }
+    }
     if (HANDLE thread = CreateThread(nullptr, 0, StallSampler, nullptr, 0, nullptr)) CloseHandle(thread);
 }
 
