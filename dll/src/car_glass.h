@@ -79,5 +79,12 @@ void CarGlassDrawInterior(IDirect3DDevice9* device, const Model& base, const gta
 // Draws (and clears) this frame's queued glass: after the figures, before the effects.
 void CarGlassFlush(IDirect3DDevice9* device);
 void CarGlassReleaseDevice();
+// QA5090-LEAK: a freed derived car copy's glass splits and buffers released (model_store ModelFreeDerived).
+void CarGlassForgetModel(const Model& model);
+// QA5090-HITCH: static buffers of the glass splits made ahead, within budgetMs (classic view). Returns how many.
+int CarGlassWarmAhead(IDirect3DDevice9* device, double budgetMs);
+// QA5090-HITCH: a derived car copy just registered (dent step, door or wheel split): its Remix glass splits made on the
+// glass thread ahead of its first draw.
+void CarGlassSplitAhead(const Model& derived);
 
 }  // namespace gta2dx9

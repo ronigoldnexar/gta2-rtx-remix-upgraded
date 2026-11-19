@@ -17432,6 +17432,7 @@ void LiveGeometry::Draw(IDirect3DDevice9* device, const gta2::Camera& camera, in
             else if (streetFrames > 120) left = ModelsWarmTextures(device, 2, 2.0);
             if (left == 0) Log("models: every texture created and uploaded ahead of use");
         }
+        if (CurrentViewMode() == ViewMode::Classic) CarGlassWarmAhead(device, 6.0);   // QA5090-HITCH
     }
 
     // Soft skid marks, translucent, over the road and under everything standing on it.

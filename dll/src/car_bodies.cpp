@@ -2995,9 +2995,11 @@ void WearCollect() {
                 g_wheelBytes += bytes;
                 g_wearBytes += bytes;
                 split.hull = ModelRegisterDerived(std::move(r->a), true);
+                CarGlassSplitAhead(*split.hull);   // QA5090-HITCH
                 split.shell = r->shell;
                 for (size_t w = 0; w < r->wheels.size() && w < static_cast<size_t>(kMaxWheels); ++w) {
                     split.wheel[w] = ModelRegisterDerived(std::move(r->wheels[w]), true);
+                    CarGlassSplitAhead(*split.wheel[w]);   // QA5090-HITCH
                     if (r->shell && w < r->rings.size()) {
                         size_t rt = 0;
                         for (const ModelMesh& mm : r->rings[w].meshes) rt += mm.indices.size();
@@ -3021,6 +3023,7 @@ void WearCollect() {
             g_dentBytes += bytes;
             g_wearBytes += bytes;
             g_dents[key] = ModelRegisterDerived(std::move(r->a), true);
+            CarGlassSplitAhead(*g_dents[key]);   // QA5090-HITCH
             g_dentAsked.erase(key);
             if (g_wearCollected <= 400)
                 Log("car bodies: dented copy of %s, step %d of %d: %zu vertices pressed in, up to %.3f of the length (worker %.1f ms, %.1f MB of copies)",
@@ -3031,6 +3034,7 @@ void WearCollect() {
             g_doorBytes += bytes;
             g_wearBytes += bytes;
             DoorSplit split{ModelRegisterDerived(std::move(r->a), true), ModelRegisterDerived(std::move(r->b), true)};
+            CarGlassSplitAhead(*split.body); CarGlassSplitAhead(*split.door);   // QA5090-HITCH
             g_doorSplits[r->job.key] = split;
             g_doorAsked.erase(r->job.key);
             if (g_wearCollected <= 400)
@@ -3205,53 +3209,35 @@ int g_turretLogged = 0;
 // hides the pan's top: out/fm7_ab1), 2 = culled D3DCULL_CCW (the slab stays), 1 = one draw as before, 0 = no pan
 // (no slab, but the road under the car loses the pan's shade).
 int g_remixUnderpan = 3;
-struct PanSplit { const Model* rest; const Model* pan; };
-std::map<const Model*, PanSplit> g_panSplits;
-
-PanSplit PanSplitFor(const Model& model) {
-    auto it = g_panSplits.find(&model);
-    if (it != g_panSplits.end()) return it->second;
-    PanSplit split{nullptr, nullptr};
-    bool any = false;
-    for (const ModelMesh& m : model.meshes) any = any || m.texture.find("_underpan") != std::string::npos;
-    if (any && !model.skinned) {
-        Model rest, pan;
-        for (Model* m : {&rest, &pan}) {
-            m->nodes = model.nodes; m->forward = model.forward;
-            m->boundsMin = model.boundsMin; m->boundsMax = model.boundsMax;
-            for (int k = 0; k < 3; ++k) m->paintRgb[k] = model.paintRgb[k];
-            m->splitPaint = model.splitPaint;
-            m->hasDriverSeat = model.hasDriverSeat;
-            for (int k = 0; k < 4; ++k) m->driverSeat[k] = model.driverSeat[k];
-            m->meshes.resize(model.meshes.size());
-        }
-        rest.name = model.name + "#nopan"; pan.name = model.name + "#pan";
-        for (size_t i = 0; i < model.meshes.size(); ++i) {
-            const ModelMesh& src = model.meshes[i];
-            ModelMesh& dst = src.texture.find("_underpan") != std::string::npos ? pan.meshes[i] : rest.meshes[i];
-            dst.vertices = src.vertices; dst.indices = src.indices; dst.texture = src.texture; dst.skin = -1;
-        }
-        split.rest = ModelRegisterDerived(std::move(rest));
-        split.pan = ModelRegisterDerived(std::move(pan));
-        Log("car bodies: Remix floor-pan split of %s", model.name.c_str());
-    }
-    g_panSplits[&model] = split;
-    return split;
+// QA5090-HITCH (5090 QA rounds 1-3: 40-58 ms on the first draw of every #nopan / #pan copy, the 380 ms first V in a
+// car, VRAM that only grew): the split used to be two derived copies of every car mesh (base, dent steps, door and
+// wheel splits alike), each with buffers, a glass split and Remix geometry of its own that were never freed. Now the
+// same two draws come from the model itself through ModelSetMeshFilter: the same meshes, states and order, no copy.
+bool HasUnderpan(const Model& model) {
+    if (model.skinned) return false;
+    for (const ModelMesh& m : model.meshes)
+        if (m.indices.size() >= 3 && m.texture.find("_underpan") != std::string::npos) return true;
+    return false;
 }
+int g_panLogged = 0;
 
 // The hull under Remix, the pan by g_remixUnderpan (see above). False: not split, draw it whole.
 bool RemixHullDraw(IDirect3DDevice9* device, const Model& model, const gta2::Mat4& place) {
     if (!RemixApiAvailable() || g_remixUnderpan == 1) return false;
-    const PanSplit split = PanSplitFor(model);
-    if (!split.rest) return false;
-    ModelDraw(device, *split.rest, place, nullptr, 0.0f);
+    if (!HasUnderpan(model)) return false;
+    if (g_panLogged < 40 && ++g_panLogged) Log("car bodies: Remix floor-pan drawn apart for %s (mesh filter, no copy)", model.name.c_str());
+    ModelSetMeshFilter("_underpan", 1);
+    ModelDraw(device, model, place, nullptr, 0.0f);
+    ModelSetMeshFilter(nullptr, 0);
     if (g_remixUnderpan == 0) return true;
     DWORD cull = 0, aTest = 0;
     device->GetRenderState(D3DRS_CULLMODE, &cull);
     device->GetRenderState(D3DRS_ALPHATESTENABLE, &aTest);
     device->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
     device->SetRenderState(D3DRS_CULLMODE, g_remixUnderpan == 3 ? D3DCULL_CW : D3DCULL_CCW);
-    ModelDraw(device, *split.pan, place, nullptr, 0.0f);
+    ModelSetMeshFilter("_underpan", 2);
+    ModelDraw(device, model, place, nullptr, 0.0f);
+    ModelSetMeshFilter(nullptr, 0);
     device->SetRenderState(D3DRS_CULLMODE, cull);
     device->SetRenderState(D3DRS_ALPHATESTENABLE, aTest);
     return true;
@@ -6880,7 +6866,7 @@ void CarBodiesMemGauges() {
     MemGauge("cb.bonnets", static_cast<double>(g_bonnetSurfs.size() + g_bonnets.size()));
     MemGauge("cb.cabshapes", static_cast<double>(g_cabShapes.size()));
     MemGauge("cb.rgbmaps", static_cast<double>(g_rgbMaps.size()));
-    MemGauge("cb.turrets", static_cast<double>(g_turretSplits.size() + g_panSplits.size()));
+    MemGauge("cb.turrets", static_cast<double>(g_turretSplits.size()));
     MemGauge("cb.percar", static_cast<double>(g_lastBuilt.size() + g_steer.size() + g_cabins.size() + g_doors.size() + g_push.size() +
                                               g_turretAims.size()));
     MemGauge("cb.asked", static_cast<double>(g_dentAsked.size() + g_doorAsked.size() + g_wheelAsked.size() + g_bonnetAsked.size()));

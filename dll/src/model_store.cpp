@@ -1,7 +1,8 @@
 #include "mem_stats.h"
 #include "thread_watch.h"
 #include "model_store.h"
-#include "car_glass.h"   // VEHICLE-GLASS
+#include "car_glass.h"
+#include "identity.h"
 #include "car_coat.h"    // FIX-CAR-SHADING-1
 
 #include <algorithm>
@@ -1825,6 +1826,7 @@ bool ModelsAvailable() { return !g_models.empty(); }
 bool ModelIsKnown(const Model* model) { return model && g_known.count(model) != 0; }
 double ModelFreeDerived(const Model* model) {
     if (!model || !g_known.count(model)) return 0.0;
+    CarGlassForgetModel(*model);   // QA5090-LEAK: its glass splits and their buffers too
     double bytes = ModelReleaseBuffers(*model);
     Model& m = const_cast<Model&>(*model);
     for (ModelMesh& mesh : m.meshes) {
@@ -3319,7 +3321,16 @@ void ModelDraw(IDirect3DDevice9* device, const Model& model, const gta2::Mat4& p
     ModelDrawBlend(device, model, placement, animation, time, nullptr, 0.0f, 0.0f);
 }
 
-namespace { bool g_modelDrawsHeld = false; }   // FIX-PERF-7
+namespace {
+bool g_modelDrawsHeld = false;   // FIX-PERF-7
+const char* g_meshFilterPart = nullptr;   // QA5090-HITCH (ModelSetMeshFilter)
+int g_meshFilterMode = 0;
+bool MeshFilteredOut(const ModelMesh& mesh) {
+    if (!g_meshFilterMode || !g_meshFilterPart) return false;
+    return (mesh.texture.find(g_meshFilterPart) != std::string::npos) != (g_meshFilterMode == 2);
+}
+}  // namespace
+void ModelSetMeshFilter(const char* part, int mode) { g_meshFilterPart = part; g_meshFilterMode = part ? mode : 0; }
 void ModelHoldDraws(bool on) { g_modelDrawsHeld = on; }
 bool ModelDrawsHeld() { return g_modelDrawsHeld; }
 
@@ -3375,7 +3386,7 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
     // a clearer pane and its far wall exposed the windows read flat pale grey (out/va29_r1).
     bool linerBody = false;
     for (const ModelMesh& lm : model.meshes)
-        if (lm.texture.find("_interior_liner") != std::string::npos) { linerBody = g_linerSee == 0; break; }
+        if (!MeshFilteredOut(lm) && lm.texture.find("_interior_liner") != std::string::npos) { linerBody = g_linerSee == 0; break; }
     bool carSurfSaved = false;
     D3DMATERIAL9 carSurfMaterial = {};
     DWORD carSurfState[5] = {};
@@ -3390,7 +3401,7 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
                 w.m[3][0], w.m[3][1], w.m[3][2], model.nodes.size(), model.boundsMin.y, model.boundsMax.y);
         }
     }
-    CarGlassCutQueue(model, placement);   // VEHICLE-GLASS: a car hull in cut mode draws its glass later
+    if (g_meshFilterMode != 2) CarGlassCutQueue(model, placement);   // VEHICLE-GLASS: a car hull in cut mode draws its glass later
     // FIX-CAR-SHADING-1: car_bodies' weight on this car (0 for everything that is not a car body).
     const bool coat = CarCoatWeight() > 0.0f && !g_modelGhost;
     for (size_t i = 0; i < model.nodes.size(); ++i) {
@@ -3398,6 +3409,7 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
         if (mi < 0 || mi >= static_cast<int>(model.meshes.size())) continue;
         const ModelMesh& mesh = model.meshes[mi];
         if (mesh.indices.size() < 3) continue;
+        if (MeshFilteredOut(mesh)) continue;   // QA5090-HITCH: ModelSetMeshFilter
         // Soft paint: the rest half of a softened split is not drawn (the paint half is the whole surface).
         bool softPaint = false;
         if (!g_softPaintTex.empty() && model.splitPaint) {
@@ -4099,6 +4111,21 @@ int ModelsWarmTextures(IDirect3DDevice9* device, int perFrame, double kWarmBudge
             bool cold = false;
             for (const ModelMesh& mesh : m.meshes)
                 if (mesh.indices.size() >= 3 && !g_buffers.count(&mesh)) { cold = true; break; }
+            // QA5090-HITCH: a car's glass masks and its Remix glass splits made on a thread during the warm-up,
+            // not at its first draw in a street view (the first V in a car split every car in view: 380 ms).
+            if (RemixApiAvailable() && WarmGroup(m) == 2) CarGlassRequestMasks(m);
+            // QA5090-HITCH: a figure's Remix layer-prim test (a texel readback) and its zone split (~7 ms), both the
+            // same for every tint, made here rather than at its first street-view draw (eight new figures at the
+            // first V in a car cost 80 ms in one frame on the 5090).
+            // (The street views set the bake flag at their first frame; the warm-up runs before it, in the classic view.)
+            if (RemixApiAvailable() && WarmGroup(m) == 1 && IdentityBakeTints()) {
+                const bool bakeWas = g_bakeTints;
+                g_bakeTints = true;
+                for (const ModelMesh& mesh : m.meshes)
+                    if (g_paintRests.count(mesh.texture) && LayerPrimFor(device, mesh.texture))
+                        FigureZoneSplitFor(device, m, mesh);
+                g_bakeTints = bakeWas;
+            }
             if (cold) {
                 WarmModelBuffers(device, m);
                 for (const ModelMesh& mesh : m.meshes) bytes += mesh.vertices.size() * sizeof(ModelVertex) + mesh.indices.size() * 4;

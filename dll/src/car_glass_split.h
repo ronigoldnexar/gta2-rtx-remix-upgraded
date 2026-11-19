@@ -7,6 +7,7 @@
 // natively on the model files.
 #pragma once
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <vector>
@@ -41,6 +42,41 @@ struct Field {
                     }
                 f[static_cast<size_t>(y) * kr + x] = s / 9.0f;
             }
+        // QA5090-HITCH: a summed-area table of the texels at or over 0.5, so a footprint whose bilinear
+        // neighbourhood is all under (or all over) is classified without sampling it (Uniform).
+        sat.assign(static_cast<size_t>(kr + 1) * (kr + 1), 0);
+        for (int y = 0; y < kr; ++y)
+            for (int x = 0; x < kr; ++x)
+                sat[static_cast<size_t>(y + 1) * (kr + 1) + x + 1] = (f[static_cast<size_t>(y) * kr + x] >= 0.5f ? 1 : 0) +
+                    sat[static_cast<size_t>(y) * (kr + 1) + x + 1] + sat[static_cast<size_t>(y + 1) * (kr + 1) + x] -
+                    sat[static_cast<size_t>(y) * (kr + 1) + x];
+    }
+    std::vector<int> sat;
+    int Rect(int x0, int x1, int y0, int y1) const {   // inclusive, inside [0, kr)
+        const size_t w = static_cast<size_t>(kr + 1);
+        return sat[(y1 + 1) * w + x1 + 1] - sat[y0 * w + x1 + 1] - sat[(y1 + 1) * w + x0] + sat[y0 * w + x0];
+    }
+    // The texels at or over 0.5 in the wrapped texel box [x0, x0 + nx) x [y0, y0 + ny) (nx, ny <= kr).
+    int Count(int x0, int nx, int y0, int ny) const {
+        x0 = ((x0 % kr) + kr) % kr; y0 = ((y0 % kr) + kr) % kr;
+        int xs[2][2] = {{x0, (std::min)(kr, x0 + nx) - 1}, {0, x0 + nx - kr - 1}};
+        int ys[2][2] = {{y0, (std::min)(kr, y0 + ny) - 1}, {0, y0 + ny - kr - 1}};
+        int c = 0;
+        for (int i = 0; i < 2; ++i)
+            for (int j = 0; j < 2; ++j)
+                if (xs[i][1] >= xs[i][0] && ys[j][1] >= ys[j][0]) c += Rect(xs[i][0], xs[i][1], ys[j][0], ys[j][1]);
+        return c;
+    }
+    // 0: every bilinear sample of At() inside this UV box is under 0.5; 1: every one is at or over; 2: unknown.
+    // Exact: At() interpolates the four texels round the sample, all inside the box's texel neighbourhood, and
+    // the field's values are multiples of 1/9 (never 0.5 itself).
+    int Uniform(float u0, float u1, float v0, float v1) const {
+        if (!(u1 - u0 < 1.0f) || !(v1 - v0 < 1.0f)) return 2;
+        const int x0 = static_cast<int>(std::floor(u0 * kr - 0.5f)), x1 = static_cast<int>(std::floor(u1 * kr - 0.5f)) + 1;
+        const int y0 = static_cast<int>(std::floor(v0 * kr - 0.5f)), y1 = static_cast<int>(std::floor(v1 * kr - 0.5f)) + 1;
+        const int nx = (std::min)(kr, x1 - x0 + 1), ny = (std::min)(kr, y1 - y0 + 1);
+        const int c = Count(x0, nx, y0, ny);
+        return c == 0 ? 0 : c == nx * ny ? 1 : 2;
     }
     float At(float u, float v) const {
         // texel centres at (i + 0.5) / kr
@@ -96,8 +132,12 @@ struct Builder {
     // 0: every sample under 0.5 (hull), 1: every sample at or over (pane), 2: mixed. About one sample a
     // texel over the UV footprint, at least the corners and 12 inner points.
     int Classify(const ModelVertex& a, const ModelVertex& b, const ModelVertex& c) const {
-        const float du = (std::max)((std::max)(a.u, b.u), c.u) - (std::min)((std::min)(a.u, b.u), c.u);
-        const float dv = (std::max)((std::max)(a.v, b.v), c.v) - (std::min)((std::min)(a.v, b.v), c.v);
+        const float u0 = (std::min)((std::min)(a.u, b.u), c.u), u1 = (std::max)((std::max)(a.u, b.u), c.u);
+        const float v0 = (std::min)((std::min)(a.v, b.v), c.v), v1 = (std::max)((std::max)(a.v, b.v), c.v);
+        const float du = u1 - u0;
+        const float dv = v1 - v0;
+        const int q = field.Uniform(u0, u1, v0, v1);   // QA5090-HITCH: the same answer without the samples
+        if (q != 2) return q;
         int n = static_cast<int>(std::ceil((std::max)(du, dv) * field.kr));
         n = (std::max)(4, (std::min)(n, 64));
         int over = 0, total = 0;
@@ -136,9 +176,9 @@ struct Builder {
 // g: the pane mask (kr x kr, nonzero = pane). A triangle is classified by the field on a grid over its UV
 // footprint (about one sample per texel, at least the corners and 15 inner points): all under 0.5 = hull,
 // all at or over = pane, otherwise it is split. UVs are taken as the triangle's own (unwrapped).
-inline void SplitGlass(const std::vector<ModelVertex>& verts, const std::vector<uint32_t>& idx, const std::vector<uint8_t>& g, int kr,
+inline void SplitGlass(const std::vector<ModelVertex>& verts, const std::vector<uint32_t>& idx, const glass_split::Field& field,
                        GlassSplit* out) {
-    glass_split::Field field(g, kr);
+    const int kr = field.kr;
     out->hullV = verts;
     out->hullI.clear(); out->paneV.clear(); out->paneI.clear();
     glass_split::Builder b{field, *out, 1.5f / kr};
@@ -165,6 +205,11 @@ inline void SplitGlass(const std::vector<ModelVertex>& verts, const std::vector<
             b.Split(a, bb, c, 0);
         }
     }
+}
+inline void SplitGlass(const std::vector<ModelVertex>& verts, const std::vector<uint32_t>& idx, const std::vector<uint8_t>& g, int kr,
+                       GlassSplit* out) {
+    const glass_split::Field field(g, kr);
+    SplitGlass(verts, idx, field, out);
 }
 
 }  // namespace gta2dx9

@@ -336,6 +336,11 @@ bool LampPostHead(const Model& lamp, const gta2::Vec3& at, float floor, LampHead
 // body and shadow; the car's own logic still runs). Off again before anything else draws.
 void ModelHoldDraws(bool on);
 bool ModelDrawsHeld();
+// QA5090-HITCH: while set, ModelDraw/ModelDrawBlend draw only part of a model's meshes: mode 1 skips the meshes
+// whose texture name contains `part`, mode 2 draws only those (0 / nullptr: every mesh, as before). car_bodies draws
+// the floor pan under Remix this way instead of from two derived copies of every car mesh (#nopan / #pan), which
+// cost new buffers, new Remix geometry and a glass split per copy. Mode 2 queues no glass pass. Off again after.
+void ModelSetMeshFilter(const char* part, int mode);
 void ModelDraw(IDirect3DDevice9* device, const Model& model, const gta2::Mat4& placement,
                const ModelAnimation* animation, float time);
 // The same, blended: `animation` at `time` weighted (1 - weight) with `second`
