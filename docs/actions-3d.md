@@ -2815,3 +2815,28 @@ clock paused). Runs `fpr_day0`, `fpr_night0`, `fpr_night1` (before), `fpr_day_a3
   corner block seen along the street shows one texel column stretched across its depth. Left for the facade kit's
   owner: the fix is to step u across the depth (the column band beside the edge) and rebuild the kits (build_kits.sh,
   restage), which this seat does not run.
+
+## MOTION-QA-16 (19 Nov 2026): first person -> classic on foot through the church wall; the black blob by the van
+
+- *Cause* (5090 QA r52 vswitch_foot, vsw.mp4 6.80 and 14.72 s: 6 near-black frames and a pop, in both cycles; not in a
+  car): the first-person -> classic move lifts the eye over him with a `back` term of up to 2.2 blocks along the view
+  yaw (the car's rear, FIX-CAMERA-6/cam7b). On foot at the spawn he stands against the church, so the rising eye (3.6
+  up) went 1.3 back into the wall and for 2-6 frames the lens was inside the building. Reproduced on the plain renderer
+  (f16_old_plain, f16_old_g25: the window and wall fill 2 frames at 30 fps, about 6 at the 5090's pace).
+- *Fix*: on foot there is no `back` (he is under the classic camera); at the wheel it is cut 0.3 short of the first
+  surface on its way (`eyecol::SegmentHit`). `GTA2DX9_MOVE_FP_BACK_OLD=1`: as before. Under the Remix cut guard the
+  move's own progress is also held back by the share the guard held the lens back, so the next frame's pose is the next
+  stretch of the path and the lens no longer cuts the path's corners (QA r52: the moves took 2.0-2.4 s on chords toward
+  a pose the move had already left). `GTA2DX9_MOVE_GUARD_PACE_OLD=1`: as before. The guard's limit is unchanged.
+  `GTA2DX9_REMIX_CUT_GUARD_PLAIN=<tiles a frame>` applies a guard of that pace under plain Direct3D (a test aid; at
+  0.9 x cut distance 4 = 3.6 the guard never fires on these moves, 0.25 holds them for 100+ frames).
+- *Checked* (plain, keys_r16_vsw.sh, 7 V presses at the spawn, 30 fps, sheets by eye): old (both toggles) the wall in
+  frame at the first-person -> classic press with no guard and with 0.25; new: the eye rises clear of the wall with no
+  guard, 0.25, 0.9 and 3.6; dark runs 0, pops 0. Classic `spawn_classic` 0 changed tiles (mr_vreg16).
+- *(2) The black blob beside the van* (awning_g/g06_fp_again): not a contact shadow (DrawContactShadows returns under
+  Remix), not a skid mark (vehicle-fx marks are 0.048-wide ribbons), and absent from g_3d before the first person stay.
+  The van was parked at the end of a drive and idling (vf.particles 29 in the log): an idle car emits an exhaust puff at
+  its rear every 0.35-0.65 s (vehicle_fx.cpp EmitSmoke, exhaust), and under Remix a soft puff is the thing known to come
+  out dark (FIX-REMIX-NIGHT, `remix_puff_tones`). The plain renderer draws the same puffs pale (f16_blob), so it is not
+  reproduced here and not changed. To confirm on the 5090: watch it appear and vanish within ~2 s with the van held
+  still, or `[devtools] remix_puff_tones=0`.

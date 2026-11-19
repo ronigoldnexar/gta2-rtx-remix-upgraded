@@ -631,3 +631,24 @@ seen along the street showed that column stretched across it. Fixed in `kit.py`:
 - Plain renderer, first person on foot beside the corners, day (`gamerun/kituv_shots.py`, runs kituv_before2_day /
   kituv_after_day; pairs in `out/kituv_pairs`): the church steps (191.4,178.5 looking W; 196.3,177.45), Yakuza turf
   (88.45,220.7) and Avalon (163.3,61.55): the streaked corner blocks and plinths now show their stone courses.
+- **5090 QA r52 (first fix shipped): the streaks left elsewhere** (soak2 c021_drive 233.9,211.1; c027_drive
+  251.3,216.6; c041_foot 230.0,64.0; all wil): not a regression of the fix. The first fix changed only side-quad
+  wall edges that had repeated their front texel (vertex compare, every changed vertex), and replays at those spots on
+  the pre-change kit, the r52 kit and the final one (`gamerun/kituv_shots.py`, kituv3_{motion,kituv,kituv5}_day; 3-way
+  frames in `out/kituv_r52`) show the same streaks before and after it. They were the same bug on the piece types the
+  first fix had not covered. `districts_work/kituv/tools/smear.py` counts every tile-art quad edge >= 0.05 long whose
+  uv does not change along it: wil 573 896 pre-change, 356 588 after the first fix, 0 now (ste, bil 0). Fixed:
+  - **Opening reveals** (`skin`: window, door and shop jambs, heads and sills, SKIN deep; 115 584 edges, the biggest
+    set and the r52 shopfronts): u / v steps outward into the masonry round the opening across the depth (toward the
+    opening where that runs off the tile: a head at the level's top).
+  - **art_box tops and bottoms** (hoods, sills, string courses, bays: seen from under in first person): v steps inward.
+  - **band tops and bottoms** (cornice soffits): v steps down from the band row; **band ends** that extend past the
+    tile (a course turning a corner) step from the clamped edge (they had stayed one column).
+  - **caps' top** (the skin's top at a setback): v steps down across the depth.
+- Final kit vs pre-change (`tools/kitcmp2.py`, all three levels, both LODs): groups, indices, positions, normals and
+  owners identical; every changed vertex was one end of a stretched-texel edge (0 exceptions), the step / length at the
+  front's density median 1.000 (198 of the 3.8 M changed LOD0 vertices partly clamped at a tile edge). qa.py output byte-identical on all
+  three levels. vreg: spawn_classic 0 tiles; against a pre-change capture 28 PASS, 3 WARN (bank_chase / bank_street:
+  the kit's reveals and corner below the eye, now textured; spawn_first: the neon sign's flicker), 0 FAIL.
+- Streams now: wil 47 832 793, ste 34 766 476, bil 17 920 407 bytes (pre-change 45 806 223 / 33 047 097 /
+  17 050 060); the ship kit 97 MB (was 92).

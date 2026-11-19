@@ -257,21 +257,22 @@ def box(mesh, wl, mat, h0, h1, y0, y1, d0, d1, faces="tblrf"):
 
 
 def art_box(mesh, wl, h0, h1, y0, y1, d0, d1, faces="tblrf"):
-    """the tile art of a region stood out of the wall: the front shows the region's own texels, the top and
-    bottom its edge rows drawn back to the wall (a painted sill becomes a stone sill); the sides the band of columns
-    beside the edge, stepped across the depth at the front's texel density (the front corner shows the edge column,
-    so the art turns the corner; one column at every depth read as horizontal streaks on a deep pier: 5090 QA r50)"""
+    """the tile art of a region stood out of the wall: the front shows the region's own texels; the top, bottom and
+    sides the band of rows / columns inside the edge, stepped across the depth at the front's texel density (the front
+    edge shows the edge row or column, so the art turns the corner; one texel at every depth read as streaks on a deep
+    pier: 5090 QA r50, r52)"""
     ee = DEPS * max(0.0, d1 - SKIN)    # the end caps only
     P, key, e = wl.w, (wl.tile, 2), 0.004
     if "f" in faces:
         mesh.poly(key, [P(h0, y0, d1), P(h1, y0, d1), P(h1, y1, d1), P(h0, y1, d1)],
                   [wl.uv(h0, y0), wl.uv(h1, y0), wl.uv(h1, y1), wl.uv(h0, y1)], wl.n)
+    dd = d1 - d0                       # top, bottom and sides: the art steps across the depth at the front's density
     if "t" in faces:
         mesh.poly(key, [P(h0, y1, d0), P(h1, y1, d0), P(h1, y1, d1), P(h0, y1, d1)],
-                  [wl.uv(h0, y1 - e), wl.uv(h1, y1 - e), wl.uv(h1, y1 - e), wl.uv(h0, y1 - e)], (0.0, 1.0, 0.0))
+                  [wl.uv(h0, y1 - e - dd), wl.uv(h1, y1 - e - dd), wl.uv(h1, y1 - e), wl.uv(h0, y1 - e)], (0.0, 1.0, 0.0))
     if "b" in faces:
         mesh.poly(key, [P(h0, y0, d0), P(h1, y0, d0), P(h1, y0, d1), P(h0, y0, d1)],
-                  [wl.uv(h0, y0 + e), wl.uv(h1, y0 + e), wl.uv(h1, y0 + e), wl.uv(h0, y0 + e)], (0.0, -1.0, 0.0))
+                  [wl.uv(h0, y0 + e + dd), wl.uv(h1, y0 + e + dd), wl.uv(h1, y0 + e), wl.uv(h0, y0 + e)], (0.0, -1.0, 0.0))
     for hh, s_, tag in ((h0, -1, "l"), (h1, 1, "r")):
         if tag in faces:
             hu = hh + (e if s_ < 0 else -e)
@@ -442,17 +443,20 @@ class Builder:
         ee = DEPS * max(0.0, d1 - SKIN)    # the end caps only
         P, key = wl.w, (wl.tile, 2)
         U = lambda h, t: wl.uv(min(1.0, max(0.0, h)), b0 + (b1 - b0) * t)
+        V = lambda h, y: wl.uv(min(1.0, max(0.0, h)), y)
+        dd, yt, yb = d1 - d0, b0 + (b1 - b0) * .9, b0 + (b1 - b0) * .1   # across the depth: down from the band row
         if "f" in faces:
             self.mesh.poly(key, [P(h0, y0, d1), P(h1, y0, d1), P(h1, y1, d1), P(h0, y1, d1)], [U(h0, 0), U(h1, 0), U(h1, 1), U(h0, 1)], wl.n)
         if "t" in faces:
-            self.mesh.poly(key, [P(h0, y1, d0), P(h1, y1, d0), P(h1, y1, d1), P(h0, y1, d1)], [U(h0, .9), U(h1, .9), U(h1, .9), U(h0, .9)], (0.0, 1.0, 0.0))
+            self.mesh.poly(key, [P(h0, y1, d0), P(h1, y1, d0), P(h1, y1, d1), P(h0, y1, d1)], [V(h0, yt - dd), V(h1, yt - dd), V(h1, yt), V(h0, yt)], (0.0, 1.0, 0.0))
         if "b" in faces:
-            self.mesh.poly(key, [P(h0, y0, d0), P(h1, y0, d0), P(h1, y0, d1), P(h0, y0, d1)], [U(h0, .1), U(h1, .1), U(h1, .1), U(h0, .1)], (0.0, -1.0, 0.0))
+            self.mesh.poly(key, [P(h0, y0, d0), P(h1, y0, d0), P(h1, y0, d1), P(h0, y0, d1)], [V(h0, yb - dd), V(h1, yb - dd), V(h1, yb), V(h0, yb)], (0.0, -1.0, 0.0))
         for hh, s_, tag in ((h0, -1, "l"), (h1, 1, "r")):
             if tag in faces:
                 hc = hh + s_ * ee
-                hw = hh - s_ * (d1 - d0)    # at the wall: inward by the depth, as art_box's sides
-                self.mesh.poly(key, [P(hc, y0, d0), P(hc, y0, d1), P(hc, y1, d1), P(hc, y1, d0)], [U(hw, 0), U(hh, 0), U(hh, 1), U(hw, 1)],
+                hu = min(1.0, max(0.0, hh))  # an extended course's end: from the tile edge it was clamped to
+                hw = hu - s_ * (d1 - d0)    # at the wall: inward by the depth, as art_box's sides
+                self.mesh.poly(key, [P(hc, y0, d0), P(hc, y0, d1), P(hc, y1, d1), P(hc, y1, d0)], [U(hw, 0), U(hu, 0), U(hu, 1), U(hw, 1)],
                                (wl.ha[0] * s_, 0.0, wl.ha[2] * s_))
 
     def openings(self, tile):
@@ -717,7 +721,7 @@ class Builder:
         if (x, y, side, level + 1) not in walls and level + 1 < roof:
             yt = level + 1 - (0.0 if side in "NS" else 0.002)    # the corner's two caps a hair apart (qa.py coplanar)
             self.mesh.poly((wl.tile, 2), [wl.w(-el, yt, 0), wl.w(1 + er, yt, 0), wl.w(1 + er, yt, SKIN), wl.w(-el, yt, SKIN)],
-                           [wl.uv(0, level + 0.98), wl.uv(1, level + 0.98), wl.uv(1, level + 0.98), wl.uv(0, level + 0.98)], (0.0, 1.0, 0.0))
+                           [wl.uv(0, level + 0.98 - SKIN), wl.uv(1, level + 0.98 - SKIN), wl.uv(1, level + 0.98), wl.uv(0, level + 0.98)], (0.0, 1.0, 0.0))
         if (x, y, side, level - 1) not in walls and level > street:
             # N/S and E/W walls' trims meet at a corner: their tops a hair apart (qa.py coplanar)
             ns = side in "NS"
@@ -739,17 +743,24 @@ class Builder:
                 self.mesh.poly(key, pts, [wl.uv(a0, b0), wl.uv(a1, b0), wl.uv(a1, b1), wl.uv(a0, b1)], wl.n)
         for (h0, h1, y0, y1, k) in holes:
             e = 0.03   # the wall ~2 texels outside the opening: the returns are masonry, the frame stays set back
-            sides = [((h0, y0), (h0, y1), (wl.ha[0], 0.0, wl.ha[2]), (h0 - e, None)),
-                     ((h1, y0), (h1, y1), (-wl.ha[0], 0.0, -wl.ha[2]), (h1 + e, None)),
-                     ((h0, y1), (h1, y1), (0.0, -1.0, 0.0), (None, y1 + e)),
-                     ((h0, y0), (h1, y0), (0.0, 1.0, 0.0), (None, y0 - e))]
-            for (pa, pb, n, (eh, ey)) in sides:
+            sides = [((h0, y0), (h0, y1), (wl.ha[0], 0.0, wl.ha[2]), (h0 - e, None), -1),
+                     ((h1, y0), (h1, y1), (-wl.ha[0], 0.0, -wl.ha[2]), (h1 + e, None), 1),
+                     ((h0, y1), (h1, y1), (0.0, -1.0, 0.0), (None, y1 + e), 1),
+                     ((h0, y0), (h1, y0), (0.0, 1.0, 0.0), (None, y0 - e), -1)]
+            for (pa, pb, n, (eh, ey), so) in sides:
                 if (ey is not None and ey < lvl + 0.01) or (k != "window" and ey is not None and pa[1] < lvl + 0.01):
                     continue
                 ua = wl.uv(eh if eh is not None else pa[0], ey if ey is not None else pa[1])
                 ub = wl.uv(eh if eh is not None else pb[0], ey if ey is not None else pb[1])
+                # at the box face: the art SKIN further out from the opening (one texel at every depth read as
+                # streaks down a deep shop or door reveal: 5090 QA r52)
+                # (toward the opening instead where that would run off the tile: a head at the level's top)
+                eh2 = None if eh is None else (eh + so * SKIN if 0.0 <= eh + so * SKIN <= 1.0 else eh - so * SKIN)
+                ey2 = None if ey is None else (ey + so * SKIN if lvl <= ey + so * SKIN <= lvl + 1.0 else ey - so * SKIN)
+                wa = wl.uv(eh2 if eh2 is not None else pa[0], ey2 if ey2 is not None else pa[1])
+                wb = wl.uv(eh2 if eh2 is not None else pb[0], ey2 if ey2 is not None else pb[1])
                 self.mesh.poly(key, [wl.w(pa[0], pa[1], 0.0), wl.w(pb[0], pb[1], 0.0), wl.w(pb[0], pb[1], SKIN), wl.w(pa[0], pa[1], SKIN)],
-                               [ua, ub, ub, ua], n)
+                               [wa, wb, ub, ua], n)
             stats["recesses"] += 1
 
     def cornice(self, wl, st, x, y, side, level, top, roof, stats):

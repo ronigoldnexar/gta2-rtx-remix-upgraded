@@ -2062,6 +2062,53 @@ IDirect3DTexture9* BakedTint(IDirect3DDevice9* device, const std::string& file, 
     return out;
 }
 
+// FIX-FP-ARMS-4 (RTX 6000 Remix, 19 Nov: the machine gun's body near black): under Remix the albedo is the texture, nothing
+// else (the fixed-function lights and the texture factor are not read), and the weapons' gunmetal / rubber / blued steel
+// textures are 24..45 of 255 (tools/gen_weapons.py BLUED, RUBBER, STEEL: made for a lit fixed-function pipeline), so lit by a
+// path-traced scene they come out black. ModelSetGunLift(f) draws the "weapon_*" textures with a floor (each channel
+// c -> c + 0.75 * max(0, f - c): at f = 85, 24 -> 69, 45 -> 75; wood, olive and the light ones barely or not at all), a baked
+// copy per texture, so Remix sees an ordinary textured draw. 0: off. Cached by texture and floor.
+float g_gunLift = 0.0f;
+bool g_gripSwap = false;
+const std::string kGripRubber = "weapon_pistol_2.tga";
+void ModelSetGripSwap(bool on) { g_gripSwap = on; }
+void ModelSetGunLift(float gamma) { g_gunLift = gamma; }
+IDirect3DTexture9* BakedLift(IDirect3DDevice9* device, const std::string& file, float gamma) {
+    struct Key { std::string file; int g; bool operator<(const Key& o) const { return std::tie(file, g) < std::tie(o.file, o.g); } };
+    static std::map<Key, BakeEntry> s_lift;
+    static IDirect3DDevice9* s_device = nullptr;
+    if (s_device != device) { for (auto& b : s_lift) if (b.second.tex) b.second.tex->Release(); s_lift.clear(); s_device = device; }
+    Key key{file, static_cast<int>(std::lround(gamma * 64.0f))};   // (the floor, x64)
+    auto it = s_lift.find(key);
+    if (it != s_lift.end()) return it->second.tex;
+    IDirect3DTexture9* src = TextureFor(device, file);
+    IDirect3DTexture9* out = nullptr;
+    D3DSURFACE_DESC desc;
+    if (src && SUCCEEDED(src->GetLevelDesc(0, &desc)) && desc.Format == D3DFMT_A8R8G8B8 &&
+        SUCCEEDED(device->CreateTexture(desc.Width, desc.Height, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &out, nullptr))) {
+        D3DLOCKED_RECT a, b;
+        uint8_t lut[256];
+        for (int v = 0; v < 256; ++v) lut[v] = static_cast<uint8_t>((std::min)(255.0f, v + 0.75f * (std::max)(0.0f, key.g / 64.0f - v) + 0.5f));
+        if (LockTexels(src, &a)) {
+            if (SUCCEEDED(out->LockRect(0, &b, nullptr, 0))) {
+                for (UINT y = 0; y < desc.Height; ++y) {
+                    const uint32_t* r = reinterpret_cast<const uint32_t*>(static_cast<const uint8_t*>(a.pBits) + y * a.Pitch);
+                    uint32_t* w = reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(b.pBits) + y * b.Pitch);
+                    for (UINT x = 0; x < desc.Width; ++x) {
+                        const uint32_t c = r[x];
+                        w[x] = (c & 0xFF000000u) | (static_cast<uint32_t>(lut[(c >> 16) & 255]) << 16) | (static_cast<uint32_t>(lut[(c >> 8) & 255]) << 8) | lut[c & 255];
+                    }
+                }
+                out->UnlockRect(0);
+            } else { out->Release(); out = nullptr; }
+            UnlockTexels(src);
+        } else { out->Release(); out = nullptr; }
+    }
+    s_lift[key] = BakeEntry{out, GetTickCount64()};
+    Log("models: gun lift baked: %s floor %.0f -> %s", file.c_str(), key.g / 64.0f, out ? "ok" : "failed");
+    return out;
+}
+
 // IDENTITY-SYSTEM: a figure's split pair under RTX Remix. The importer draws a person's clothing
 // as a second mesh over the same triangles (ped zones "#pt"/"#pb", or the "_paint" half), each half
 // alpha-tested. Remix takes the second draw of the same surface as a duplicate (docs/remix-materials.md,
@@ -3456,7 +3503,12 @@ void ModelDrawBlend(IDirect3DDevice9* device, const Model& model, const gta2::Ma
             }
         }
         IDirect3DTexture9* merged = FigurePairMerged(device, model, mesh);
-        IDirect3DTexture9* texture = merged ? merged : TextureFor(device, mesh.texture);
+        // FIX-FP-ARMS-4: the pistol hold's grip panels in the rubber texture, not walnut (wood showing between the fingers).
+        const std::string& texName = (g_gripSwap && mesh.texture == "weapon_pistol_1.tga") ? kGripRubber : mesh.texture;
+        IDirect3DTexture9* texture = merged ? merged : TextureFor(device, texName);
+        if (!merged && g_gunLift > 0.0f && texName.compare(0, 7, "weapon_") == 0) {
+            if (IDirect3DTexture9* lifted = BakedLift(device, texName, g_gunLift)) texture = lifted;
+        }
         if (first || texture != bound) {
             device->SetTexture(0, texture);
             // FIX-WORLD-12: a plate texture with its mip chain (PlateMipsWanted) samples the chain.
