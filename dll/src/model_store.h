@@ -257,6 +257,10 @@ void ModelSetNodeTint(const char* nodePrefix, const float* rgb);
 // IDENTITY-SYSTEM: the zone and clothing tints of the next draws baked into texture copies instead
 // of the stage-1 texture factor (the figures under RTX Remix; identity.h IdentityBakeTints).
 void ModelSetBakeTints(bool on);
+// FIX-FP-ARMS-4: weapon_* textures drawn with a brightness floor (0..255; 0 off): under Remix the albedo is the texture and the gunmetal is near black.
+void ModelSetGunLift(float floor);
+// FIX-FP-ARMS-4: the pistol's walnut grip panels drawn in its rubber texture (the pistol hold: no wood between the fingers).
+void ModelSetGripSwap(bool on);
 bool ModelNodeTextureMean(IDirect3DDevice9* device, const Model& model, const char* nodePrefix, float rgb[3]);
 const Model* ModelForPedestrian();
 // One of the pedestrian models, chosen by a seed (the same seed always gives
