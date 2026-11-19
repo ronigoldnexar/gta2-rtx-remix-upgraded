@@ -12432,7 +12432,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                         track.guFromClip = lyingA; track.guFromT = std::floor(track.actionTime * 30.0f) / 30.0f; track.guFromK = 1.0f;
                     }
                     static const float rate = [] { char b[16] = {}; return GetEnvironmentVariableA("GTA2DX9_GETUP_RATE", b, sizeof b) ? static_cast<float>(atof(b)) : 0.0f; }();
-                    track.guClip = gc; track.guModel = gm; track.guInfo = gi;
+                    track.guClip = gc; track.guModel = gm; track.guInfo = gi; track.guFlee = false;
                     track.guRate = rate > 0.05f ? rate : (track.kd ? kGuKdRate : (CatchUpOld() ? kGuRate : 2.1f));   // MOTION-QA-5 (1.8), MOTION-QA-9 (2.1: 0.88 s)
                     track.actionTime = track.kdRiseLen = gi->length;
                     const float mx = track.kdMirror ? -1.0f : 1.0f, S = track.kdScaleS;
@@ -13202,9 +13202,19 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                     const float done = gi->length > 0.0f ? 1.0f - track.actionTime / gi->length : 1.0f;
                     // MOTION-QA-9: from 78 % (the back rise's 'rising' key: torso up, thighs at 65 degrees, the weight on
                     // the feet; the front rise's rise off the planted foot) at up to 1.8 blocks/s
-                    if (done > 0.78f) {
+                    // MOTION-QA-11 (the punched man's 0.95-1.22 block gap after his rise: ours, not the game's): the game
+                    // stands a punched man up and runs him off at 1.9 blocks/s within 3-6 frames (mr_41_gu, 5 of 5), while
+                    // the drawn man was pinned for 0.88 s of rise. Once the game's man is 0.06 away the rise scrambles
+                    // (the clip at 3.4x, ~0.55 s, eased in over 0.1 s) and he moves toward the game's spot from 62 % of it
+                    // (on his feet, the hands off the road) at up to 3.2 blocks/s. GTA2DX9_PUNCH_FLEE_OLD=1: as before.
+                    static const bool fleeOld = [] { char b[8] = {}; return GetEnvironmentVariableA("GTA2DX9_PUNCH_FLEE_OLD", b, sizeof b) && b[0] == '1'; }();
+                    const float gapNow = std::sqrt((baseX - track.guPinX) * (baseX - track.guPinX) + (baseZ - track.guPinZ) * (baseZ - track.guPinZ));
+                    if (!fleeOld && !track.kd && gapNow > 0.06f) { track.guFlee = true; }
+                    if (track.guFlee) track.guRate += (3.4f - track.guRate) * (std::min)(1.0f, dt / 0.1f);
+                    const float from = track.guFlee ? 0.62f : 0.78f, vTop = track.guFlee ? 3.2f : 1.8f, ramp = track.guFlee ? 0.10f : 0.12f;
+                    if (done > from) {
                         const float ox = baseX - track.guPinX, oz = baseZ - track.guPinZ, l = std::sqrt(ox * ox + oz * oz);
-                        const float v = 1.8f * (std::min)(1.0f, (done - 0.78f) / 0.12f);
+                        const float v = vTop * (std::min)(1.0f, (done - from) / ramp);
                         if (l > 1e-4f) { const float st = (std::min)(l, v * dt); track.guPinX += ox / l * st; track.guPinZ += oz / l * st; }
                     }
                 }

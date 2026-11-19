@@ -157,19 +157,78 @@ const void* g_car = nullptr;
 float g_hx[4] = {}, g_hz[4] = {}, g_hy[4] = {}, g_oy = 0.0f;
 int g_n = 0;
 float g_hold = 0.0f, g_ox = 0.0f, g_oz = 0.0f;
+float g_dx = 0.0f, g_dz = 0.0f, g_dy = 0.0f;
+bool g_dOk = false;
 uint32_t g_frames = 0, g_seen = 0, g_on = 0;
 }  // namespace scrapesmooth
 void CarScrapeSmooth(const void* car, float dt, float* px, float* pz, float* yaw) {
     using namespace scrapesmooth;
     static int on = -1;
     if (on < 0) { char b[8] = {}; on = GetEnvironmentVariableA("GTA2DX9_CAR_SCRAPE_SMOOTH", b, sizeof b) && b[0] == '0' ? 0 : 1; }
-    if (!on || !car || !px) { g_car = nullptr; g_n = 0; g_hold = 0.0f; g_ox = g_oz = g_oy = 0.0f; return; }
+    if (!on || !car || !px) { g_car = nullptr; g_n = 0; g_hold = 0.0f; g_ox = g_oz = g_oy = 0.0f; g_dOk = false; return; }
     const float gx = *px, gz = *pz, gy = yaw ? *yaw : 0.0f;
-    if (car != g_car || (g_n > 0 && std::hypot(gx - g_hx[0], gz - g_hz[0]) > 0.6f)) { g_car = car; g_n = 0; g_hold = 0.0f; g_ox = g_oz = 0.0f; }
+    if (car != g_car || (g_n > 0 && std::hypot(gx - g_hx[0], gz - g_hz[0]) > 0.6f)) { g_car = car; g_n = 0; g_hold = 0.0f; g_ox = g_oz = g_oy = 0.0f; g_dOk = false; }
     for (int k = 3; k > 0; --k) { g_hx[k] = g_hx[k - 1]; g_hz[k] = g_hz[k - 1]; g_hy[k] = g_hy[k - 1]; }
     g_hx[0] = gx; g_hz[0] = gz; g_hy[0] = gy;
     g_n = (std::min)(4, g_n + 1);
     ++g_frames;
+    static int oldWay = -1;
+    if (oldWay < 0) { char b[8] = {}; oldWay = GetEnvironmentVariableA("GTA2DX9_CAR_SCRAPE_OLD", b, sizeof b) && b[0] == '1' ? 1 : 0; }
+    if (!oldWay) {
+        // MOTION-QA-11: the game's own place stalls at a scrape or a hit (a step of 0.006 between two of 0.05, every
+        // second or third frame; 0 / 0.02 / 0 pushing on a wall). The old rules carried the stall frame forward and then
+        // fitted the next frame through the stalled place, so the drawn car went 0.04 / 0.02 / 0.08 - a zig-zag in the
+        // opposite phase to the game's. Now, from the first uneven step for 0.6 s, the drawn car moves by the game's
+        // mean step over the last three frames plus a third of the gap to the game's place (an alpha-beta follower,
+        // which a period-2 or period-3 stall cannot shake), never more than kMax off the game's place, and never back
+        // against its own way while the game itself is not going back (a real stop leaves the car at most kMax ahead,
+        // which it gives up at 0.002 block a frame).
+        constexpr float kMax = 0.04f;
+        const float fdt = (std::min)(dt, 0.1f), fr = fdt / (1.0f / 30.0f);
+        if (car != g_car || !g_dOk) { g_dx = gx; g_dz = gz; g_dy = gy; g_dOk = true; }
+        if (g_n >= 3) {
+            const float s0 = std::hypot(g_hx[0] - g_hx[1], g_hz[0] - g_hz[1]), s1 = std::hypot(g_hx[1] - g_hx[2], g_hz[1] - g_hz[2]);
+            const float hi = (std::max)(s0, s1), lo = (std::min)(s0, s1);
+            if (hi > 0.012f && lo < 0.65f * hi) { if (g_hold <= 0.0f) ++g_seen; g_hold = 0.6f; }
+        }
+        float cx = gx + g_ox, cz = gz + g_oz, cy = gy + g_oy;
+        const float vx = g_n >= 4 ? (g_hx[0] - g_hx[3]) / 3.0f : 0.0f, vz = g_n >= 4 ? (g_hz[0] - g_hz[3]) / 3.0f : 0.0f;
+        if (g_hold > 0.0f && g_n == 4) {
+            g_hold -= fdt;
+            // a stall this frame (its step under half of the two before): the way from the two steps before it, and only a
+            // tenth of the gap to the stalled place, so the stall frame itself is filled in
+            const float s0 = std::hypot(g_hx[0] - g_hx[1], g_hz[0] - g_hz[1]);
+            const float s12 = 0.5f * (std::hypot(g_hx[1] - g_hx[2], g_hz[1] - g_hz[2]) + std::hypot(g_hx[2] - g_hx[3], g_hz[2] - g_hz[3]));
+            const bool stall = s12 > 0.012f && s0 < 0.5f * s12;
+            const float ux = stall ? (g_hx[1] - g_hx[3]) * 0.5f : vx, uz = stall ? (g_hz[1] - g_hz[3]) * 0.5f : vz, gain = stall ? 0.1f : 0.33f;
+            cx = g_dx + ux + gain * (gx - g_dx - ux); cz = g_dz + uz + gain * (gz - g_dz - uz);
+            const float vy = (WrapAngle(g_hy[0] - g_hy[3])) / 3.0f;
+            cy = g_dy + vy + 0.33f * WrapAngle(gy - g_dy - vy);
+            ++g_on;
+        } else {
+            const float k = std::exp(-fdt / 0.1f);
+            cx = gx + g_ox * k; cz = gz + g_oz * k; cy = gy + g_oy * k;
+        }
+        const float vl = std::hypot(vx, vz);
+        if (vl > 0.004f) {
+            const float ux = vx / vl, uz = vz / vl;
+            const float gAlong = (g_hx[0] - g_hx[1]) * ux + (g_hz[0] - g_hz[1]) * uz;
+            const float along = (cx - g_dx) * ux + (cz - g_dz) * uz, floorAlong = -0.002f * fr;
+            if (gAlong > -0.002f && along < floorAlong) { cx += (floorAlong - along) * ux; cz += (floorAlong - along) * uz; }
+        }
+        float ox = cx - gx, oz = cz - gz;
+        const float l = std::hypot(ox, oz);
+        if (l > kMax) { ox *= kMax / l; oz *= kMax / l; }
+        float oy = (std::max)(-0.035f, (std::min)(0.035f, WrapAngle(cy - gy)));
+        if (std::hypot(ox, oz) < 1e-4f) ox = oz = 0.0f;
+        if (std::fabs(oy) < 1e-4f) oy = 0.0f;
+        g_ox = ox; g_oz = oz; g_oy = oy;
+        g_dx = gx + ox; g_dz = gz + oz; g_dy = WrapAngle(gy + oy);
+        *px = g_dx; *pz = g_dz;
+        if (yaw) *yaw = g_dy;
+        if ((g_frames % 900) == 0) { Log("car scrape smooth: %u uneven steps seen, %u frames followed in the last 900", g_seen, g_on); g_seen = g_on = 0; }
+        return;
+    }
     if (g_n == 4) {
         const float s0 = std::hypot(g_hx[0] - g_hx[1], g_hz[0] - g_hz[1]), s1 = std::hypot(g_hx[1] - g_hx[2], g_hz[1] - g_hz[2]),
                     s2 = std::hypot(g_hx[2] - g_hx[3], g_hz[2] - g_hz[3]);

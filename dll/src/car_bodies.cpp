@@ -4622,12 +4622,19 @@ inline float Clamp01Signed(float v, float lim) { return v > lim ? lim : (v < -li
 // the road (never lifting off it). False (nothing changed) when fewer than three corners find a road, or when the game
 // has the car in the air (a jump), which keeps the game's height.
 bool g_groundForceLevel = false;   // MOTION-QA-9: set around the driven body's grounding, see GroundOnTyres
+bool g_groundLiftOnly = false;     // MOTION-QA-11: the seat view's body, grounded only when lifted at a whole level
 int g_groundOnTyres = 1;   // [devtools] ground_on_tyres=0: the bodies on the sprite plane as before (A/B)
 int g_bodyLiftOn = [] { char v[8] = {}; return GetEnvironmentVariableA("GTA2DX9_BODY_LIFT", v, sizeof v) && v[0] == '0' ? 0 : 1; }();   // MOTION-QA-2: GTA2DX9_BODY_LIFT=0 off (A/B)
 bool GroundOnTyres(gta2::Mat4* m, const TyreContacts& tc, float sink, float before[4], float after[4]) {
     constexpr float kHair = 0.001f;
     float h[4], px[4], pz[4];
     bool ok[4];
+    // MOTION-QA-11 (r11_t0_night, r11_t1_rain: the van at the 'Jesus Saves' steps' foot drawn 0.3-0.68 over the road for up
+    // to 14 s): a corner more than 0.30 over the road was taken for a corner over a drop and left out, so a game lift of
+    // 0.3-0.6 left fewer than three corners and the game's height was kept. For the driven car at a whole level the
+    // corners count up to 0.9 over the road (the lift a level car can be given here). GTA2DX9_STAIRS_LIFT_OLD=1: 0.30.
+    static const bool liftOld0 = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_STAIRS_LIFT_OLD", b, sizeof b) && b[0] == '1'; }();
+    const float overMax = g_groundForceLevel && !liftOld0 ? 0.9f : 0.30f;
     auto measure = [&](const gta2::Mat4& mm) {
         int n = 0;
         for (int c = 0; c < 4; ++c) { h[c] = 1e9f; ok[c] = false; }
@@ -4637,7 +4644,7 @@ bool GroundOnTyres(gta2::Mat4* m, const TyreContacts& tc, float sink, float befo
             float g = 0.0f;
             if (!VehicleFxGroundAt(w.x, w.z, w.y + 0.75f, &g)) continue;
             const float d = w.y - g;
-            if (d > 0.30f || d < -0.30f) continue;   // over a drop or under a step: not what this tyre stands on
+            if (d > overMax || d < -0.30f) continue;   // over a drop or under a step: not what this tyre stands on
             if (d < h[c]) { h[c] = d; px[c] = p.x; pz[c] = p.z; ok[c] = true; }
         }
         for (int c = 0; c < 4; ++c) n += ok[c] ? 1 : 0;
@@ -4656,6 +4663,7 @@ bool GroundOnTyres(gta2::Mat4* m, const TyreContacts& tc, float sink, float befo
     // keeps the game's. GTA2DX9_STAIRS_LIFT_OLD=1: as before.
     static const bool liftOld = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_STAIRS_LIFT_OLD", b, sizeof b) && b[0] == '1'; }();
     if (lo > 0.15f && !(g_groundForceLevel && !liftOld && lo < 0.9f)) return false;
+    if (g_groundLiftOnly && !(lo > 0.15f)) return false;
     if (lo > 0.15f) {
         static int liftLogs = 0;
         if (liftLogs < 40) { ++liftLogs; Log("car bodies: the game lifts the driven car %.3f over the road at a whole level: drawn on its tyres", lo); }
@@ -5576,10 +5584,22 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
             bool grounded = false;
             if (g_groundOnTyres && !cpuCut && !WreckModelNumber(modelNumber) && CurrentViewMode() != ViewMode::Classic) {
                 const float ex = carToWorld.m[3][0] - eye.x, ez = carToWorld.m[3][2] - eye.z;
-                if (ex * ex + ez * ez < 40.0f * 40.0f || use.driven)
+                if (ex * ex + ez * ez < 40.0f * 40.0f || use.driven) {
                     g_groundForceLevel = use.driven && PlayerCarOnLevel();
                     grounded = GroundOnTyres(&carToWorld, TyreContactsFor(*model, fit), 0.0f, nullptr, nullptr);
                     g_groundForceLevel = false;
+                }
+            } else if (g_groundOnTyres && cpuCut && use.driven && !WreckModelNumber(modelNumber) && PlayerCarOnLevel()) {
+                // MOTION-QA-11 (r11_st_rain: the van stopped at the 'Jesus Saves' steps' foot, first person: the cockpit
+                // 0.47 block up and rolled ~25 degrees with the game's placement, as the 5090 QA saw it): from the seat the
+                // body is left to the seat lock as before, except a lift at a whole level, which is stood on its tyres too
+                // (the seat eye follows the posed body). GTA2DX9_STAIRS_LIFT_OLD=1: not from the seat.
+                static const bool seatOld = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_STAIRS_LIFT_OLD", b, sizeof b) && b[0] == '1'; }();
+                if (!seatOld && CurrentViewMode() != ViewMode::Classic) {
+                    g_groundForceLevel = true; g_groundLiftOnly = true;
+                    grounded = GroundOnTyres(&carToWorld, TyreContactsFor(*model, fit), 0.0f, nullptr, nullptr);
+                    g_groundForceLevel = false; g_groundLiftOnly = false;
+                }
             }
             // VEHICLE-FEEL: the sprung body and the turning wheels (see vehicle_fx.h).
             const float roofH = model->Height() * sy;
@@ -5812,10 +5832,10 @@ void CarBodiesDraw(IDirect3DDevice9* device, const std::vector<CarBodyUse>& cars
                     // the camera: eye = -(t * R^T), its forward the view's third column
                     const float ex = -(vw._41 * vw._11 + vw._42 * vw._12 + vw._43 * vw._13), ey = -(vw._41 * vw._21 + vw._42 * vw._22 + vw._43 * vw._23),
                                 ez = -(vw._41 * vw._31 + vw._42 * vw._32 + vw._43 * vw._33);
-                    Log("carscreen: f=%u model %d view %d c %.2f %.2f nose %.2f %.2f roof %.2f %.2f w %.4f %.4f %.4f yaw %.4f gyaw %.4f eye %.4f %.4f %.4f cyaw %.4f cpitch %.4f", frame, modelNumber,
+                    Log("carscreen: f=%u model %d view %d c %.2f %.2f nose %.2f %.2f roof %.2f %.2f w %.4f %.4f %.4f yaw %.4f gyaw %.4f eye %.4f %.4f %.4f cyaw %.4f cpitch %.4f g %.4f %.4f", frame, modelNumber,
                         static_cast<int>(CurrentViewMode()), s0x, s0y, s1x, s1y, s2x, s2y, posed.m[3][0], posed.m[3][1], posed.m[3][2],
                         std::atan2(posed.m[2][0], posed.m[2][2]), std::atan2(gameCarToWorld.m[2][0], gameCarToWorld.m[2][2]), ex, ey, ez,
-                        std::atan2(vw._13, vw._33), std::asin((std::max)(-1.0f, (std::min)(1.0f, vw._23))));
+                        std::atan2(vw._13, vw._33), std::asin((std::max)(-1.0f, (std::min)(1.0f, vw._23))), gameCarToWorld.m[3][0], gameCarToWorld.m[3][2]);
                 }
             }
             if (use.own) {

@@ -835,6 +835,7 @@ private:
         float guRate = 1.0f, guOX = 0.0f, guOZ = 0.0f, guPinX = 0.0f, guPinZ = 0.0f;
         float catchV = 0.0f;
         uint32_t kdAgainFrame = 0, risePelFrame = 0;   // MOTION-QA-10: struck again while rising; the rising pelvis drawn
+        bool guFlee = false;   // MOTION-QA-11: the game ran him off while he rises (punched): the rise scrambles
         float risePelX = 0.0f, risePelZ = 0.0f;   // MOTION-QA-3: the walk-off's closing speed (blocks/s), built up from rest
         bool guOff = false, guPinned = false;
         const void* guFromClip = nullptr;

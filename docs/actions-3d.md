@@ -2693,3 +2693,45 @@ rig re-framing when the probe swaps the car model mid-drive (a probe artefact). 
   all at impacts, 0 yaw reversals, wheels within 0.0033 block of the road (sw5_t0_day); entries near and far, third and
   first, in rain 4/4 (sw6_entry_rain); two jacks by day (sw6_jack_day); get-ups at night x6 incl. down-again, lowest foot
   >= +0.006 (sw6_gu_night); classic `spawn_classic` 0 changed tiles (mr_vreg10). No faults.
+
+## MOTION-QA-11 (19 Nov 2026): collision zig-zags traced to their source; the punched man's gap closed
+
+- *Zig-zags at collisions: where they come from.* The `carscreen:` probe now also logs the game's own place of the
+  driven car (`g x z`, before any smoothing), so each zig-zag frame splits into the game's step, the drawn step (with
+  `CarScrapeSmooth`'s offset), the eye's step and the camera's turn (`mr/zz.py`). On the round-10 build (r11_t0
+  day/night/rain, 25 zig-zag runs): most were the car. The game stalls its own place at a scrape or a hit (a step of
+  0.006 between two of 0.05, every second or third frame; 0 / 0.02 / 0 pushing on a wall), and
+  the old scrape smoothing made it worse: it carried the stall frame forward, then fitted the next frame through the
+  stalled place, so the drawn car went 0.041 / 0.021 / 0.077 against the game's 0.006 / 0.048 / 0.049 (opposite phase),
+  and at a real stop it went 0.03 past the game's place and came back. The rest were the camera (the eye pinned on a
+  wall while reversing toward it, or a pull-in at a wall with no impact nearby): those are its cuts, not collision
+  frames.
+- *Fix at the source (view_modes.cpp `CarScrapeSmooth`).* From the first uneven step (one step under 0.65 of the one
+  next to it, over 0.012 block) for 0.6 s, the drawn car moves by the game's mean step over the last three frames plus a
+  third of the gap to the game's place (on a stall frame, by the two steps before it and a tenth of the gap); at most
+  0.04 block off the game's place; and never back along its own way while the game is not going back (a real stop
+  leaves it at most 0.04 ahead, given back at 0.002 block a frame). Heading likewise (at most 0.035 rad). Uneven steps
+  of the game's place against the drawn car's (`mr/hitch.py`, three drives each): before (r11_t0) game 119 / drawn 99,
+  heading hitches 162 / 160; after (r11_t3) game 178 / drawn 12, heading 129 / 49. The zig-zag runs left (r11_t3, 21)
+  are the camera at walls (5) or a real hit's slow-down (the drawn steps falling monotonically, under 6 px a frame). `GTA2DX9_CAR_SCRAPE_OLD=1`: the old rules.
+- *The van on the 'Jesus Saves' steps, reproduced here.* The tw3 drive's route passes the steps' foot (x 191-192.5,
+  y 178.4): r11_t0_night drew the car 0.3-0.4 block over the road for 14 s and r11_t1_rain 0.3-0.68. MOTION-QA-9's rule
+  (the driven car at a whole level stood on its tyres) never ran there: `GroundOnTyres` left out any corner more than
+  0.30 over the road (taken for a corner over a drop), so a lift of 0.3-0.6 left fewer than three corners and the game's
+  height was kept. For the driven car at a whole level a corner now counts up to 0.9 over. From the driver's seat (first person) the
+  body was never grounded (the seat lock rides it), so the cockpit sat 0.47 up and rolled ~25 degrees there
+  (r11_st_rain, as the QA saw it); a lift at a whole level is now stood on its tyres from the seat too, nothing else
+  changes there. Replayed at the steps' foot with the awning probe (`keys_mr_awning.sh`, AW_T=190.5,178.4, 15 stops,
+  r11_st4 day/night/rain, trucks 63 and vans 67/68 among them): the game lifted the body over 0.15 in 100 frames (13 in
+  first person); drawn more than 0.08 over the road: 0; the first-person view level. (Also: braces restored round the
+  grounding call, so its 40-block distance test applies again.) `GTA2DX9_STAIRS_LIFT_OLD=1`: as before.
+- *The punched man's 0.95-1.22 block gap: ours.* The getup trace (`mr/gap.py`) shows the game stands a punched man up
+  and runs him off at 1.9 blocks/s 3-6 frames into our rise (mr_41_gu, 5 of 5), while the drawn figure stayed pinned
+  for the 0.88 s rise: the gap was our rise, not the game's place. Now once the game's man is 0.06 away the rise
+  scrambles (the clip eased to 3.4x over 0.1 s: 17 frames, was 26) and he moves toward the game's spot from 62 % of it
+  at up to 3.2 blocks/s (live_geometry.cpp, `track.guFlee`). Gap at the end of the rise 0-0.36 (r11_gu day/night/
+  rain, 8 get-ups), closed within ~0.6 s after (was 1.0-1.22, closed after ~1.6 s); worst per-frame pelvis move 0.13
+  (a run's stride), head 0.136, lowest foot >= +0.007. `GTA2DX9_PUNCH_FLEE_OLD=1`: as before.
+- Checks on this build (plain renderer, GPUs 3-5): drives of 000 day/night/rain (r11_t3), get-ups day/night/rain
+  (r11_gu), steps' foot day/night/rain (r11_st4), classic `spawn_classic` 0 changed tiles (mr_vreg11b). Probes:
+  `mr/zz.py` (per-frame split of a zig-zag), `mr/hitch.py` (uneven steps, game vs drawn), `mr/gap.py` (get-up gap).
