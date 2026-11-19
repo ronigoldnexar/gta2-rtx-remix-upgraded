@@ -66,6 +66,8 @@ const char* RemixApiStatusText();
 // is not, Remix's own menu remains the authority and this is a request rather
 // than a guarantee.
 bool RemixSetConfig(const char* key, const char* value);
+// QA5090-TDR-2: the rtx.uniqueObjectDistance pushed at start ([camera] remix_cut_distance), 0 when none was.
+float RemixCutDistancePushed();
 
 // The fork's game-value store (remixapi_SetGameValue / GetGameValue): a string map the
 // runtime's graph components and its weather blender read by name (__weather.target is a

@@ -95,6 +95,10 @@ struct ViewModeSettings {
     // FIX-CAMERA-18 (qaexp32): the first street frame after a level load is cut to, not moved to from the classic camera.
     // [camera] level_start_cut.
     bool levelStartCut = true;
+    // QA5090-TDR-2: under Remix the most the lens may move in one frame, in tiles, unless the jump is meant (a warp, a
+    // respawn, the level-start cut). Remix takes a frame whose camera moved more than rtx.uniqueObjectDistance (1 tile in
+    // our rtx.conf) for a camera cut and re-creates its radiance cache on each one. [camera] remix_cut_guard; 0 = off.
+    float remixCutGuard = 0.9f;
     // FIX-CAMERA-18: in a vehicle a pivot inside a tunnel's roof goes down under it, not up through it. [camera] tunnel_pivot.
     bool tunnelPivot = true;
     // FIX-CAMERA-19: on a train the chase lens rides the line behind the carriage. [camera] train_trail.
