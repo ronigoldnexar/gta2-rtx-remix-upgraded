@@ -12310,6 +12310,7 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                 track.actionReverse = false; track.actionTime = 0.0f; track.kdRising = false;
                 track.kdSecs = 0.0f; track.kdSettledAt = -1.0f; track.kdGameUp = false; track.kdRolled = false; track.kdRolls = 0; track.kdRollAt = -1.0f;
                 Log("knockdown: %p knocked down again while getting up", reinterpret_cast<const void*>(sprite.object));
+                track.kdAgainFrame = g_carFrame;   // MOTION-QA-10: the new body is put where the rising one was drawn
             }
         }
         // FIX-GETUP: down again while getting up (another blow, or killed): the lying clip from about as far down as he
@@ -14245,6 +14246,20 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                                                    track.action == 4 && !track.actionReverse && !track.waterFrame, *model, world,
                                                    kdPinned ? track.kdAnchorX : gx - track.kdOX, cy, kdPinned ? track.kdAnchorZ : gz - track.kdOZ,
                                                    track.heading, dt, g_carFrame, locoA, locoTA, locoB, locoTB, locoW);
+                // MOTION-QA-10 (sw3_kd_day f490-491: struck by a car again 6 frames into his rise, the new fall's body was
+                // seeded 0.4 block aside of where the rising figure stood): on that frame the body is moved so its pelvis
+                // is where the rising figure's pelvis was drawn last frame (track.risePel*). GTA2DX9_KD_AGAIN_SHIFT_OLD=1.
+                if (ragdoll && track.kdAgainFrame == g_carFrame && track.risePelFrame + 2 >= g_carFrame) {
+                    static const bool shiftOld = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_KD_AGAIN_SHIFT_OLD", b, sizeof b) && b[0] == '1'; }();
+                    RagdollInfo nri;
+                    if (!shiftOld && RagdollQuery(sprite.object, &nri)) {
+                        const float sx = track.risePelX - nri.pelvis[0], sz = track.risePelZ - nri.pelvis[2];
+                        if (sx * sx + sz * sz < 1.0f) {
+                            RagdollShift(sprite.object, sx, sz);
+                            if (ownPed || g_logPedFrames) Log("knockdown: %p the new fall's body moved %.3f,%.3f onto the rising pose", reinterpret_cast<const void*>(sprite.object), sx, sz);
+                        }
+                    }
+                }
                 {   // FIX-KNOCKDOWN-2 (pfl65): the drawn placement beside the solver's trace (GTA2DX9_LOG_KD=1)
                     static const bool kdTrace = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_LOG_KD", b, sizeof b) && b[0] == '1'; }();
                     if (kdTrace && track.kd)
@@ -14716,6 +14731,15 @@ void LiveGeometry::DrawPedFigures(IDirect3DDevice9* device) {
                         Log("fig: fp victim %04x t=%u chest %.2f,%.2f,%.2f (%.2f above his feet, %.2f from the eye) action %d drawn %d",
                             static_cast<unsigned>((sprite.object >> 2) & 0xFFFF), g_carFrame - g_fpVictimFrame, vx, vy, vz, vy - cy,
                             std::hypot(vx - g_viewEye.x, vz - g_viewEye.z), track.action, kdSkipDraw ? 0 : 1);
+                }
+                if (track.kd && track.action == 4 && track.actionReverse) {   // MOTION-QA-10: where the rising pelvis is drawn
+                    gta2::Mat4 nm;
+                    if (ModelNodeWorld(*model, "Bip01 Pelvis", locoA, locoTA, locoB, locoTB, locoW, &nm)) {
+                        const float q[3] = {nm.m[3][0], nm.m[3][1], nm.m[3][2]};
+                        track.risePelX = q[0] * world.m[0][0] + q[1] * world.m[1][0] + q[2] * world.m[2][0] + world.m[3][0];
+                        track.risePelZ = q[0] * world.m[0][2] + q[1] * world.m[1][2] + q[2] * world.m[2][2] + world.m[3][2];
+                        track.risePelFrame = g_carFrame;
+                    }
                 }
                 {   // FIX-GETUP: a per-frame trace of a figure going down, lying and getting up (GTA2DX9_LOG_GETUP=1):
                     // the game's state and frame, the action layer, the drawn heading and the pelvis, head and feet in the world.

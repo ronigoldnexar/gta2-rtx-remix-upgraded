@@ -1076,6 +1076,17 @@ bool RagdollFigure(uintptr_t ped, int kind, bool down, const Model& model, const
     return true;
 }
 
+// MOTION-QA-10: the whole body moved across the ground (its joints, their last positions, its start and roll centre)
+bool RagdollShift(uintptr_t ped, float dx, float dz) {
+    auto found = g_bodies.find(ped);
+    if (found == g_bodies.end()) return false;
+    Body& b = found->second;
+    for (Particle& q : b.q) { q.p.x += dx; q.p.z += dz; q.prev.x += dx; q.prev.z += dz; }
+    b.startX += dx; b.startZ += dz;
+    b.rollCentre.x += dx; b.rollCentre.z += dz;
+    return true;
+}
+
 bool RagdollQuery(uintptr_t ped, RagdollInfo* out) {
     auto found = g_bodies.find(ped);
     if (found == g_bodies.end() || !out) return false;

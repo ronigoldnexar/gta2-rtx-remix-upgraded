@@ -51,6 +51,9 @@ struct RagdollInfo {
     float pelvis[3] = {0.0f, 0.0f, 0.0f}, head[3] = {0.0f, 0.0f, 0.0f};
 };
 bool RagdollQuery(uintptr_t ped, RagdollInfo* out);
+// MOTION-QA-10: moves a body across the ground by (dx, dz) (a new fall seeded from the rising pose, put where the rising
+// figure was drawn). False: no body.
+bool RagdollShift(uintptr_t ped, float dx, float dz);
 // FIX-KNOCKDOWN: a body lying on its back rolls over onto its front (to get up from there): a turn about its
 // long axis given to the joints, the solver doing the rest (the ground, the limbs, the walls).
 bool RagdollRollOver(uintptr_t ped);

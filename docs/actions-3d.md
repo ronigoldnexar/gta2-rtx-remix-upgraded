@@ -2679,3 +2679,17 @@ rig re-framing when the probe swaps the car model mid-drive (a probe artefact). 
   in rain (sw3_jackfp_rain); the ramp in first person at night (sw3_ramp1_night); classic `spawn_classic` 0 tiles
   (mr_vreg9). No faults. Found: struck by a car again 6 frames into his rise (sw3_kd_day, f490-491), the new fall's
   ragdoll starts 0.4 block aside of the rising pose (a one-frame jump; MOTION-QA-3 had made the vertical pop go) - open.
+
+## MOTION-QA-10 (19 Nov 2026): struck again while rising, the new fall where the rising body was
+
+- *Struck by a car again 6 frames into his get-up* (sw3_kd_day f490-491): the new fall's ragdoll was seeded 0.40 block
+  aside of where the rising figure was drawn (a one-frame jump). The rising pelvis is now kept each frame of a full
+  knock-down's rise (`track.risePel*`), and on the frame he goes down again the new body is moved across the ground so
+  its pelvis is there (ragdoll.cpp `RagdollShift`). Pelvis step on that frame: sw3_kd_day (before) 0.406; sw4_kd_day
+  0.029 and 0.104, sw4_kd_rain 0.049 and 0.047 (the car's own blow on that frame). `knockdown: ... the new fall's body
+  moved` logs the shift. `GTA2DX9_KD_AGAIN_SHIFT_OLD=1`: as before.
+- Sweep on this build (plain renderer): full knock-downs by cars day 6 / night 6 / rain 5 incl. 4 down-again
+  (sw4_kd_*); punches at night 4/6 first person, 6/6 third (sw5_fp_night); a day drive of 000 and 051: 4 zig-zag frames
+  all at impacts, 0 yaw reversals, wheels within 0.0033 block of the road (sw5_t0_day); entries near and far, third and
+  first, in rain 4/4 (sw6_entry_rain); two jacks by day (sw6_jack_day); get-ups at night x6 incl. down-again, lowest foot
+  >= +0.006 (sw6_gu_night); classic `spawn_classic` 0 changed tiles (mr_vreg10). No faults.
