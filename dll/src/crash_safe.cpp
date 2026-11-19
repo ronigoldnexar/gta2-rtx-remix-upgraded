@@ -396,6 +396,8 @@ volatile LONG g_suspN = 0;
 SuspRec g_lastMss[2];             // the last mss32 SUSPEND [0] and RESUME [1] of the game thread
 volatile LONG g_suspTotal = 0, g_resumeTotal = 0, g_mssSuspends = 0, g_safeRetries = 0, g_safeGaveUp = 0, g_breaks = 0;
 bool g_safeSuspend = true;
+uintptr_t g_waitAlert = 0;   // ntdll NtWaitForAlertByThreadId: where a thread waiting for a critical section / SRW lock / condition variable sits
+HANDLE g_gameCtx = nullptr;   // a handle to the game thread with GET_CONTEXT: GetThreadContext on a suspended thread returns only once it has really stopped
 uintptr_t g_mssBase = 0, g_mssEnd = 0;
 uint8_t* g_trampSuspend = nullptr;
 uint8_t* g_trampResume = nullptr;
@@ -505,7 +507,18 @@ LONG NTAPI HookSuspend(HANDLE th, PULONG prev) {
         for (int attempt = 0;; ++attempt) {
             const LONG r = real(th, prev);
             if (r < 0) return r;
-            if (!GameHoldsLocks() || attempt >= 3000) {
+            // SuspendThread returns before a thread that is running has stopped; reading its locks now could miss the one it is about
+            // to take. GetThreadContext waits until it has stopped.
+            // A game thread that WAITS for a lock is as dangerous as one that holds it: when the lock is released the releasing thread
+            // wakes one waiter, and a woken thread that is suspended never takes the lock (r81: the game thread blocked in the heap's
+            // RtlEnterCriticalSection, the Miles thread behind it, the lock free with a pending wake for a thread that cannot run).
+            bool lockWait = false;
+            if (g_gameCtx) {
+                CONTEXT stopped = {};
+                stopped.ContextFlags = CONTEXT_CONTROL;
+                if (GetThreadContext(g_gameCtx, &stopped) && g_waitAlert && stopped.Eip >= g_waitAlert && stopped.Eip < g_waitAlert + 0x30) lockWait = true;
+            }
+            if ((!lockWait && !GameHoldsLocks()) || attempt >= 3000) {
                 if (attempt >= 3000) InterlockedIncrement(&g_safeGaveUp);
                 RecordGame(frame, 0, true);
                 return r;
@@ -614,6 +627,7 @@ void Init() {
     }
     g_mainLog = static_cast<HANDLE>(LogOsHandle());
     HMODULE nt = GetModuleHandleA("ntdll.dll");
+    if (nt) g_waitAlert = reinterpret_cast<uintptr_t>(GetProcAddress(nt, "NtWaitForAlertByThreadId"));
     if (nt) {
         const char* names[5] = {"NtWaitForSingleObject", "NtWaitForMultipleObjects", "NtDelayExecution", "NtSignalAndWaitForSingleObject", "NtWaitForMultipleObjects32"};
         for (int i = 0; i < 5; ++i) g_waitStubs[i] = reinterpret_cast<uintptr_t>(GetProcAddress(nt, names[i]));
@@ -632,13 +646,14 @@ void Init() {
 }
 
 void LogSuspendCounters() {
-    Log("mss32 suspend guard (%s): %ld NtSuspendThread calls in the process, %ld of the game thread by mss32.dll, %ld retried because the game thread held a "
+    Log("mss32 suspend guard (%s): %ld NtSuspendThread calls in the process, %ld of the game thread by mss32.dll, %ld retried because the game thread held or waited for a "
         "heap/loader/PEB lock, %ld gave up, %ld broken by the watchdog",
         g_safeSuspend ? "on" : "off", static_cast<long>(g_suspTotal), static_cast<long>(g_mssSuspends), static_cast<long>(g_safeRetries),
         static_cast<long>(g_safeGaveUp), static_cast<long>(g_breaks));
 }
 
 void SetGameThread(DWORD tid, volatile DWORD* beat) {
+    if (!g_gameCtx) g_gameCtx = OpenThread(THREAD_GET_CONTEXT | THREAD_QUERY_LIMITED_INFORMATION, FALSE, tid);
     g_gameTid = tid;
     g_beat = beat;
 }
@@ -870,6 +885,13 @@ void BreakMissSuspend(HANDLE game) {
     Put(" of mss32.dll for "); Dec(now - g_lastMss[0].tick); Put(" ms (suspend count "); Dec(count);
     Put("), which waits for a lock the game thread holds: resumed it (break #"); Dec(g_breaks); Put(")"); LineEnd();
     PutOneSusp("HANG: BREAK: ", "the Miles SUSPEND was", g_lastMss[0]);
+    {
+        CONTEXT g = {};
+        if (Snapshot(game, &g, nullptr)) {
+            LineStart("HANG: BREAK: the game thread is at "); PutWhere(g.Eip); Put(", chain "); PutChain(g.Ebp, 12);
+            Put(", stack "); PutStackWords(g.Esp, 10, 300); PutLocksOnStack(g.Esp, 300); LineEnd();
+        }
+    }
     // What the Miles thread waits on: its registers, callers and the critical sections on its stack with their owners.
     if (HANDLE miles = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, FALSE, g_lastMss[0].caller)) {
         CONTEXT c = {};

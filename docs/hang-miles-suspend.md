@@ -49,10 +49,14 @@ inside the Miles timer thread's suspension window.
 ## What changed (`dll/src/crash_safe.cpp`, `compat.cpp`, `dllmain.cpp`)
 
 1. **The cause, safe suspend** (`[devtools] mss_safe_suspend`, default 1). `NtSuspendThread` / `NtResumeThread` of this process are
-   hooked. A suspension of the game thread whose caller is in `mss32.dll` is checked right after it takes effect (the thread cannot
-   change now): if the game thread owns a heap lock, the loader lock or the PEB lock it is resumed at once, the Miles thread yields
-   and tries again (up to ~3 s, then it behaves as before). With heap debugging on, 40-70 % of the Miles suspensions are retried; in
-   normal play far fewer.
+   hooked. A suspension of the game thread whose caller is in `mss32.dll` is checked once it has really taken effect (a
+   `GetThreadContext` on it returns only when it has stopped): if the game thread owns a heap lock, the loader lock or the PEB lock,
+   is mid-release of a contended one (owner cleared, waiters pending), or is itself blocked waiting for a critical section / SRW lock
+   (`NtWaitForAlertByThreadId`: when the lock is released the releasing thread wakes one waiter, and a woken thread that is suspended
+   never takes the lock; this was the second way to the same deadlock, seen in the heavy repro), it is resumed at once, the Miles thread
+   yields and tries again (up to ~3 s, then it behaves as before). With heap debugging on, about half of the Miles suspensions are
+   retried; the first version of the check (owner only) left 1 deadlock per ~1.5 minutes in that repro, the final one none in 64 000
+   suspensions of an 8-minute run.
 2. **A backstop**: a game thread that a Miles suspension has held for over 400 ms (a timer tick takes microseconds) is resumed by the
    watchdog; the Miles thread's own `ResumeThread` later finds count 0 and does nothing. Logged as `HANG: BREAK: ...` with the Miles thread's
    chain and the critical sections on its stack. (It fires a few times in a heavy repro: locks other than heap/loader/PEB.)
