@@ -2789,3 +2789,29 @@ clock paused). Runs `fpr_day0`, `fpr_night0`, `fpr_night1` (before), `fpr_day_a3
   r14_t9; r14_t10 0 again); camera pops (`mr/campops.py`) 128 / 62 (t10: 50); camera-yaw reversals while moving 20 / 11
   (t10: 3); lens-to-surface clearance min over 30-frame windows 0.000 (rain, old) / 0.122; designed cuts 6 / 5. Car
   step hitches stay as MOTION-QA-11 left them (t10: game 93 / drawn 9).
+
+## MOTION-QA-15 (19 Nov 2026): regression sweep on the merged head; the 5090 QA r50 items
+
+- *Sweep of MOTION-QA-1..14 on camera-modes 2de0f79d* (plain renderer, GPUs 3-5): drives of 000 day/night/rain
+  (sw14_drive): car step hitches game 68 / drawn 14, zig-zag frames 3 / 5 / 2, eye jumps other than designed cuts 0,
+  camera-yaw reversals 1 / 0 / 2, wheels within 0.0024 of the road (no air, no sinking, no flip-flops); punched get-ups
+  x11 day/night/rain (sw14_gu): gap at the end of the rise 0-0.32, worst per-frame pelvis 0.129, lowest foot >= +0.007;
+  car knock-downs 4 / 2 / 3 (sw14_kd): worst per-frame pelvis 0.131 (a walk-off stride) - the trace's 'heading 124-145
+  deg' on front rises is its own wrap (-3.01 -> 3.10 rad) and the lying-to-rise handover with the pelvis and head still,
+  as in sw4_kd; boarding and exits at speed third and first in rain (sw14_entry2_rain) and two jacks (sw14_entry_rain,
+  both driving after); punches landed third 8/10, first 10/10 at night (sw14_fp2_night); the steps' foot replayed
+  (sw14_st_rain: the game lifted the body over 0.15 in 147 frames, 144 of them in first person; drawn over 0.08: 1);
+  classic `spawn_classic` 0 changed tiles (sw14_vreg; this build mr_vreg15). No faults.
+- *(b) The chase lens over a parked van's roof* (r50 night_chase 04_foot_wanted / 05_end: on foot in a gap between a
+  wall and the van, the lens lifted over the van (FIX-CAMERA-2) and the roof filled the lower half of the frame): a car
+  whose roof is under the lens (the lens over its footprint widened by 0.25, at most 0.7 over the roof) with him within
+  1.2 of it fades as one between the lens and him (live_geometry.cpp ChaseCarFades; `view: car roof under the lens
+  beside him fades`). The QA's route replayed (`keys_r15_chase.sh`, r15_ch day/night/rain): fired 1 / 1 / 2 times,
+  each as he stepped off along a van or truck. `GTA2DX9_CAM_ROOF_FADE=0`: off.
+- *(a) The wall texture smeared horizontally* (r50 rain_stairs 03_rain_V, map_route_b 03_fp_route_a): not the near
+  plane and not the kit near cut (none active at 03_rain_V); the same streaks show on the plain renderer at the steps'
+  foot (r11_st4_day b_aw4_first). They are the facade kit's own UVs: `art_box` (tools/districts/kit.py) gives a stood-out
+  piece's left/right faces the tile's edge column at every depth (u fixed, 'drawn back to the wall'), so a deep pier or
+  corner block seen along the street shows one texel column stretched across its depth. Left for the facade kit's
+  owner: the fix is to step u across the depth (the column band beside the edge) and rebuild the kits (build_kits.sh,
+  restage), which this seat does not run.

@@ -5194,6 +5194,17 @@ static void ChaseCarFades(std::vector<CarBodyUse>& cars) {
             // (0.08) of a body the fade does not take its six frames, it is gone at once. GTA2DX9_CAM_CAR_LENS_CUT_OLD=1.
             static const bool lensCutOld = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_CAM_CAR_LENS_CUT_OLD", b, sizeof b) && b[0] == '1'; }();
             if (!lensCutOld && e.y > cc->y0 - 0.08f && e.y < cc->y1 + 0.12f && inside(*cc, e.x, e.z, -0.08f)) lensInside = true;
+            // MOTION-QA-15 (5090 QA r50 night_chase 04_foot_wanted / 05_end: on foot in a gap between a wall and a parked
+            // van, the lens lifted over the van (FIX-CAMERA-2) and its roof filled the lower half of the frame): a car whose
+            // roof is under the lens (the lens over its footprint widened by 0.25, at most 0.7 over the roof) with him
+            // beside it (within 1.2 of its footprint) fades as one between the lens and him. GTA2DX9_CAM_ROOF_FADE=0: off.
+            static const bool roofFadeOff = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_CAM_ROOF_FADE", b, sizeof b) && b[0] == '0'; }();
+            if (!hides && !roofFadeOff && e.y > cc->y1 - 0.05f && e.y < cc->y1 + 0.7f && inside(*cc, e.x, e.z, -0.25f) &&
+                inside(*cc, g_playerPosX, g_playerPosZ, -1.2f)) {
+                hides = true;
+                static uint32_t lastRoof = 0;
+                if (camLogOn && g_carFrame - lastRoof > 15) { lastRoof = g_carFrame; Log("view: car roof under the lens beside him fades (model %d, lens %.2f over its roof)", u.model, e.y - cc->y1); }
+            }
         }
         // MOTION-QA-1 (mr_2_p49): the car he is climbing into or out of stays whole. Boarding from the far side the van
         // stood between the lens and him for the climb and faded out completely: for 0.25 s he stepped and climbed on
