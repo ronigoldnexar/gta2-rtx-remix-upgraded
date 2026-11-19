@@ -9689,6 +9689,25 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     // an empty view; unknown (no word from the game, no shot lately) stays empty as before.
     int want = (weapon > 0 && weapon < kWpnCount) ? weapon : (g_playerWeapon == 0 ? 0 : -1);
     if (want > 0 && g_playerWeapon < 0 && (!g_fpShotFrame || g_carFrame - g_fpShotFrame > 150)) want = -1;
+    // FIX-FP-ARMS-4 (development, off unless set): GTA2DX9_FP_VM_FORCE_FILE=<path> names a file holding a weapon id
+    // (kWeapons: 1 pistol, 2 dual pistols, 3 silenced MG, 4 machine gun, 5 rocket launcher, 6 electro gun, 9 shotgun,
+    // 10 flamethrower, ...) that the view model shows while he holds any gun, so every weapon's first-person model can
+    // be checked in one place and light (the dual pistols have no pickup a probe can reach). Read every 15 frames.
+    {
+        static char forcePath[260] = {};
+        static const bool forceOn = GetEnvironmentVariableA("GTA2DX9_FP_VM_FORCE_FILE", forcePath, sizeof forcePath) > 0;
+        static int forced = 0;
+        static uint32_t forceRead = 0;
+        if (forceOn && (forceRead == 0 || g_carFrame - forceRead >= 15)) {
+            forceRead = g_carFrame ? g_carFrame : 1;
+            if (FILE* ff = fopen(forcePath, "r")) {
+                int v = 0;
+                if (fscanf(ff, "%d", &v) == 1 && v != forced) { forced = v; Log("view model: forced weapon %d (GTA2DX9_FP_VM_FORCE_FILE)", v); }
+                fclose(ff);
+            }
+        }
+        if (forceOn && want > 0 && forced > 0 && forced < kWpnCount) want = forced;
+    }
     // A switch is a holster and a draw (~0.3 s): the old weapon dips out of the bottom of the
     // view, the new one rises into place, instead of a one-frame swap. A fresh first-person
     // view (nothing drawn for a while) starts with the weapon up.
@@ -10162,7 +10181,12 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     // FIX-FIGURE-7 (pf2feel): bare hands are the closed fist (fp_fist_right, thumb over the fingers),
     // not the pistol-grip hand with no gun (its trigger finger and thumb read as a pointing hand).
     const Model* fistModel = fist2 ? ModelByName("fp_fist2_right") : fists ? ModelByName("fp_fist_right") : nullptr;
-    const Model* armR = fistModel ? fistModel : pistolPair ? pistolRightM : ModelByName("fp_arm_right");
+    // FIX-FP-ARMS-4: the dual pistols' hands are the pistol hold's strong hand (backstrap in the palm, the fingers round the
+    // grip, the forearm out to the bottom corner), the left gun's the mirror, instead of the machine guns' fp_arm_right.
+    // GTA2DX9_FP_DUAL_HOLD=0 (or FP_PISTOL_HOLD=0): fp_arm_right on both, as before.
+    static const bool dualHold = [] { char v[4] = {}; return !(GetEnvironmentVariableA("GTA2DX9_FP_DUAL_HOLD", v, sizeof v) && v[0] == '0'); }();
+    const bool dualPair = weapon == kWpnDual && !fists && dualHold && pistolRightM;
+    const Model* armR = fistModel ? fistModel : (pistolPair || dualPair) ? pistolRightM : ModelByName("fp_arm_right");
     // FIX-FIGURE-16 (FIGURE-15's short-of-AAA list): after the release the throwing hand is open (fp_hand_open_right, the
     // fingers out ahead), not the grip hand closed on nothing, through the empty follow-through until the new bottle rises.
     // GTA2DX9_FP_OPEN_HAND=0: the grip hand as before.
@@ -10319,6 +10343,20 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
     device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
     device->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
     device->SetFVF(kWorldFvf);
+    // FIX-FP-ARMS-4 (RTX 6000 Remix check, 19 Nov: the machine gun's body near black): under Remix the albedo is the texture
+    // alone and the gunmetal textures are 24..45 of 255 (made for fixed-function lights), so the gun's dark texels are lifted to
+    // a floor (ModelSetGunLift, model_store.cpp). GTA2DX9_FP_GUN_LIFT=<floor 0..255> (default 85), 0: the textures as they are (A/B).
+    static const float gunLift = [] {
+        char v[16] = {};
+        if (!GetEnvironmentVariableA("GTA2DX9_FP_GUN_LIFT", v, sizeof v)) return 85.0f;
+        const float g = static_cast<float>(atof(v));
+        return g > 0.0f ? g : 0.0f;
+    }();
+    ModelSetGunLift(RemixApiAvailable() ? gunLift : 0.0f);
+    // FIX-FP-ARMS-4: in the two-hand pistol hold (and the dual pistols' hold) the walnut grip panels show between the fingers
+    // like a wooden post: drawn in the rubber texture. GTA2DX9_FP_GRIP_WOOD=1: the walnut as before.
+    static const bool gripWood = GetEnvironmentVariableA("GTA2DX9_FP_GRIP_WOOD", nullptr, 0) > 0;
+    ModelSetGripSwap(!gripWood && (pistolPair || dualPair));
     if (!fists && !thHide) {
         const bool pumping = pumpS > 0.0f;
         if (pumping) {
@@ -10408,10 +10446,12 @@ void DrawViewModel(IDirect3DDevice9* device, const gta2::Camera& camera) {
         }
     }
     ModelSetNodeTint(nullptr, nullptr);
+    ModelSetGunLift(0.0f);
+    ModelSetGripSwap(false);
     device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
     {
         static bool armsLogged = false;
-        if (!armsLogged) { armsLogged = true; Log("view model: hands %s/%s", armR ? (fistModel ? (fist2 ? "fp_fist2_right" : "fp_fist_right") : pistolPair ? "fp_arm_right_pistol" : "fp_arm_right") : "missing", leftName ? (armL ? leftName : "missing") : "none"); }
+        if (!armsLogged) { armsLogged = true; Log("view model: hands %s/%s", armR ? (fistModel ? (fist2 ? "fp_fist2_right" : "fp_fist_right") : (pistolPair || dualPair) ? "fp_arm_right_pistol" : "fp_arm_right") : "missing", leftName ? (armL ? leftName : "missing") : "none"); }
     }
     if (haveVp) device->SetViewport(&vp);
     if (vmStencil) {
