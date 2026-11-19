@@ -53,6 +53,7 @@ void SetWallClearance(float extra);
 // boom pulls in short of an awning or swings round it. A segment starting inside a box ignores that box.
 void SetKitBoxes(const float* boxes, int count);
 int KitBoxCount();
+int KitBoxHits();   // MOTION-QA-14: segments a kit box stopped so far (a diagnostic count)
 
 // Push against the railings' sheets only (WorldMesh::railingPanels): a wider berth for the
 // chase camera than the general surfaces get, the bars' spear tops being thick near the lens.

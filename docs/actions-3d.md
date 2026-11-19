@@ -2735,3 +2735,30 @@ rig re-framing when the probe swaps the car model mid-drive (a probe artefact). 
 - Checks on this build (plain renderer, GPUs 3-5): drives of 000 day/night/rain (r11_t3), get-ups day/night/rain
   (r11_gu), steps' foot day/night/rain (r11_st4), classic `spawn_classic` 0 changed tiles (mr_vreg11b). Probes:
   `mr/zz.py` (per-frame split of a zig-zag), `mr/hitch.py` (uneven steps, game vs drawn), `mr/gap.py` (get-up gap).
+
+## MOTION-QA-14 (19 Nov 2026): the chase eye's 0.4-0.66 block jumps at walls, traced stage by stage
+
+- *Probe.* `GTA2DX9_LOG_CAMSTAGE=1` logs, at the wheel, the chase eye after each stage of the solve (`camstage:` the
+  wanted spot, the eased solve, the boom, the berths, the car berth; boom/arm/solve/rig lengths, the pivot and the
+  boom's direction). `mr/eyej.py` finds the shown eye's one-frame jumps (over 0.3 block and 0.2 over its neighbours'
+  mean, not the car's own move, cuts marked) and names the stage whose step made each.
+- *What it found* (r14_t0/t1 and the old-behaviour control r14_t8old: 11 jumps in 3 drives, none of them kit boxes):
+  two stages, both at a wall the car is beside or leaving, both all-or-nothing from one frame to the next.
+  1. The car berth (FIX-CAMERA-11: the lens kept 0.4 off every wall) pushed the lens whole: the wide or the narrow berth,
+     or none when the berthed line was blocked. Driving away from the wall the lens had been held off, the push flipped
+     and the lens went 0.66 in a frame (r14_t0_night f1726, r14_t1_night f900, r14_t1_day f1272).
+  2. The boom's pivot shift off a wall beside the car (FIX-CAMERA-14) went to 0 in one frame when its line from the
+     car's middle became blocked (a car turning past a building's corner, or rammed into a corner): the pivot and the
+     whole boom jumped 0.27-0.44 (r14_t1_night f894: pivot 0.39 while the car moved 0.12; `cam: car pivot shift fell`).
+  The 'reversing toward the wall' case is the lens guard's turn ending in its designed cut (`car at the lens: cut`);
+  the eye held still on the wall before it is the berth holding the lens off the bricks, not a jump.
+- *Fixes (view_modes.cpp).* The car berth's push is an offset eased at 3 blocks/s toward what the berth wants (none:
+  back to 0 the same way); when the eased lens would be within 0.05 of a face or its line from the car blocked, it takes
+  only as much more of the way as clears that (`cam: car berth hurried`). The pivot shift, when its line is blocked, moves
+  only as far toward the shift wanted now (or none) as its line needs to clear; and a move of the pivot against the car
+  of more than 0.05 a frame is not passed to the lens at once: the lens keeps its place and gives the difference up at
+  1.5 blocks/s (walls still kept off it by the berths after). `GTA2DX9_CAM_WALL_EASE_OLD=1`: all as before.
+- *Result* (three drives each, day/night/rain, plain renderer): eye jumps not at a cut, old 11 / new 0 (r14_t8old vs
+  r14_t9; r14_t10 0 again); camera pops (`mr/campops.py`) 128 / 62 (t10: 50); camera-yaw reversals while moving 20 / 11
+  (t10: 3); lens-to-surface clearance min over 30-frame windows 0.000 (rain, old) / 0.122; designed cuts 6 / 5. Car
+  step hitches stay as MOTION-QA-11 left them (t10: game 93 / drawn 9).

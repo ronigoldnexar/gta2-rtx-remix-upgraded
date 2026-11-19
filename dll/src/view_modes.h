@@ -557,6 +557,8 @@ private:
     float armDirX_ = 0.0f, armDirY_ = 0.0f, armDirZ_ = -1.0f;
     float rescueX_ = 0.0f, rescueY_ = 0.0f, rescueZ_ = 0.0f;   // the pivot rescue's offset, eased for the shown camera
     float pivotSideX_ = 0.0f, pivotSideZ_ = 0.0f;   // FIX-CAMERA-14: the in-car boom pivot moved off a wall beside the car (eased)
+    float carBerthX_ = 0.0f, carBerthY_ = 0.0f, carBerthZ_ = 0.0f;   // MOTION-QA-14: the car berth's push, eased
+    bool carBerthKnown_ = false;
     float carRiseT_ = 0.0f, carRiseHold_ = 0.0f;   // FIX-CAMERA-14 (pfl65): seconds a car has hidden him on foot; the rise kept after
     bool snapEye_ = true;             // after a reset: the eye straight onto the solved rig
     // A blend after a discontinuity that is not a cut (in or out of a car, thrown

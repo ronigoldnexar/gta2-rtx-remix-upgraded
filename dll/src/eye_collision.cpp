@@ -363,12 +363,13 @@ float Push(Vec3* p, float radius0) {
 namespace { bool g_wallsOnly = false, g_solidOnly = false; float g_nearSoftSkip = 0.0f; }
 
 // MOTION-QA-9: the facade kit's solid pieces near the chase camera as boxes (SetKitBoxes).
-namespace { std::vector<float> g_kitBoxes; }
+namespace { std::vector<float> g_kitBoxes; int g_kitBoxHits = 0; }
 void SetKitBoxes(const float* boxes, int count) {
     if (!boxes || count <= 0) { g_kitBoxes.clear(); return; }
     g_kitBoxes.assign(boxes, boxes + static_cast<size_t>(count) * 6);
 }
 int KitBoxCount() { return static_cast<int>(g_kitBoxes.size() / 6); }
+int KitBoxHits() { return g_kitBoxHits; }
 namespace {
 // where the segment a + t d (0..1) enters the box, from outside it; false when it misses it or starts inside
 bool SegBox(const Vec3& a, const Vec3& d, const float* bb, float* tOut) {
@@ -419,7 +420,7 @@ bool SegmentHit(const Vec3& a, const Vec3& b, float* tOut) {
     {   // MOTION-QA-9: the kit's boxes are walls to every variant
         for (size_t k = 0; k + 6 <= g_kitBoxes.size(); k += 6) {
             float tt;
-            if (SegBox(a, d, &g_kitBoxes[k], &tt) && tt < best) best = tt;
+            if (SegBox(a, d, &g_kitBoxes[k], &tt) && tt < best) { best = tt; if (tt <= 1.0f) ++g_kitBoxHits; }
         }
     }
     if (best > 1.0f) return false;

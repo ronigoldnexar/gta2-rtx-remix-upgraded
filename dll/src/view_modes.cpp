@@ -152,6 +152,11 @@ float WrapAngle(float a) {
 // step before carried on); out of it the offset eases off in
 // ~0.05 s. Free driving, a stop at a wall (no alternation) and the classic view are the game's own places.
 // GTA2DX9_CAR_SCRAPE_SMOOTH=0: off.
+// MOTION-QA-14: GTA2DX9_CAM_WALL_EASE_OLD=1, the pivot shift and the car berth at once as before
+bool CamWallEaseOld() {
+    static const bool v = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_CAM_WALL_EASE_OLD", b, sizeof b) && b[0] == '1'; }();
+    return v;
+}
 namespace scrapesmooth {
 const void* g_car = nullptr;
 float g_hx[4] = {}, g_hz[4] = {}, g_hy[4] = {}, g_oy = 0.0f;
@@ -5014,6 +5019,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                 }
             }
         }
+        const float sideBefore = std::hypot(pivotSideX_, pivotSideZ_);
         // out fast (the wall is there now), back slowly (a car leaving a wall)
         const bool growing = wantX * wantX + wantZ * wantZ > pivotSideX_ * pivotSideX_ + pivotSideZ_ * pivotSideZ_;
         const float k = 1.0f - std::exp(-dt / (growing ? 0.1f : 0.5f));
@@ -5023,16 +5029,44 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         if (pivotSideX_ != 0.0f || pivotSideZ_ != 0.0f) {
             const gta2::Vec3 to{pivot.x + pivotSideX_, pivot.y, pivot.z + pivotSideZ_};
             float t = 1.0f;
-            if (!eyecol::SegmentHitSolid(pivot, to, &t) && !solidAt(to.x, to.y, to.z)) {
-                pivot = to;
+            // MOTION-QA-14 (r14_t1_night f894: the car turning past a building's corner, the shifted pivot's line crossed the
+            // corner and the shift went to 0 in one frame: the pivot and the eye jumped 0.27-0.44): the shift moves only
+            // as far toward the one it wants now (or none) as its line needs to clear, and eases on from there.
+            // GTA2DX9_CAM_WALL_EASE_OLD=1: to 0 at once, as before.
+            bool hitSide = eyecol::SegmentHitSolid(pivot, to, &t) || solidAt(to.x, to.y, to.z);
+            if (hitSide && !CamWallEaseOld()) {
+                // the nearest shift to the one it had, on the way to the one it wants now (checked clear above) or to
+                // none, whose line from the car's middle is clear
+                const float ox = pivotSideX_, oz = pivotSideZ_;
+                auto clearAt = [&](float sx, float sz) {
+                    const gta2::Vec3 to2{pivot.x + sx, pivot.y, pivot.z + sz};
+                    float t2 = 1.0f;
+                    return !solidAt(to2.x, to2.y, to2.z) && !eyecol::SegmentHitSolid(pivot, to2, &t2);
+                };
+                hitSide = true;
+                for (int pass = 0; pass < 2 && hitSide; ++pass) {
+                    const float tx = pass == 0 ? wantX : 0.0f, tz = pass == 0 ? wantZ : 0.0f;
+                    if (!clearAt(tx, tz) && !(tx == 0.0f && tz == 0.0f)) continue;
+                    float lo = 0.0f, hi = 1.0f;
+                    for (int it = 0; it < 8; ++it) { const float m = 0.5f * (lo + hi); if (clearAt(ox + (tx - ox) * m, oz + (tz - oz) * m)) hi = m; else lo = m; }
+                    pivotSideX_ = ox + (tx - ox) * hi; pivotSideZ_ = oz + (tz - oz) * hi;
+                    hitSide = !(pivotSideX_ == 0.0f && pivotSideZ_ == 0.0f) && !clearAt(pivotSideX_, pivotSideZ_);
+                }
+                if (pivotSideX_ == 0.0f && pivotSideZ_ == 0.0f) hitSide = false;
+            }
+            if (!hitSide) {
+                pivot = {pivot.x + pivotSideX_, pivot.y, pivot.z + pivotSideZ_};
                 if (cameraLogOn()) {
                     static int every = 0;
                     if ((++every % 10) == 1) Log("cam: car pivot off the wall %.2f (want %.2f)", std::hypot(pivotSideX_, pivotSideZ_), std::hypot(wantX, wantZ));
                 }
             } else {
+                if (cameraLogOn()) Log("cam: car pivot shift dropped %.2f (its line blocked)", std::hypot(pivotSideX_, pivotSideZ_));
                 pivotSideX_ = pivotSideZ_ = 0.0f;
             }
         }
+        if (cameraLogOn() && sideBefore - std::hypot(pivotSideX_, pivotSideZ_) > 0.1f)
+            Log("cam: car pivot shift fell %.2f -> %.2f (want %.2f, mesh %d)", sideBefore, std::hypot(pivotSideX_, pivotSideZ_), std::hypot(wantX, wantZ), carMesh ? 1 : 0);
     }
     const gta2::Vec3 shownPivot{px + rescueX_ + pivotSideX_, baseY + (std::max)(0.6f, bodyHeight_ + 0.1f) + rescueY_, pz + rescueZ_ + pivotSideZ_};
     // FIX-CAMERA-16: at the wheel the line's target is the car (a tree the game drives it through: run cam16_pk1 off).
@@ -6033,6 +6067,9 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
     // it with the rig's own length to tell a pull-in from the eye's ordinary lag).
     const float solveLen = std::sqrt((desired.x - pivot.x) * (desired.x - pivot.x) + (desired.y - pivot.y) * (desired.y - pivot.y) +
                                      (desired.z - pivot.z) * (desired.z - pivot.z));
+    // MOTION-QA-14: GTA2DX9_LOG_CAMSTAGE=1, the chase eye after each stage of the solve, a line a frame
+    static const bool camStageLog = [] { char b[4] = {}; return GetEnvironmentVariableA("GTA2DX9_LOG_CAMSTAGE", b, sizeof b) && b[0] == '1'; }();
+    float camStage[5][3] = {{desired.x, desired.y, desired.z}};
     if (swingCut || carDriveOffCut) {   // FIX-CAMERA-10: the cut round the staircase is drawn as a cut (the solved pose at once)
         snapEye_ = true;
         boomKnown_ = false;
@@ -6118,6 +6155,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
         eyeY_ = e.y;
         eyeZ_ = e.z;
     }
+    camStage[1][0] = eyeX_; camStage[1][1] = eyeY_; camStage[1][2] = eyeZ_;
 
     // FIX-CAMERA: the boom filter. The solve above says where the camera may be (eyeX_,
     // its state, kept as it was); what is shown sits on the same line from the pivot at
@@ -6363,6 +6401,31 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
             eyeX_ = shownPivot.x + dir.x * boom_;
             eyeY_ = shownPivot.y + dir.y * boom_;
             eyeZ_ = shownPivot.z + dir.z * boom_;
+            {
+                // MOTION-QA-14 (r14_t8_rain f1418: the pivot's shift off a wall beside the car turned 0.30 in a frame as the
+                // car came past a corner, and the whole boom with the lens went with it): a move of the pivot against the
+                // car beyond 0.05 a frame is not passed to the lens at once; the lens keeps its place and gives the
+                // difference up at 1.5 blocks/s (walls are still kept off it by the berths below).
+                static float lastSX = 0.0f, lastSY = 0.0f, lastSZ = 0.0f, compX = 0.0f, compY = 0.0f, compZ = 0.0f;
+                static bool lastKnown = false;
+                const float sx = shownPivot.x - px, sy = shownPivot.y - baseY, sz = shownPivot.z - pz;
+                if (!CamWallEaseOld() && lastKnown && boomKnown_ && inVehicle) {
+                    const float jx = sx - lastSX, jy = sy - lastSY, jz = sz - lastSZ, jl = std::sqrt(jx * jx + jy * jy + jz * jz);
+                    if (jl > 0.05f) { const float k = 1.0f - 0.05f / jl; compX -= jx * k; compY -= jy * k; compZ -= jz * k; }
+                    const float cl = std::sqrt(compX * compX + compY * compY + compZ * compZ), mx = 1.5f * (std::min)(dt, 0.05f);
+                    if (cl > mx) { const float k = 1.0f - mx / cl; compX *= k; compY *= k; compZ *= k; } else compX = compY = compZ = 0.0f;
+                    if (compX != 0.0f || compY != 0.0f || compZ != 0.0f) {
+                        const gta2::Vec3 to{eyeX_ + compX, eyeY_ + compY, eyeZ_ + compZ};
+                        float tc = 1.0f;
+                        if (!eyecol::SegmentHitSolid(shownPivot, to, &tc) && eyecol::Nearest(to, 0.1f) >= 0.05f) { eyeX_ = to.x; eyeY_ = to.y; eyeZ_ = to.z; }
+                        else compX = compY = compZ = 0.0f;
+                    }
+                } else {
+                    compX = compY = compZ = 0.0f;
+                }
+                lastSX = sx; lastSY = sy; lastSZ = sz; lastKnown = inVehicle;
+            }
+            camStage[2][0] = eyeX_; camStage[2][1] = eyeY_; camStage[2][2] = eyeZ_;
             // FIX-CAMERA-10: while the boom eases round a fast swing its line may pass over a staircase beside him
             // (the wil iron stair: the shown arm trails the swing across the treads, run cam10_p14n): the lens keeps
             // 0.45 over the floor beneath it there instead of skimming the treads (cam8_p14H: 0.2 over them).
@@ -6487,6 +6550,7 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                     berthOffX_ = w.x; berthOffY_ = w.y; berthOffZ_ = w.z;
                 }
             }
+            camStage[3][0] = eyeX_; camStage[3][1] = eyeY_; camStage[3][2] = eyeZ_;
             // FIX-CAMERA-11 (pfl28 angled tri18_rev, pm27 ste x=117): at the wheel the shown eye had no berth from
             // the faces beside its line: a car backing along a wall (or jammed against one) put the lens 0.0-0.15
             // from the bricks, the near plane cut the wall open (black frames; a magnified tile filling the frame).
@@ -6527,9 +6591,52 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                     const float dWide = std::hypot(e.x - shownPivot.x, e.z - shownPivot.z), dNarrow = std::hypot(narrow.x - shownPivot.x, narrow.z - shownPivot.z);
                     if (dWide < dNarrow - 0.02f && dWide < reachNeed + 0.3f) e = narrow;
                 }
-                const float moved = std::sqrt((e.x - e0.x) * (e.x - e0.x) + (e.y - e0.y) * (e.y - e0.y) + (e.z - e0.z) * (e.z - e0.z));
+                float moved = std::sqrt((e.x - e0.x) * (e.x - e0.x) + (e.y - e0.y) * (e.y - e0.y) + (e.z - e0.z) * (e.z - e0.z));
                 t = 1.0f;
-                if (moved > 1e-4f && !eyecol::SegmentHitSolid(shownPivot, e, &t)) {
+                const bool take = moved > 1e-4f && !eyecol::SegmentHitSolid(shownPivot, e, &t);
+                // MOTION-QA-14 (r14_t0_night f1726, r14_t1_night f900, r14_t1_day f1272: the eye 0.66 in a frame at a wall the
+                // car drives away from): the berth's push came and went whole from one frame to the next (the wide or the
+                // narrow berth, or none when its line was blocked). It is now an offset eased toward what the berth wants
+                // at 3 blocks/s (none: back to 0 the same way), when the eased lens would be within 0.05 of
+                // a face or its line from the car blocked, only as
+                // much more of the way as clears that. GTA2DX9_CAM_WALL_EASE_OLD=1: at once, as before.
+                if (!CamWallEaseOld()) {
+                    const gta2::Vec3 want = take ? gta2::Vec3{e.x - e0.x, e.y - e0.y, e.z - e0.z} : gta2::Vec3{0.0f, 0.0f, 0.0f};
+                    if (!carBerthKnown_ || !boomKnown_) { carBerthX_ = want.x; carBerthY_ = want.y; carBerthZ_ = want.z; carBerthKnown_ = true; }
+                    else {
+                        const float dx = want.x - carBerthX_, dy = want.y - carBerthY_, dz = want.z - carBerthZ_;
+                        const float dl = std::sqrt(dx * dx + dy * dy + dz * dz), mx = 3.0f * (std::min)(dt, 0.05f);
+                        const float k = dl > mx ? mx / dl : 1.0f;
+                        carBerthX_ += dx * k; carBerthY_ += dy * k; carBerthZ_ += dz * k;
+                    }
+                    gta2::Vec3 eased{e0.x + carBerthX_, e0.y + carBerthY_, e0.z + carBerthZ_};
+                    float te = 1.0f;
+                    const float nearE = take ? eyecol::Nearest(eased, 0.1f) : 1.0f;
+                    const bool blockedE = take && eyecol::SegmentHitSolid(shownPivot, eased, &te);
+                    if (take && (nearE < 0.05f || blockedE)) {
+                        if (cameraLogOn() && std::sqrt((want.x - carBerthX_) * (want.x - carBerthX_) + (want.z - carBerthZ_) * (want.z - carBerthZ_)) > 0.1f)
+                            Log("cam: car berth hurried %.2f (eased lens %.2f off a face%s)", std::sqrt((want.x - carBerthX_) * (want.x - carBerthX_) + (want.z - carBerthZ_) * (want.z - carBerthZ_)),
+                                nearE, blockedE ? ", its line blocked" : "");
+                        // only as much more of the way to what it wants as takes the lens 0.05 off the face with its line clear
+                        const gta2::Vec3 from{carBerthX_, carBerthY_, carBerthZ_};
+                        float lo = 0.0f, hi = 1.0f;
+                        for (int it = 0; it < 8; ++it) {
+                            const float m = 0.5f * (lo + hi);
+                            const gta2::Vec3 o{from.x + (want.x - from.x) * m, from.y + (want.y - from.y) * m, from.z + (want.z - from.z) * m};
+                            const gta2::Vec3 p{e0.x + o.x, e0.y + o.y, e0.z + o.z};
+                            float tm = 1.0f;
+                            if (eyecol::Nearest(p, 0.1f) >= 0.05f && !eyecol::SegmentHitSolid(shownPivot, p, &tm)) hi = m; else lo = m;
+                        }
+                        carBerthX_ = from.x + (want.x - from.x) * hi; carBerthY_ = from.y + (want.y - from.y) * hi; carBerthZ_ = from.z + (want.z - from.z) * hi;
+                        eased = {e0.x + carBerthX_, e0.y + carBerthY_, e0.z + carBerthZ_};
+                    } else if (!take) {
+                        te = 1.0f;
+                        if (eyecol::SegmentHitSolid(shownPivot, eased, &te)) { carBerthX_ = carBerthY_ = carBerthZ_ = 0.0f; eased = e0; }
+                    }
+                    e = eased;
+                    moved = std::sqrt(carBerthX_ * carBerthX_ + carBerthY_ * carBerthY_ + carBerthZ_ * carBerthZ_);
+                }
+                if (moved > 1e-4f && (CamWallEaseOld() ? take : true)) {
                     eyeX_ = e.x; eyeY_ = e.y; eyeZ_ = e.z;
                     if (cameraLogOn()) {
                         static int every = 0;
@@ -6537,6 +6644,11 @@ void ViewCameraSolver::Solve(const PlayerState& player, const ViewQueries& q, fl
                     }
                 }
             }
+            camStage[4][0] = eyeX_; camStage[4][1] = eyeY_; camStage[4][2] = eyeZ_;
+            if (camStageLog && inVehicle)
+                Log("camstage: bx %d des %.3f %.3f eased %.3f %.3f boom %.3f %.3f berth %.3f %.3f car %.3f %.3f | boom %.2f arm %.2f solve %.2f rig %.2f piv %.3f %.3f dir %.2f %.2f",
+                    eyecol::KitBoxHits(), camStage[0][0], camStage[0][2], camStage[1][0], camStage[1][2], camStage[2][0], camStage[2][2], camStage[3][0], camStage[3][2],
+                    camStage[4][0], camStage[4][2], boom_, armLen, solveLen, rigLen, shownPivot.x, shownPivot.z, dir.x, dir.z);
             const float full = (std::max)(rigLen, boom_);
             orientEye = {shownPivot.x + dir.x * full, shownPivot.y + dir.y * full, shownPivot.z + dir.z * full};
             pulledShort = (std::max)(0.0f, rigLen - boom_);
