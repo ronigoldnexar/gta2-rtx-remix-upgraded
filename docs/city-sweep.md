@@ -515,7 +515,7 @@ It fills the frame only because the chase eye stood about a block from that wall
 
 ## Filed, not fixed here
 
-- **Warp crash**: three runs (`out/sweep_wil_0`, `out/sweep_ste_1`,
+- **Warp crash** (FIXED, see docs/warp-crash.md: a dead player timer past 200 got him removed; not the car on the cell): three runs (`out/sweep_wil_0`, `out/sweep_ste_1`,
   `out/sweep_ste_2`) died with `FAULT: code C0000005 at gta2.exe+0x35FDF reading
   00000080` within two seconds of a scene warp on the 12:03 build, each time
   right after the brought car landed on the player's own cell ("WASTED!" then
