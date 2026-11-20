@@ -279,8 +279,12 @@ struct RailingStats {
     int panels = 0;         // panels built (one per plane, both sides)
     int quadsReplaced = 0;  // flat quads not emitted (a panel's two sides)
     int triangles = 0;      // triangles the railings added
+    int stairPanels = 0;    // of the panels, those built as stair railings (STAIR-RAILINGS)
 };
 void SetRailingModels(bool on);
+// STAIR-RAILINGS: diagonal and braced railings (the flights of steps) as models; [renderer] stair_railings, GTA2DX9_STAIR_RAILINGS.
+void SetStairRailings(bool on);
+bool StairRailings();
 bool RailingModels();
 RailingStats LastRailingStats();
 

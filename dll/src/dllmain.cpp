@@ -12,6 +12,7 @@
 
 #define WIN32_LEAN_AND_MEAN
 #include "city_map.h"
+#include "../../src/world_mesh.h"
 #include "mem_stats.h"
 #include <windows.h>
 
@@ -555,6 +556,7 @@ void LoadConfig() {
                              GetPrivateProfileIntA("renderer", "water_reflection", 100, ini) / 100.0f,
                              GetPrivateProfileIntA("renderer", "water_foam", 100, ini) / 100.0f);
         gta2::SetWindowGlow(GetPrivateProfileIntA("renderer", "window_glow", 1, ini) != 0);
+        gta2::SetStairRailings(GetPrivateProfileIntA("renderer", "stair_railings", 1, ini) != 0);   // STAIR-RAILINGS; GTA2DX9_STAIR_RAILINGS overrides
         gta2::SetAnisotropy(GetPrivateProfileIntA("renderer", "anisotropy", 0, ini));
         if (GetPrivateProfileIntA("renderer", "dump_tiles", 0, ini) != 0) {
             PathBesideGame("gta2dx9_tiles", dir, sizeof(dir));

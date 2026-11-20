@@ -76,3 +76,45 @@ The art's own luminance is kept as relief, the colour is a cool neutral grey and
 Run on the fix stage (`out/fw3_pm5_fix`), the bars measure 46-53/255 and the finials' bevels and the
 rails catch the light. Classic frames right after load are identical in the centre crop. No specular
 term was added: the world shader has none and the defect's luminance bar is met without one.
+
+## STAIR-RAILINGS: diagonal and braced railings (20 Nov 2026)
+
+The railings along the flights of steps (Downtown's 'Jesus Saves' church steps at 190-193,177-178 among them)
+were the engine's own flat cut-out panels, wil tiles 88-91: a sloped handrail and stringer, posts between them
+and knee braces into the posts. QB-11 leaves them alone (it takes only full-width flat rails with vertical bars);
+close up, the 8x-upscaled diagonal alpha edge of the art is a sawtooth, and the panel is a sheet of paper.
+
+- `src/world_mesh.cpp` (`AnalyseStair`, `MeshBuilder::StairOf`, the stair branch of `TryRailing`): read from the
+  tile's own alpha at world build, no table of tile numbers. A pixel in a row run of 5 or more opaque pixels is
+  'rail'; the connected rails that are straight (top edge on one line, level and full width, or at the stairs'
+  pitch, slope 0.35-0.7, 40 px or more across; two parallel rails in one set are peeled one by one) become strips:
+  an edge line and a thickness read as medians over the columns, so the roots of the braces and the tile border
+  clipping a rail do not count. What is left (posts, braces, feet) is read as plain sets. Every set is traced round,
+  simplified (Douglas-Peucker, 1 px, the tile's border pinned so a rail leaves a tile where the next one picks it
+  up: the 2:1 pixel staircase of the art becomes one straight edge), ear-clipped, and extruded: both faces carry the
+  art's own texture coordinates, the sides sample the iron just inside the edge. Depth: a rail 0.8 of its
+  thickness (2-5 px), a post or brace its own width (1.5-4 px). A level rail needs to be a landing's (a top rail 4+
+  rows over a heavy 10+ one, 2+ posts between), so girders, grilles and fences keep their panels; the cover of the
+  rebuilt pieces must be 80% IoU of the mask. Whole-tile vertical faces only, as QB-11; the panel goes through the
+  face's own texture mapping, so flips, rotations and both slope directions are honoured. The flat panel is not
+  emitted where the model replaces it (its two sides give one model, as in QB-11); the panel's plane still goes into
+  `WorldMesh::railingPanels` for the camera.
+- Tiles that qualify (wil 88-91; bil 18-20, 844-846, 856-858, 908-910; ste 987-989) and their uses, from the
+  maps: wil 1 202 panels, bil 954, ste 340 (flat faces counted per panel plane). Orientations seen: along x and along y,
+  rising either way (the flip bit), at the face's low and high levels.
+- Toggle: `[renderer] stair_railings=1` (ini, default on), `GTA2DX9_STAIR_RAILINGS=0|1` (environment, read at each
+  world build, wins over the ini) gives the flat panels back; `GTA2DX9_RAILINGS=0` still turns QB-11's off. The log
+  line `stair railings (STAIR-RAILINGS): modelled, <n> of those panel(s) ...` follows the QB-11 one.
+- Classic top-down view: unchanged (it does not draw the world mesh's railings): vreg `spawn_classic` result below.
+
+Triangles (host build, `GTA2DX9_STAIR_RAILINGS=0` vs on; the geometry joins each tile's opaque batch, no new draw):
+
+| district | stair tiles | stair panels | world triangles before | after | added |
+|---|---|---|---|---|---|
+| wil | 4 | 1 202 | 534 350 | 656 044 | +121 694 (+22.8%) |
+| bil | 12 | 954 | 661 845 | 723 855 | +62 010 (+9.4%) |
+| ste | 3 | 340 | 762 734 | 807 572 | +44 838 (+5.9%) |
+
+A panel costs 50-190 triangles (wil 91 about 150, a flat tile 88 landing about 100). Downtown's is the big one
+because tile 88, the landing piece, is its commonest railing. Not done: leaving the flat panel where the street
+never reaches (as QB-11's note says for the Industrial map-edge ring).

@@ -1786,6 +1786,8 @@ bool WorldView::EnsureWorldLoaded() {
         const gta2::RailingStats r = gta2::LastRailingStats();
         Log("railings (QB-11): %s, %d tile(s), %d panel(s) from %d flat quads, %d triangles",
             gta2::RailingModels() ? "modelled" : "off (flat panels)", r.tiles, r.panels, r.quadsReplaced, r.triangles);
+        Log("stair railings (STAIR-RAILINGS): %s, %d of those panel(s) are diagonal or braced railings (flights of steps)",
+            gta2::StairRailings() ? "modelled" : "off (flat panels)", r.stairPanels);
     }
     loadedMapObject_ = mapObject;
     worldUploaded_ = true;
