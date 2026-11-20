@@ -170,6 +170,7 @@ void FormatCallers(const uintptr_t* words, int count, char* line, size_t size, i
 }
 
 volatile LONG g_testHeld = 0;
+volatile LONG g_waitTest = 0;   // [devtools] handle_wait_test: the game thread waits on a handle nobody signals
 CRITICAL_SECTION g_testLock;
 
 DWORD WINAPI StallDumpTestThread(LPVOID) {
@@ -426,6 +427,7 @@ void StallDumpTestPoll() {
     // heap's lock on a thread that never lets go, which is what the QA r52 hang looked like from the game thread (it waits
     // on its next allocation): the stall watchdog must end the game with a HANG report after hang_kill_ms.
     static bool firedFatal = false, firedHeap = false;
+    if (!g_waitTest && GetPrivateProfileIntA("devtools", "handle_wait_test", 0, ini) == 1) InterlockedExchange(&g_waitTest, 1);
     if (!firedFatal && GetPrivateProfileIntA("devtools", "fatal_test", 0, ini) == 1) {
         firedFatal = true;
         Log("fatal_test: a thread writes through a null pointer now");
@@ -444,6 +446,13 @@ void StallDumpTestPoll() {
 
 namespace gta2dx9 {
 void StallDumpTestFrame() {
+    static LONG waited = 0;
+    if (g_waitTest && !waited) {
+        waited = 1;
+        Log("handle_wait_test: the game thread waits on a handle nobody signals (a kernel handle wait, like the bridge's, while the Remix server works)");
+        LogFlush();
+        WaitForSingleObject(CreateEventA(nullptr, TRUE, FALSE, nullptr), INFINITE);
+    }
     static LONG done = 0;
     if (!g_testHeld || done) return;
     done = 1;

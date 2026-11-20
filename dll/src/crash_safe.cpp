@@ -4,6 +4,7 @@
 #include <tlhelp32.h>
 
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 
 #include "log.h"
@@ -26,7 +27,8 @@ HistEntry g_hist[kHist];
 int g_histN = 0;
 
 
-DWORD g_killMs = 6000, g_busyKillMs = 60000, g_dumpMode = 1;
+DWORD g_killMs = 6000, g_busyKillMs = 60000, g_lateKillMs = 10000, g_dumpMode = 1;
+DWORD g_armedAt = 0;   // tick count when the watchdog first had frames to watch
 typedef LONG(NTAPI* NtGetNextThreadFn)(HANDLE, HANDLE, ACCESS_MASK, ULONG, ULONG, PHANDLE);
 typedef BOOL(WINAPI* QueryThreadCycleTimeFn)(HANDLE, PULONG64);
 typedef LONG(NTAPI* NtQueryInformationThreadFn)(HANDLE, ULONG, PVOID, ULONG, PULONG);
@@ -349,6 +351,35 @@ void PrepareDumper() {
     }
 }
 
+// The last bytes of a Remix log (the runtime's own account of what it was doing), written as lines; no heap.
+void PutLogTail(const char* prefix, const char* leaf, DWORD want) {
+    char path[MAX_PATH];
+    size_t k = 0;
+    for (const char* p = g_exeDir; *p && k + 1 < sizeof(path); ++p) path[k++] = *p;
+    for (const char* p = leaf; *p && k + 1 < sizeof(path); ++p) path[k++] = *p;
+    path[k] = 0;
+    HANDLE f = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
+    if (f == INVALID_HANDLE_VALUE) return;
+    static char tail[4097];
+    LARGE_INTEGER size = {};
+    GetFileSizeEx(f, &size);
+    if (want > 4096) want = 4096;
+    LARGE_INTEGER at;
+    at.QuadPart = size.QuadPart > want ? size.QuadPart - want : 0;
+    SetFilePointerEx(f, at, nullptr, FILE_BEGIN);
+    DWORD got = 0;
+    ReadFile(f, tail, want, &got, nullptr);
+    CloseHandle(f);
+    LineStart(prefix); Put("tail of "); Put(leaf); Put(":"); LineEnd();
+    size_t i = 0;
+    while (i < got) {
+        LineStart(prefix); Put("| ");
+        while (i < got && tail[i] != '\n') { if (tail[i] != '\r') PutChar(tail[i]); ++i; }
+        ++i;
+        LineEnd();
+    }
+}
+
 void RequestMinidump(const char* what) {
     if (!g_dumpThread) { LineStart(what); Put("minidump: no helper was prepared (hang_dump=0 or it did not start)"); LineEnd(); Flush(); return; }
     LineStart(what); Put("minidump: waking the helper"); LineEnd(); Flush();
@@ -622,6 +653,7 @@ void Init() {
         strcat(ini, "gta2dx9.ini");
         g_killMs = GetPrivateProfileIntA("devtools", "hang_kill_ms", 6000, ini);
         g_busyKillMs = GetPrivateProfileIntA("devtools", "hang_busy_kill_ms", 60000, ini);
+        g_lateKillMs = GetPrivateProfileIntA("devtools", "hang_late_kill_ms", 10000, ini);
         g_dumpMode = GetPrivateProfileIntA("devtools", "hang_dump", 1, ini);
         g_safeSuspend = GetPrivateProfileIntA("devtools", "mss_safe_suspend", 1, ini) != 0;
     }
@@ -669,10 +701,14 @@ void RefreshServerPid() {
     pe.dwSize = sizeof(pe);
     DWORD found = 0;
     for (BOOL ok = Process32First(snap, &pe); ok; ok = Process32Next(snap, &pe)) {
-        if (_stricmp(pe.szExeFile, "NvRemixBridge.exe") == 0) { found = pe.th32ProcessID; break; }
+        // The bridge client starts its server: ours is the one whose parent is this process. A server of an earlier run that did not
+        // exit (it lingers after a kill) must not be taken for it (r-test: its CPU time said busy, a dump of it hung).
+        if (_stricmp(pe.szExeFile, "NvRemixBridge.exe") == 0 && pe.th32ParentProcessID == g_pid) { found = pe.th32ProcessID; break; }
     }
     CloseHandle(snap);
     g_serverPid = found;
+    // (The Remix server is not dumped from here: a helper made for it never got going from inside the game; it lingers after the
+    // game ends, and the QA harness dumps it then, see qa_soakloop.ps1 WhyEnded.)
 }
 
 static ULONGLONG ProcessCpu100ns(HANDLE p) {
@@ -827,6 +863,9 @@ void HangExit(HANDLE gameThread, DWORD idleMs, const char* why) {
         Put(" ms, user time "); Dec(((static_cast<int64_t>(ut.dwHighDateTime) << 32) | ut.dwLowDateTime) / 10000); Put(" ms");
         LineEnd();
     }
+    PutLogTail("HANG: ", "rtx-remix\\logs\\remix-dxvk.log", 3000);
+    PutLogTail("HANG: ", "rtx-remix\\logs\\bridge64.log", 2000);
+    PutLogTail("HANG: ", "rtx-remix\\logs\\bridge32.log", 1500);
     PutSuspendHistory("HANG: ");
     PutHeapLocks("HANG: ");
     DumpThreads("HANG: ");
@@ -920,16 +959,20 @@ DWORD WINAPI WatchdogThread(LPVOID) {
         const DWORD idle = GetTickCount() - beat;
         if (idle < 1000) g_histN = 0;
         if (idle >= 1000 && (!g_histN || GetTickCount() - g_hist[g_histN - 1].tick >= 500)) RecordHistory(game);
+        if (!g_armedAt) g_armedAt = GetTickCount();
         if (idle < g_killMs) continue;
         if (g_byDesign && g_byDesign()) continue;   // paused for a focus loss or minimised: GTA2 runs no frame by design
         // Waiting on a handle while the Remix server is alive and working may be a cold shader cache compiling: give it
         // hang_busy_kill_ms. Anything else (a lock, a spin, a dead server) is a hang now.
-        const bool maybeRemix = idle < g_busyKillMs && InHandleWait(game) && ServerBusy();   // ServerBusy sleeps 500 ms
+        // Only the first two minutes of frames get the long allowance (a cold shader cache); after that the Remix server being busy
+        // (it always is) buys hang_late_kill_ms, ~10 s: r80 froze 28 s in a present wait with the server working.
+        const DWORD limit = GetTickCount() - g_armedAt < 120000 ? g_busyKillMs : g_lateKillMs;
+        const bool maybeRemix = idle < limit && InHandleWait(game) && ServerBusy();   // ServerBusy sleeps 500 ms
         if (*g_beat != beat) continue;                  // it came back meanwhile
         if (g_stopWatch) break;
         if (maybeRemix) continue;
         g_histN = g_histN;   // (the history is read by HangExit below)
-        HangExit(game, GetTickCount() - beat, idle >= g_busyKillMs ? "past the limit even waiting on a handle with the Remix server busy"
+        HangExit(game, GetTickCount() - beat, idle >= limit ? "past the limit even waiting on a handle with the Remix server busy"
                                                                     : "not a wait on the Remix server (a lock, a spin or a dead server)");
     }
     CloseHandle(game);
