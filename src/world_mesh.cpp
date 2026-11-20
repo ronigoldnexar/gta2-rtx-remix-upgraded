@@ -381,6 +381,417 @@ RailingShape AnalyseRailing(const Tile& tile) {
     return shape;
 }
 
+// --- STAIR-RAILINGS: diagonal and braced railings as models -----------------------
+//
+// QB-11 only takes railings that are bars between flat rails. The railing along a flight of
+// steps (wil 88-91 at the 'Jesus Saves' church and the other stairs) is a different drawing: a
+// handrail and a stringer running at the stairs' pitch, posts between them and knee braces
+// into the posts. As a flat panel its 8x upscaled diagonal edge shows a sawtooth from close by.
+//
+// So the cut-out is read at mesh build into plain pieces and each is built as a prism on the panel's
+// plane. A pixel is 'band' when the row it sits in has a run of 6 or more opaque pixels through it
+// (the handrail, the stringer, a landing's rails); the rest ('thin') are posts and braces. Each
+// connected set of pixels is traced round its outline, the outline is simplified so a staircase of
+// pixel steps becomes one straight edge (Douglas-Peucker, with the tile's border pinned so a rail
+// leaves a tile where the next one picks it up), and the polygon is extruded: its two faces keep
+// the art's own texture coordinates, its sides sample the iron just inside the edge. A tile counts
+// as a stair railing only when it has such a band that is level and full-width or sloped, and the
+// rebuilt pieces cover the mask at 80% IoU or better, so the lattices, grilles and fences that
+// are not railings keep their panels.
+struct StairPart {
+    std::vector<std::array<float, 2>> poly;      // outline, tile pixels, positive area
+    std::vector<std::array<int, 3>> tris;        // ear-clipped cap
+    float depth = 3.0f;                          // pixels, total
+    bool band = false;
+};
+struct StairShape {
+    bool valid = false;
+    std::vector<StairPart> parts;
+};
+
+namespace stair {
+
+using Pt = std::array<float, 2>;
+
+float Area2(const std::vector<Pt>& p) {
+    float a = 0.0f;
+    for (size_t i = 0; i < p.size(); ++i) {
+        const Pt& u = p[i];
+        const Pt& v = p[(i + 1) % p.size()];
+        a += u[0] * v[1] - v[0] * u[1];
+    }
+    return a;
+}
+
+// The outer outlines (positive area) of a set of pixels, as loops of corner points.
+std::vector<std::vector<Pt>> Outlines(const std::vector<uint8_t>& set, int n) {
+    auto on = [&](int x, int y) { return x >= 0 && y >= 0 && x < n && y < n && set[static_cast<size_t>(y) * n + x] != 0; };
+    std::map<std::pair<int, int>, std::vector<std::pair<int, int>>> next;
+    for (int y = 0; y < n; ++y)
+        for (int x = 0; x < n; ++x) {
+            if (!on(x, y)) continue;
+            if (!on(x, y - 1)) next[{x, y}].push_back({x + 1, y});
+            if (!on(x + 1, y)) next[{x + 1, y}].push_back({x + 1, y + 1});
+            if (!on(x, y + 1)) next[{x + 1, y + 1}].push_back({x, y + 1});
+            if (!on(x - 1, y)) next[{x, y + 1}].push_back({x, y});
+        }
+    std::vector<std::vector<Pt>> loops;
+    for (auto& entry : next) {
+        while (!entry.second.empty()) {
+            std::vector<Pt> loop;
+            std::pair<int, int> at = entry.first;
+            std::pair<int, int> prev = {at.first - 1, at.second};
+            bool closed = false;
+            for (int guard = 0; guard < 100000; ++guard) {
+                loop.push_back({static_cast<float>(at.first), static_cast<float>(at.second)});
+                auto& outs = next[at];
+                if (outs.empty()) break;
+                // At a pinch two edges leave: turn the way that keeps the loop on one pixel set.
+                size_t pick = 0;
+                if (outs.size() > 1) {
+                    const int dx = at.first - prev.first, dy = at.second - prev.second;
+                    int best = -9;
+                    for (size_t k = 0; k < outs.size(); ++k) {
+                        const int ex = outs[k].first - at.first, ey = outs[k].second - at.second;
+                        const int turn = dx * ey - dy * ex;   // >0 turns right in y-down
+                        if (turn > best) { best = turn; pick = k; }
+                    }
+                }
+                const std::pair<int, int> to = outs[pick];
+                outs.erase(outs.begin() + static_cast<long>(pick));
+                prev = at;
+                at = to;
+                if (at == entry.first && !loop.empty()) { closed = true; break; }
+            }
+            if (closed && loop.size() >= 4 && Area2(loop) > 0.0f) loops.push_back(std::move(loop));
+        }
+    }
+    return loops;
+}
+
+void Dp(const std::vector<Pt>& in, size_t a, size_t b, float tol, std::vector<bool>* keep) {
+    if (b <= a + 1) return;
+    float worst = -1.0f;
+    size_t at = a;
+    const Pt& pa = in[a % in.size()];
+    const Pt& pb = in[b % in.size()];
+    const float dx = pb[0] - pa[0], dy = pb[1] - pa[1];
+    const float len = std::sqrt(dx * dx + dy * dy);
+    for (size_t i = a + 1; i < b; ++i) {
+        const Pt& p = in[i % in.size()];
+        const float d = len < 1e-6f ? std::hypot(p[0] - pa[0], p[1] - pa[1])
+                                    : std::fabs(dx * (p[1] - pa[1]) - dy * (p[0] - pa[0])) / len;
+        if (d > worst) { worst = d; at = i; }
+    }
+    if (worst > tol) {
+        (*keep)[at % in.size()] = true;
+        Dp(in, a, at, tol, keep);
+        Dp(in, at, b, tol, keep);
+    }
+}
+
+// A closed outline simplified, its points on the tile's border kept.
+std::vector<Pt> Simplify(const std::vector<Pt>& in, float tol, float size) {
+    const size_t n = in.size();
+    std::vector<bool> keep(n, false);
+    auto border = [&](const Pt& p) { return p[0] <= 0.0f || p[1] <= 0.0f || p[0] >= size || p[1] >= size; };
+    std::vector<size_t> pins;
+    for (size_t i = 0; i < n; ++i) if (border(in[i])) { keep[i] = true; pins.push_back(i); }
+    if (pins.size() < 2) {   // a free loop: pin the point farthest from the first, and the first
+        size_t far = 0;
+        float best = -1.0f;
+        for (size_t i = 0; i < n; ++i) {
+            const float d = std::hypot(in[i][0] - in[0][0], in[i][1] - in[0][1]);
+            if (d > best) { best = d; far = i; }
+        }
+        pins = {0, far};
+        std::sort(pins.begin(), pins.end());
+        keep[0] = keep[far] = true;
+    }
+    for (size_t k = 0; k < pins.size(); ++k) {
+        const size_t a = pins[k];
+        const size_t b = k + 1 < pins.size() ? pins[k + 1] : pins[0] + n;
+        Dp(in, a, b, tol, &keep);
+    }
+    std::vector<Pt> out;
+    for (size_t i = 0; i < n; ++i) if (keep[i]) out.push_back(in[i]);
+    // Collinear points carry nothing.
+    bool again = true;
+    while (again && out.size() > 3) {
+        again = false;
+        for (size_t i = 0; i < out.size(); ++i) {
+            const Pt& a = out[(i + out.size() - 1) % out.size()];
+            const Pt& b = out[i];
+            const Pt& c = out[(i + 1) % out.size()];
+            const float cross = (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]);
+            if (std::fabs(cross) < 1e-4f) { out.erase(out.begin() + static_cast<long>(i)); again = true; break; }
+        }
+    }
+    return out;
+}
+
+void EarClip(const std::vector<Pt>& p, std::vector<std::array<int, 3>>* out) {
+    std::vector<int> idx(p.size());
+    for (size_t i = 0; i < p.size(); ++i) idx[i] = static_cast<int>(i);
+    auto cross = [&](int a, int b, int c) {
+        return (p[b][0] - p[a][0]) * (p[c][1] - p[b][1]) - (p[b][1] - p[a][1]) * (p[c][0] - p[b][0]);
+    };
+    int guard = 0;
+    while (idx.size() > 3 && guard++ < 10000) {
+        bool clipped = false;
+        const size_t m = idx.size();
+        for (size_t i = 0; i < m && !clipped; ++i) {
+            const int a = idx[(i + m - 1) % m], b = idx[i], c = idx[(i + 1) % m];
+            if (cross(a, b, c) <= 1e-6f) continue;
+            bool inside = false;
+            for (size_t k = 0; k < m && !inside; ++k) {
+                const int q = idx[k];
+                if (q == a || q == b || q == c) continue;
+                const float e1 = (p[b][0] - p[a][0]) * (p[q][1] - p[a][1]) - (p[b][1] - p[a][1]) * (p[q][0] - p[a][0]);
+                const float e2 = (p[c][0] - p[b][0]) * (p[q][1] - p[b][1]) - (p[c][1] - p[b][1]) * (p[q][0] - p[b][0]);
+                const float e3 = (p[a][0] - p[c][0]) * (p[q][1] - p[c][1]) - (p[a][1] - p[c][1]) * (p[q][0] - p[c][0]);
+                if (e1 >= -1e-6f && e2 >= -1e-6f && e3 >= -1e-6f) inside = true;
+            }
+            if (inside) continue;
+            out->push_back({a, b, c});
+            idx.erase(idx.begin() + static_cast<long>(i));
+            clipped = true;
+        }
+        if (!clipped) { out->push_back({idx[idx.size() - 1], idx[0], idx[1]}); idx.erase(idx.begin()); }
+    }
+    if (idx.size() == 3) out->push_back({idx[0], idx[1], idx[2]});
+}
+
+bool Inside(const std::vector<Pt>& p, float x, float y) {
+    bool in = false;
+    for (size_t i = 0, j = p.size() - 1; i < p.size(); j = i++)
+        if (((p[i][1] > y) != (p[j][1] > y)) && (x < (p[j][0] - p[i][0]) * (y - p[i][1]) / (p[j][1] - p[i][1]) + p[i][0])) in = !in;
+    return in;
+}
+
+}  // namespace stair
+
+StairShape AnalyseStair(const Tile& tile) {
+    using namespace stair;
+    StairShape shape;
+    constexpr int N = kTileSize;
+    if (!tile.hasTransparency || tile.pixels.size() < static_cast<size_t>(kTilePixels)) return shape;
+    auto solid = [&](int x, int y) { return x >= 0 && y >= 0 && x < N && y < N && (tile.pixels[static_cast<size_t>(y) * N + x] & 0xFF000000u) != 0; };
+    int opaque = 0;
+    for (int i = 0; i < N * N; ++i) opaque += solid(i % N, i / N) ? 1 : 0;
+    if (opaque < N * N / 20 || opaque > N * N * 4 / 5) return shape;
+
+    // Connected sets of a pixel mask (4-connected), each as its own mask with moments.
+    struct Comp { std::vector<uint8_t> mask; int count = 0; double sxx = 0, sxy = 0, syy = 0; int x0 = N, x1 = -1; bool band = false; };
+    auto components = [&](const std::vector<uint8_t>& src, bool band, int minCount, std::vector<Comp>* out) {
+        std::vector<uint8_t> seen(static_cast<size_t>(N) * N, 0);
+        for (int s = 0; s < N * N; ++s) {
+            if (!src[static_cast<size_t>(s)] || seen[static_cast<size_t>(s)]) continue;
+            Comp c;
+            c.mask.assign(static_cast<size_t>(N) * N, 0);
+            c.band = band;
+            std::vector<int> stack{s};
+            std::vector<std::pair<int, int>> pts;
+            seen[static_cast<size_t>(s)] = 1;
+            while (!stack.empty()) {
+                const int cur = stack.back();
+                stack.pop_back();
+                const int x = cur % N, y = cur / N;
+                c.mask[static_cast<size_t>(cur)] = 1;
+                pts.push_back({x, y});
+                static const int dx[4] = {1, -1, 0, 0}, dy[4] = {0, 0, 1, -1};
+                for (int k = 0; k < 4; ++k) {
+                    const int nx = x + dx[k], ny = y + dy[k];
+                    if (nx < 0 || ny < 0 || nx >= N || ny >= N) continue;
+                    const int ni = ny * N + nx;
+                    if (!src[static_cast<size_t>(ni)] || seen[static_cast<size_t>(ni)]) continue;
+                    seen[static_cast<size_t>(ni)] = 1;
+                    stack.push_back(ni);
+                }
+            }
+            c.count = static_cast<int>(pts.size());
+            if (c.count < minCount) continue;
+            double mx = 0, my = 0;
+            for (auto& p : pts) { mx += p.first; my += p.second; c.x0 = (std::min)(c.x0, p.first); c.x1 = (std::max)(c.x1, p.first); }
+            mx /= c.count; my /= c.count;
+            for (auto& p : pts) {
+                const double ddx = p.first - mx, ddy = p.second - my;
+                c.sxx += ddx * ddx; c.sxy += ddx * ddy; c.syy += ddy * ddy;
+            }
+            out->push_back(std::move(c));
+        }
+    };
+
+    // Rails: where the row holds a run of 6 or more opaque pixels. That finds the handrail, the stringer and a
+    // landing's rails, with the roots of the braces and the posts' feet stuck to them.
+    std::vector<uint8_t> runs(static_cast<size_t>(N) * N, 0);
+    for (int y = 0; y < N; ++y) {
+        for (int x = 0; x < N;) {
+            if (!solid(x, y)) { ++x; continue; }
+            const int x0 = x;
+            while (x < N && solid(x, y)) ++x;
+            if (x - x0 >= 5) for (int k = x0; k < x; ++k) runs[static_cast<size_t>(y) * N + k] = 1;
+        }
+    }
+    // Each rail that is straight (its top edge on one line, level or at the stairs' pitch) becomes a strip: that
+    // line and the rail's thickness, read as medians over its columns so the roots of the braces under it, and the
+    // tile's border clipping it, do not count. Two parallel rails in one connected set are peeled one by one, the
+    // top one first.
+    struct Strip { double slope, top, thick; int x0, x1; bool level; };
+    std::vector<Strip> strips;
+    std::vector<uint8_t> pool = runs;
+    for (int round = 0; round < 4; ++round) {
+        std::vector<Comp> rough;
+        components(pool, true, 60, &rough);
+        bool any = false;
+        for (const Comp& c : rough) {
+            if (c.x1 - c.x0 + 1 < 20 || c.sxx < 1.0) continue;
+            // Top edge per column, and its slope as the median of the steps over 4 columns (the tile's border
+            // clipping a rail, and the roots of braces under it, do not move a median).
+            std::vector<int> topAt(N, -1);
+            for (int x = c.x0; x <= c.x1; ++x)
+                for (int y = 0; y < N; ++y) if (c.mask[static_cast<size_t>(y) * N + x]) { topAt[x] = y; break; }
+            std::vector<double> steps;
+            for (int x = c.x0; x + 4 <= c.x1; ++x)
+                if (topAt[x] > 0 && topAt[x + 4] > 0) steps.push_back((topAt[x + 4] - topAt[x]) / 4.0);
+            if (steps.size() < 8) continue;
+            std::sort(steps.begin(), steps.end());
+            double slope = steps[steps.size() / 2];
+            const bool level = std::fabs(slope) < 0.08 && c.x1 - c.x0 + 1 >= N - 4;
+            const bool pitch = std::fabs(slope) >= 0.35 && std::fabs(slope) <= 0.7 && c.x1 - c.x0 + 1 >= 40;
+            if (!level && !pitch) continue;
+            if (level) slope = 0.0;
+            std::vector<double> tops;
+            for (int x = c.x0; x <= c.x1; ++x)
+                if (topAt[x] > 0) tops.push_back(topAt[x] - slope * x);   // not none, not clipped by the tile's top
+            if (tops.size() < 8) continue;
+            std::sort(tops.begin(), tops.end());
+            const double edge = tops[tops.size() / 2];
+            // Its thickness: the run down from the edge, on the columns that sit on the line.
+            std::vector<double> thick;
+            for (int x = c.x0; x <= c.x1; ++x) {
+                const int top = topAt[x];
+                if (top <= 0 || std::fabs(top - slope * x - edge) > 1.0) continue;
+                int len = 0;
+                while (top + len < N && c.mask[static_cast<size_t>(top + len) * N + x]) ++len;
+                thick.push_back(len);
+            }
+            if (thick.size() < 8) continue;
+            std::sort(thick.begin(), thick.end());
+            Strip st;
+            st.slope = slope;
+            st.thick = thick[thick.size() / 2];
+            st.top = edge;
+            int near = 0;
+            for (double t : tops) near += std::fabs(t - st.top) <= 1.5 ? 1 : 0;
+            if (near * 10 < static_cast<int>(tops.size()) * 6) continue;     // not a straight rail
+            st.x0 = c.x0; st.x1 = c.x1; st.level = level;
+            strips.push_back(st);
+            for (int y = 0; y < N; ++y)
+                for (int x = 0; x < N; ++x) {
+                    const double d = y - (st.top + st.slope * x);
+                    if (c.mask[static_cast<size_t>(y) * N + x] && d >= -0.6 && d <= st.thick - 1 + 0.6) pool[static_cast<size_t>(y) * N + x] = 0;
+                }
+            any = true;
+        }
+        if (!any) break;
+    }
+    bool sloped = false, level = false;
+    for (const Strip& st : strips) (st.level ? level : sloped) = true;
+    // A landing's railing (the flat piece of a flight's railing) has level rails of the right proportions: a top rail
+    // a few rows thick over a heavy one (a plain truss has two thin ones). It also needs posts between them (below).
+    if (!sloped) {
+        if (!level || strips.size() < 2) return shape;
+        double thickest = 0, thinnest = 1e9;
+        for (const Strip& st : strips) { thickest = (std::max)(thickest, st.thick); thinnest = (std::min)(thinnest, st.thick); }
+        if (thickest < 10 || thinnest < 4) return shape;
+    }
+
+    // The final pieces: the strips' pixels, and what is left of the cut-out (posts, braces, feet) in plain sets.
+    std::vector<uint8_t> inStrip(static_cast<size_t>(N) * N, 0);
+    std::vector<Comp> comps;
+    for (const Strip& st : strips) {
+        std::vector<uint8_t> pix(static_cast<size_t>(N) * N, 0);
+        for (int y = 0; y < N; ++y)
+            for (int x = 0; x < N; ++x) {
+                if (!solid(x, y) || inStrip[static_cast<size_t>(y) * N + x]) continue;
+                const double d = y - (st.top + st.slope * x);
+                if (d >= -0.6 && d <= st.thick - 1 + 0.6) pix[static_cast<size_t>(y) * N + x] = 1;
+            }
+        std::vector<Comp> one;
+        components(pix, true, 10, &one);
+        for (Comp& c : one) {
+            for (int i = 0; i < N * N; ++i) if (c.mask[static_cast<size_t>(i)]) inStrip[static_cast<size_t>(i)] = 1;
+            comps.push_back(std::move(c));
+        }
+    }
+    std::vector<uint8_t> rest(static_cast<size_t>(N) * N, 0);
+    for (int i = 0; i < N * N; ++i) rest[static_cast<size_t>(i)] = solid(i % N, i / N) && !inStrip[static_cast<size_t>(i)];
+    components(rest, false, 10, &comps);
+    if (!sloped) {
+        // Posts: groups of columns, no wider than 8, where what is left of the cut-out stands 10 rows or more.
+        int posts = 0;
+        bool prevTall = false;
+        int groupStart = 0;
+        for (int x = 0; x <= N; ++x) {
+            bool tall = false;
+            if (x < N) {
+                int run = 0;
+                for (int y = 0; y < N && !tall; ++y) {
+                    run = rest[static_cast<size_t>(y) * N + x] ? run + 1 : 0;
+                    tall = run >= 10;
+                }
+            }
+            if (tall && !prevTall) groupStart = x;
+            if (!tall && prevTall && x - groupStart <= 8) ++posts;
+            prevTall = tall;
+        }
+        if (posts < 2) return shape;
+    }
+
+    int both = 0, either = 0;
+    std::vector<uint8_t> rebuilt(static_cast<size_t>(N) * N, 0);
+    for (const Comp& c : comps) {
+        for (auto& loop : Outlines(c.mask, N)) {
+            std::vector<Pt> poly = Simplify(loop, 1.0f, static_cast<float>(N));
+            if (poly.size() < 3 || Area2(poly) <= 0.0f) continue;
+            StairPart part;
+            part.band = c.band;
+            part.poly = poly;
+            EarClip(part.poly, &part.tris);
+            float perimeter = 0.0f;
+            for (size_t i = 0; i < poly.size(); ++i) {
+                const Pt& a = poly[i];
+                const Pt& b = poly[(i + 1) % poly.size()];
+                perimeter += std::hypot(b[0] - a[0], b[1] - a[1]);
+            }
+            const float thick = Area2(poly) / (std::max)(perimeter, 1.0f);   // 2A/P (Area2 is twice the area)
+            if (c.band && c.sxx > 1.0) {
+                // A rail's thickness: its area over its length along the pitch.
+                const double slope = c.sxy / c.sxx;
+                const double length = (c.x1 - c.x0 + 1) * std::sqrt(1.0 + slope * slope);
+                part.depth = static_cast<float>((std::max)(2.0, (std::min)(5.0, 0.8 * c.count / length)));
+            } else {
+                part.depth = (std::max)(1.5f, (std::min)(4.0f, thick));
+            }
+            for (int y = 0; y < N; ++y)
+                for (int x = 0; x < N; ++x)
+                    if (Inside(poly, x + 0.5f, y + 0.5f)) rebuilt[static_cast<size_t>(y) * N + x] = 1;
+            shape.parts.push_back(std::move(part));
+        }
+    }
+    for (int i = 0; i < N * N; ++i) {
+        const bool a = solid(i % N, i / N), b = rebuilt[static_cast<size_t>(i)] != 0;
+        both += (a && b) ? 1 : 0;
+        either += (a || b) ? 1 : 0;
+    }
+    if (either == 0 || both * 100 < either * 80 || shape.parts.empty()) { shape.parts.clear(); return shape; }
+    shape.valid = true;
+    return shape;
+}
+
+bool g_stairRailings = true;
+
 bool g_railingModels = true;
 RailingStats g_railingStats;
 
@@ -854,10 +1265,42 @@ private:
         g_railingStats.triangles += 2;
     }
 
+    // One triangle with its normal measured and turned to face `outward`, in the tile's triangle list.
+    void AddSolidTri(int tile, Vec3 a, Vec3 b, Vec3 c, Vec3 outward, Uv ua, Uv ub, Uv uc) {
+        const Vec3 e1{b.x - a.x, b.y - a.y, b.z - a.z}, e2{c.x - a.x, c.y - a.y, c.z - a.z};
+        Vec3 n{e1.y * e2.z - e1.z * e2.y, e1.z * e2.x - e1.x * e2.z, e1.x * e2.y - e1.y * e2.x};
+        const float length = std::sqrt(n.x * n.x + n.y * n.y + n.z * n.z);
+        if (length < 1e-9f) return;
+        if (n.x * outward.x + n.y * outward.y + n.z * outward.z < 0.0f) { std::swap(b, c); std::swap(ub, uc); n = {-n.x, -n.y, -n.z}; }
+        n = {n.x / length, n.y / length, n.z / length};
+        std::vector<Vertex>& out = perTileTriangle_[0][static_cast<size_t>(tile)];
+        out.push_back(Vertex{a.x, a.y, a.z, n.x, n.y, n.z, ua.u, ua.v});
+        out.push_back(Vertex{b.x, b.y, b.z, n.x, n.y, n.z, ub.u, ub.v});
+        out.push_back(Vertex{c.x, c.y, c.z, n.x, n.y, n.z, uc.u, uc.v});
+        g_railingStats.triangles += 1;
+    }
+
+    const StairShape& StairOf(int tile) {
+        if (stairShapes_.empty()) {
+            stairShapes_.resize(perTile_[0].size());
+            stairKnown_.assign(perTile_[0].size(), 0);
+        }
+        if (!stairKnown_[static_cast<size_t>(tile)]) {
+            stairKnown_[static_cast<size_t>(tile)] = 1;
+            if (tile < style_.TileCount()) stairShapes_[static_cast<size_t>(tile)] = AnalyseStair(style_.GetTile(tile));
+        }
+        return stairShapes_[static_cast<size_t>(tile)];
+    }
+
     bool TryRailing(int tile, const std::array<Vec3, 4>& c, Vec3 normal, const std::array<Uv, 4>& uv) {
         if (!g_railingModels || std::fabs(normal.y) > 0.1f) return false;
         const RailingShape& shape = RailingOf(tile);
-        if (!shape.valid) return false;
+        const StairShape* stairShape = nullptr;     // STAIR-RAILINGS: a diagonal or braced railing instead of QB-11's bars
+        if (!shape.valid) {
+            if (!g_stairRailings) return false;
+            stairShape = &StairOf(tile);
+            if (!stairShape->valid) return false;
+        }
         // Only a whole tile on a whole rectangle: a ramp-cropped or partial face keeps its panel.
         for (const Uv& t : uv) {
             const bool uEdge = std::fabs(t.u - kUvMin) < 1e-4f || std::fabs(t.u - kUvMax) < 1e-4f;
@@ -902,6 +1345,38 @@ private:
         const Vec3 xDir{ax.x - o.x, ax.y - o.y, ax.z - o.z}, yDir{ay.x - o.x, ay.y - o.y, ay.z - o.z};
         const Vec3 nNeg{-n.x, -n.y, -n.z}, xNeg{-xDir.x, -xDir.y, -xDir.z}, yNeg{-yDir.x, -yDir.y, -yDir.z};
         auto tex = [&](float px, float py) { return Uv{kUvMin + px * step, kUvMin + py * step}; };
+        if (stairShape) {
+            ++g_railingStats.stairPanels;
+            auto inTile = [](float v) { return (std::min)((std::max)(v, 0.5f), static_cast<float>(kTileSize) - 0.5f); };
+            for (const StairPart& part : stairShape->parts) {
+                const float h = part.depth * 0.5f;
+                const auto& P = part.poly;
+                for (const auto& t : part.tris) {
+                    const auto& a = P[static_cast<size_t>(t[0])];
+                    const auto& b = P[static_cast<size_t>(t[1])];
+                    const auto& c3 = P[static_cast<size_t>(t[2])];
+                    AddSolidTri(tile, at(a[0], a[1], h), at(b[0], b[1], h), at(c3[0], c3[1], h), n,
+                                tex(a[0], a[1]), tex(b[0], b[1]), tex(c3[0], c3[1]));
+                    AddSolidTri(tile, at(a[0], a[1], -h), at(b[0], b[1], -h), at(c3[0], c3[1], -h), nNeg,
+                                tex(a[0], a[1]), tex(b[0], b[1]), tex(c3[0], c3[1]));
+                }
+                for (size_t i = 0; i < P.size(); ++i) {
+                    const auto& a = P[i];
+                    const auto& b = P[(i + 1) % P.size()];
+                    const float ex = b[0] - a[0], ey = b[1] - a[1];
+                    const float len = std::sqrt(ex * ex + ey * ey);
+                    if (len < 1e-4f) continue;
+                    const float ox = ey / len, oy = -ex / len;      // outward in the tile, for a positive-area outline
+                    const Vec3 outward{ox * xDir.x + oy * yDir.x, ox * xDir.y + oy * yDir.y, ox * xDir.z + oy * yDir.z};
+                    // The side samples the iron just inside the edge.
+                    const Uv ua = tex(inTile(a[0] - ox * 0.75f), inTile(a[1] - oy * 0.75f));
+                    const Uv ub = tex(inTile(b[0] - ox * 0.75f), inTile(b[1] - oy * 0.75f));
+                    AddSolidQuad(tile, {{at(a[0], a[1], h), at(b[0], b[1], h), at(b[0], b[1], -h), at(a[0], a[1], -h)}}, outward,
+                                 {{ua, ub, ub, ua}});
+                }
+            }
+            return true;
+        }
         // A box over pixels [x0,x1] x [y0,y1] (edges), depth +-h; its faces sample the
         // texel rectangle [sx0,sx1] x [sy0,sy1] (centres), the sides a strip of it.
         auto box = [&](float x0, float x1, float y0, float y1, float h, float sx0, float sx1, float sy0, float sy1,
@@ -959,6 +1434,8 @@ private:
         return true;
     }
 
+    std::vector<StairShape> stairShapes_;
+    std::vector<uint8_t> stairKnown_;
     std::vector<RailingShape> railingShapes_;
     std::vector<uint8_t> railingKnown_;
     std::set<std::tuple<int, int, int, int>> railingPanels_;
@@ -2930,6 +3407,8 @@ void SetRiverbedDepth(float blocks) {
 float RiverbedDepth() { return g_riverbedDepth; }
 
 void SetRailingModels(bool on) { g_railingModels = on; }
+void SetStairRailings(bool on) { g_stairRailings = on; }
+bool StairRailings() { return g_stairRailings; }
 bool RailingModels() { return g_railingModels; }
 RailingStats LastRailingStats() { return g_railingStats; }
 
@@ -3561,6 +4040,7 @@ void BuildWorldMesh(const Map& map, const Style& style, const SlopeInfo* slopes,
 
     g_railingStats = RailingStats{};
     if (const char* e = std::getenv("GTA2DX9_RAILINGS")) g_railingModels = e[0] != '0';
+    if (const char* e = std::getenv("GTA2DX9_STAIR_RAILINGS")) g_stairRailings = e[0] != '0';
     MeshBuilder builder(style);
     if (const char* e = std::getenv("GTA2DX9_STREET_FILL")) g_streetFill = e[0] != '0';
     const OverheadDecals decals = g_streetFill ? FindOverheadDecals(map, style) : OverheadDecals{};
