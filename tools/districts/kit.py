@@ -136,6 +136,64 @@ def h32(*v):
     return h
 
 
+class UV(tuple):
+    """a tile-art texture coordinate that remembers the texel it came from (Wall.uv): Mesh.poly splits a polygon that
+    stands past the tile's edge along that edge (KIT-DENSITY)"""
+    def __new__(cls, u, v, tx, ty, f):
+        o = tuple.__new__(cls, (u, v))
+        o.tx, o.ty, o.f = tx, ty, f
+        return o
+
+
+def fold(t):
+    """a texel coordinate past the tile's edge, mirrored back into the tile: the art turns the corner and runs on at its
+    own density (clamping it drew the edge column across the whole corner piece: one texel stretched over 0.1..0.25
+    blocks, 5090 QA r80)"""
+    if t < 0.0:
+        return -t if t < -1e-4 else 0.0
+    if t > 64.0:
+        return 128.0 - t if t > 64.0001 else 64.0
+    return t
+
+
+def split_tile(pts, uvs):
+    """a tile-art polygon with texels outside 0..64 cut along the tile's edges (the cut pieces are the same plane and
+    outline), each piece with the folded texture coordinates of its own side"""
+    f = uvs[0].f
+    pieces = [[(tuple(p), u.tx, u.ty) for p, u in zip(pts, uvs)]]
+
+    def clip(pc, ax, bound, neg):
+        out = []
+        for i in range(len(pc)):
+            a, b = pc[i], pc[(i + 1) % len(pc)]
+            da, db = a[ax] - bound, b[ax] - bound
+            if (da <= 0.0) if neg else (da >= 0.0):
+                out.append(a)
+            if (da < 0.0 < db) or (db < 0.0 < da):
+                t = da / (da - db)
+                out.append((tuple(a[0][k] + (b[0][k] - a[0][k]) * t for k in range(3)),
+                            a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t))
+        return out
+
+    for ax, bound in ((1, 0.0), (1, 64.0), (2, 0.0), (2, 64.0)):
+        nxt = []
+        for pc in pieces:
+            lo = min(v[ax] for v in pc) - bound
+            hi = max(v[ax] for v in pc) - bound
+            if lo >= -1e-6 or hi <= 1e-6:
+                nxt.append(pc)
+                continue
+            for neg in (True, False):
+                q = clip(pc, ax, bound, neg)
+                if len(q) >= 3:
+                    nxt.append(q)
+        pieces = nxt
+    out = []
+    for pc in pieces:
+        out.append(([v[0] for v in pc], [f.uv(min(64.0, max(0.0, fold(v[1]))), min(64.0, max(0.0, fold(v[2])))) for v in pc]))
+    return out
+
+
 class Mesh:
     def __init__(self):
         self.g = defaultdict(lambda: ([], []))   # key (tile, flags) -> (verts, idx)
@@ -147,6 +205,18 @@ class Mesh:
                                                 # draws it only within 12-14 blocks of the eye)
 
     def poly(self, key, pts, uvs, n):
+        if key[0] >= 0 and uvs and all(hasattr(u, "tx") for u in uvs) and \
+                any(not (-1e-4 <= u.tx <= 64.0001 and -1e-4 <= u.ty <= 64.0001) for u in uvs):
+            pieces = split_tile(pts, uvs)             # past the tile's edge: cut there, the far piece folded back
+            for pp, uu in pieces:
+                self.poly1(key, pp, uu, n)
+            # the cut is not new geometry: the building's triangle count (qa.py's budget, the lean rebuild) stays the
+            # one of the uncut polygon, so no building changes its detail level because of it
+            self.tris -= sum(len(pp) - 2 for pp, _ in pieces) - (len(pts) - 2)
+            return
+        self.poly1(key, pts, uvs, n)
+
+    def poly1(self, key, pts, uvs, n):
         if self.detail:
             key = (key[0], key[1] | 32)
         vs, ix = self.g[key]
@@ -230,7 +300,8 @@ class Wall:
 
     def uv(self, h, y):
         tx, ty = self.texel(h, y)
-        return self.f.uv(min(64.0, max(0.0, tx)), min(64.0, max(0.0, ty)))
+        u, v = self.f.uv(min(64.0, max(0.0, fold(tx))), min(64.0, max(0.0, fold(ty))))
+        return UV(u, v, tx, ty, self.f)
 
     def box_local(self, bx):
         """a tile-art box (x0, y0, x1, y1 texels) -> (h0, h1, y0, y1) on this wall"""
@@ -442,8 +513,8 @@ class Builder:
         """a box whose every face shows the art band b0..b1 (world y) of this wall stretched over it: cornice courses"""
         ee = DEPS * max(0.0, d1 - SKIN)    # the end caps only
         P, key = wl.w, (wl.tile, 2)
-        U = lambda h, t: wl.uv(min(1.0, max(0.0, h)), b0 + (b1 - b0) * t)
-        V = lambda h, y: wl.uv(min(1.0, max(0.0, h)), y)
+        U = lambda h, t: wl.uv(h, b0 + (b1 - b0) * t)      # past the tile's edge the art folds back (Wall.uv, Mesh.poly)
+        V = lambda h, y: wl.uv(h, y)
         dd, yt, yb = d1 - d0, b0 + (b1 - b0) * .9, b0 + (b1 - b0) * .1   # across the depth: down from the band row
         if "f" in faces:
             self.mesh.poly(key, [P(h0, y0, d1), P(h1, y0, d1), P(h1, y1, d1), P(h0, y1, d1)], [U(h0, 0), U(h1, 0), U(h1, 1), U(h0, 1)], wl.n)
@@ -664,24 +735,32 @@ class Builder:
             self.cornice(wl, st, x, y, side, level, level + 1, roof, stats)
 
     def sill(self, wl, mat, h0, h1, y0, y1, proud, stats):
-        """a stone sill: the art under the window carried out, its top bevelled down to the front (water runs off)"""
+        """a stone sill: the art under the window carried out, its top bevelled down to the front (water runs off).
+        The front shows the sill's own texels; the top, bottom and ends step across the depth at the front's density
+        (art_box's rule: the top used the front's rows, 0.011 of art over 0.04 of depth, a third of the density)"""
         rel = self.lum(wl, h0, h1, y0, y1)
         P, d0, d1, bev = wl.w, SKIN, SKIN + proud, min(0.008, 0.4 * (y1 - y0))
         if rel is not None and rel < 0.6:
-            mk = lambda pts, n: self.mesh.kit(mat, pts, n, scale=4.0)
+            mk = lambda pts, n, uvs: self.mesh.kit(mat, pts, n, scale=4.0)
             stats["trim_kit"] += 1
         else:
             key = (wl.tile, 2)
-            uvs = [wl.uv(h0, y0), wl.uv(h1, y0), wl.uv(h1, y1 - 0.002), wl.uv(h0, y1 - 0.002)]   # the sill's own texels
-            mk = lambda pts, n: self.mesh.poly(key, pts, uvs, n)
-        mk([P(h0, y0, d1), P(h1, y0, d1), P(h1, y1 - bev, d1), P(h0, y1 - bev, d1)], wl.n)
+            mk = lambda pts, n, uvs: self.mesh.poly(key, pts, uvs, n)
+        e, dd = 0.004, d1 - d0
+        mk([P(h0, y0, d1), P(h1, y0, d1), P(h1, y1 - bev, d1), P(h0, y1 - bev, d1)], wl.n,
+           [wl.uv(h0, y0), wl.uv(h1, y0), wl.uv(h1, y1 - 0.002), wl.uv(h0, y1 - 0.002)])   # the sill's own texels
         sl = math.hypot(proud, bev)
-        mk([P(h0, y1, d0), P(h1, y1, d0), P(h1, y1 - bev, d1), P(h0, y1 - bev, d1)], (wl.n[0] * bev / sl, proud / sl, wl.n[2] * bev / sl))
+        mk([P(h0, y1, d0), P(h1, y1, d0), P(h1, y1 - bev, d1), P(h0, y1 - bev, d1)], (wl.n[0] * bev / sl, proud / sl, wl.n[2] * bev / sl),
+           [wl.uv(h0, y1 - e - dd), wl.uv(h1, y1 - e - dd), wl.uv(h1, y1 - e), wl.uv(h0, y1 - e)])
         if self.lean:
             return      # lean: the sill's front and sloped top only
-        mk([P(h0, y0, d0), P(h1, y0, d0), P(h1, y0, d1), P(h0, y0, d1)], (0.0, -1.0, 0.0))
+        mk([P(h0, y0, d0), P(h1, y0, d0), P(h1, y0, d1), P(h0, y0, d1)], (0.0, -1.0, 0.0),
+           [wl.uv(h0, y0 + e + dd), wl.uv(h1, y0 + e + dd), wl.uv(h1, y0 + e), wl.uv(h0, y0 + e)])
         for hh, s_ in ((h0, -1), (h1, 1)):
-            mk([P(hh, y0, d0), P(hh, y0, d1), P(hh, y1 - bev, d1), P(hh, y1, d0)], (wl.ha[0] * s_, 0.0, wl.ha[2] * s_))
+            hu = hh + (e if s_ < 0 else -e)
+            hw = hu - s_ * dd                  # at the wall: the column the depth's width in from the edge (inward)
+            mk([P(hh, y0, d0), P(hh, y0, d1), P(hh, y1 - bev, d1), P(hh, y1, d0)], (wl.ha[0] * s_, 0.0, wl.ha[2] * s_),
+               [wl.uv(hw, y0), wl.uv(hu, y0), wl.uv(hu, y1 - bev), wl.uv(hw, y1)])
 
     def trim_limits(self, wins, el, er):
         lim = {}
