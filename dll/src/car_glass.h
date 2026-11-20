@@ -86,5 +86,10 @@ int CarGlassWarmAhead(IDirect3DDevice9* device, double budgetMs);
 // QA5090-HITCH: a derived car copy just registered (dent step, door or wheel split): its Remix glass splits made on the
 // glass thread ahead of its first draw.
 void CarGlassSplitAhead(const Model& derived);
+// QA5090-HITCH2: whether that copy's splits are still queued or running on the glass thread. A copy is not shown
+// (car_bodies WearMayShow) until they are made: shown at once, its first draw split every mesh itself on the render
+// thread (r80: 006_box_car_1_paint 232 ms, a 285 ms hitch) because the glass thread needs that long and the copy was
+// on screen the frame the worker handed it over.
+bool CarGlassSplitPending(const Model& derived);
 
 }  // namespace gta2dx9

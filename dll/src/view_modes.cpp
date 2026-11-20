@@ -2,6 +2,7 @@
 #include "city_map.h"
 
 #include "cockpit_mode.h"
+#include "exe_guards.h"
 #include "eye_collision.h"
 
 #define DIRECTINPUT_VERSION 0x0800
@@ -733,6 +734,7 @@ struct WarpHold {
 WarpHold g_warpHold;
 
 void StartWarpHold(float x, float y, float z, double seconds) {
+    gta2dx9::ExeGuardsNoteWarp();   // (test aid, off unless GTA2DX9_TEST_DEATH_AFTER_WARP_MS is set)
     g_warpHold.active = true;
     g_warpHold.fx = static_cast<int32_t>(x * (1 << 14));
     g_warpHold.fy = static_cast<int32_t>(y * (1 << 14));
