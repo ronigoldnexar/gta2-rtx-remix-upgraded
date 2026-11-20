@@ -2796,6 +2796,9 @@ bool WearMayShow(const Model* const* copies, size_t n, uint32_t frame) {
         for (size_t i = 0; i < n; ++i) WearStamp(copies[i], frame);   // FIX-PERF-6
         return true;
     }
+    // QA5090-HITCH2: its Remix glass splits are still on the glass thread: shown now, its first draw would make them
+    // on the render thread (r80: 006_box_car_1_paint, 232 ms). The car is drawn as it was until they are done.
+    for (size_t i = 0; i < n; ++i) if (copies[i] && CarGlassSplitPending(*copies[i])) return false;
     if (frame != g_wearShowFrame) { g_wearShowFrame = frame; g_wearBuffersLeft = kWearBuffersPerFrame; }
     if (g_wearBuffersLeft <= 0 || !g_device) return false;
     for (size_t i = 0; i < n; ++i) {

@@ -17,6 +17,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <thread>
 #include <vector>
 
@@ -95,6 +96,7 @@ int g_mirrorOn = 1;                                        // GTA2DX9_GLASS_MIRR
 int g_beltOn = 1;                                          // GTA2DX9_GLASS_BELT=0: no near-black windows on the belt (VEHICLE-GLASS-4)
 int g_splitOn = 1;                                         // GTA2DX9_GLASS_SPLIT=0: the whole-triangle vote
 std::map<const ModelMesh*, GlassSplit> g_split;
+std::map<const ModelMesh*, std::string> g_meshOwner;      // QA5090-HITCH2: the derived copy a mesh belongs to (for the log line only), under g_splitLock
 std::mutex g_splitLock;                                    // QA5090-HITCH: g_split (the build threads add base splits ahead)
 std::map<const ModelMesh*, GlassPart> g_splitPane;         // the split's pane pieces, for the glass pass
 bool SplitOn();                                            // g_splitOn and not [devtools] car_glass=4
@@ -139,9 +141,12 @@ const GlassSplit& SplitFor(const ModelMesh& mesh, const std::vector<uint8_t>& g)
     GlassSplit& s = r.first->second;
     ++g_splitRender; g_splitRenderMs += ms; g_splitWorstMs = (std::max)(g_splitWorstMs, ms);
     static int logged = 0;
-    if (logged++ < 40 || ms > 8.0)
-        Log("car glass: remix split %s: %d triangles on the outline -> hull %zu tris (%zu verts, mesh %zu), pane %zu tris (%.1f ms, render thread; %d ahead, %d here)", mesh.texture.c_str(),
-            s.straddling, s.hullI.size() / 3, s.hullV.size(), mesh.vertices.size(), s.paneI.size() / 3, ms, g_splitAhead, g_splitRender);
+    if (logged++ < 40 || ms > 8.0) {
+        const auto own = g_meshOwner.find(&mesh);
+        Log("car glass: remix split %s: %d triangles on the outline -> hull %zu tris (%zu verts, mesh %zu), pane %zu tris (%.1f ms, render thread; %d ahead, %d here; copy %s)", mesh.texture.c_str(),
+            s.straddling, s.hullI.size() / 3, s.hullV.size(), mesh.vertices.size(), s.paneI.size() / 3, ms, g_splitAhead, g_splitRender,
+            own == g_meshOwner.end() ? "none: a base model's mesh or a copy not queued" : own->second.c_str());
+    }
     return s;
 }
 // QA5090-HITCH: a base model's splits made on its build thread, right after its masks, so its first draws under Remix
@@ -1607,10 +1612,15 @@ std::condition_variable g_jobWake;
 std::deque<std::pair<const Model*, std::shared_ptr<Glass>>> g_jobs;
 bool g_jobThread = false;
 std::mutex g_derivedBusy;   // held while a derived copy is split (CarGlassForgetModel waits on it)
+std::set<const Model*> g_derivedPending;   // QA5090-HITCH2: copies queued for their splits and not done yet (under g_jobLock)
 // A derived car copy (dent step, door or wheel split) made by car_bodies' worker: its splits on this thread, with the
 // masks of the stems it shares with its base, before its first draw asks for them on the render thread.
 void SplitDerived(const Model* model) {
     std::lock_guard<std::mutex> busy(g_derivedBusy);   // (a freed copy's job is taken off the queue first: CarGlassForgetModel)
+    struct Done {   // however it ends, the copy may be shown now
+        const Model* m;
+        ~Done() { std::lock_guard<std::mutex> jl(g_jobLock); g_derivedPending.erase(m); }
+    } done{model};
     int n = 0;
     const double t0 = NowMsGlass();
     for (const ModelMesh& mesh : model->meshes) {
@@ -1665,7 +1675,22 @@ void Hurry(const Model* base) {
 
 void CarGlassSplitAhead(const Model& derived) {
     if (!RemixMode() || !SplitOn()) return;
-    QueueBuild(&derived, nullptr, false);
+    {
+        std::lock_guard<std::mutex> lk(g_jobLock);
+        g_derivedPending.insert(&derived);
+    }
+    {
+        std::lock_guard<std::mutex> lk(g_splitLock);
+        for (const ModelMesh& mesh : derived.meshes) g_meshOwner[&mesh] = derived.name;
+    }
+    // A car is waiting for this copy (it is built because one wants it): ahead of the warm-up's base builds.
+    QueueBuild(&derived, nullptr, true);
+}
+
+bool CarGlassSplitPending(const Model& derived) {
+    if (!RemixMode()) return false;
+    std::lock_guard<std::mutex> lk(g_jobLock);
+    return g_derivedPending.count(&derived) != 0;
 }
 
 bool CarGlassOn() {
@@ -2275,6 +2300,7 @@ void CarGlassForgetModel(const Model& model) {
     {
         std::lock_guard<std::mutex> jl(g_jobLock);   // a split still queued for it: dropped
         for (auto it = g_jobs.begin(); it != g_jobs.end();) it = (it->first == &model && !it->second) ? g_jobs.erase(it) : std::next(it);
+        g_derivedPending.erase(&model);
     }
     std::lock_guard<std::mutex> busy(g_derivedBusy);   // one running on it: finished first (its mesh data is about to go)
     std::lock_guard<std::mutex> lk(g_lock);
@@ -2292,6 +2318,7 @@ void CarGlassForgetModel(const Model& model) {
             std::lock_guard<std::mutex> sl(g_splitLock);
             auto sp = g_split.find(&mesh);
             if (sp != g_split.end()) { dropBuf(&sp->second); g_split.erase(sp); ++g_forgotSplits; }
+            g_meshOwner.erase(&mesh);
         }
         for (auto* cache : {&g_splitPane, &g_paneTris, &g_meshTris}) {
             auto it = cache->find(&mesh);

@@ -652,3 +652,23 @@ seen along the street showed that column stretched across it. Fixed in `kit.py`:
   the kit's reveals and corner below the eye, now textured; spawn_first: the neon sign's flicker), 0 FAIL.
 - Streams now: wil 47 832 793, ste 34 766 476, bil 17 920 407 bytes (pre-change 45 806 223 / 33 047 097 /
   17 050 060); the ship kit 97 MB (was 92).
+- **5090 QA r80 (second round shipped): the stretch that changes, only too slowly** (c021 240.5,211.1; c027 251.5,213.5;
+  c041 SHOES 229.97,64.04). `smear.py` only caught edges whose uv is constant; these had uv that changes but far under
+  the front's texel density. Two causes, both `kit.py`: (1) geometry past the tile's edge: a corner's skin, caps, piers
+  (pushed to -0.195 / 1.195), `trim`'s art_box and the cornice `band` extend beyond the wall cell, and `Wall.uv` clamped
+  their texels to 0..64, so up to 0.2 block was one edge column (15 638 side triangles in wil, every one clamped).
+  (2) `sill`: its sloped top, bottom and ends reused the front's four uvs (0.011 of art over 0.04 of depth, a third of
+  the density). Fixed: `Wall.uv` folds a texel past the edge back into the tile (mirrored: the art runs on round the
+  corner at its own density) and returns a `UV` that remembers its texel; `Mesh.poly` cuts a polygon along the tile's
+  edge (same plane and outline) so each piece is linear; the cut pieces are not counted in the building's triangle
+  budget (no building changes lean/full detail because of them). `sill` steps its top, bottom and ends across the depth
+  like `art_box`. `band` no longer clamps h.
+- `tools/districts/smear.py` (now in git) adds the density mode: triangles whose smaller singular value of d(uv)/d(world)
+  is under 0.45 of the front's, and vertices with uv outside the tile (wrapped groups excepted). Low-density triangles
+  before / after (LOD0 streams): wil 26 500 / 0, ste 10 190 / 0, bil 8 038 / 0; constant-uv edges 0; LOD1 0 before and after.
+- Geometry: per group, the triangle area and area-weighted centroid are identical before and after in all three levels
+  (the cut adds triangles only: wil 3 222 782 -> 3 301 308, ste 2 377 614 -> 2 438 660, bil 1 238 504 -> 1 271 188 in
+  LOD0; kitcmp2.py's identical-indices rule no longer applies, the area check replaces it). Kit streams: wil.kit2
+  49 310 496, ste.kit2 35 964 755, bil.kit2 18 622 316 bytes.
+- Not from the kit: the church-steps railing (192-196,177-179) stays when `facade_kit=0`: it is the engine's flat panels
+  of the stair-railing tiles 0x58 / 0x59 (diagonal cut-out art, world_mesh.cpp), a separate task.
